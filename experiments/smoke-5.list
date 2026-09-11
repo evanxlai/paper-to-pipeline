@@ -1,0 +1,2 @@
+# One trace per line, relative to P2P_TRACE_DIR: <workload>/<name>_trace.gz
+# TODO(week 1): fill from the downloaded training set (105 traces).

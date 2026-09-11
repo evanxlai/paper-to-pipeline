@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/evanlai/paper-to-pipeline/spec/feature_spec.schema.json",
+  "title": "FeatureSpec",
+  "description": "Structured spec of a paper's design feature, emitted by the distiller node. Downstream integration agents implement against this document, so it must be complete enough to implement without the paper.",
+  "type": "object",
+  "required": [
+    "feature_name",
+    "source",
+    "summary",
+    "state",
+    "algorithms",
+    "host_interfaces",
+    "resource_accounting",
+    "parameters",
+    "unit_tests"
+  ],
+  "properties": {
+    "feature_name": {
+      "type": "string",
+      "description": "Short identifier, e.g. 'rbias'"
+    },
+    "source": {
+      "type": "object",
+      "required": ["paper_title", "inputs_used"],
+      "properties": {
+        "paper_title": { "type": "string" },
+        "citation": { "type": "string" },
+        "inputs_used": {
+          "type": "string",
+          "enum": ["paper_only", "paper_plus_reference"],
+          "description": "Which ablation arm produced this spec"
+        },
+        "reference_artifact": { "type": "string", "description": "URL or path, if used" }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "description": "One paragraph: what the feature does and the mechanism behind its gain"
+    },
+    "state": {
+      "type": "array",
+      "description": "Every table, register, and counter the feature adds",
+      "items": {
+        "type": "object",
+        "required": ["name", "organization", "entry_format", "size_bits"],
+        "properties": {
+          "name": { "type": "string" },
+          "organization": { "type": "string", "description": "e.g. '4-way set-associative, 1024 sets'" },
+          "entry_format": { "type": "string", "description": "Fields and widths per entry" },
+          "size_bits": { "type": "integer", "description": "Total storage in bits at default parameters" },
+          "indexing": { "type": "string", "description": "Index/hash function, inputs and fold widths" }
+        }
+      }
+    },
+    "algorithms": {
+      "type": "array",
+      "description": "Pseudocode for each operation, in execution order",
+      "items": {
+        "type": "object",
+        "required": ["name", "trigger", "pseudocode"],
+        "properties": {
+          "name": { "type": "string", "description": "e.g. 'predict', 'update', 'allocate'" },
+          "trigger": { "type": "string", "description": "When the host must call this: lookup time, commit time, squash" },
+          "pseudocode": { "type": "string" },
+          "notes": { "type": "string", "description": "Corner cases, tie-breaks, saturation behavior" }
+        }
+      }
+    },
+    "host_interfaces": {
+      "type": "array",
+      "description": "What the feature needs from the host and what it returns",
+      "items": {
+        "type": "object",
+        "required": ["need", "description"],
+        "properties": {
+          "need": { "type": "string", "description": "e.g. 'architectural register values at fetch'" },
+          "description": { "type": "string" },
+          "fallback": { "type": "string", "description": "What to do when the host cannot provide it exactly" }
+        }
+      }
+    },
+    "resource_accounting": {
+      "type": "object",
+      "required": ["total_storage_bits"],
+      "properties": {
+        "total_storage_bits": { "type": "integer" },
+        "storage_breakdown": { "type": "string" },
+        "logic_cost_notes": { "type": "string" },
+        "budget_donors": {
+          "type": "string",
+          "description": "Which host structures can shrink to pay for the feature at iso-storage"
+        }
+      }
+    },
+    "parameters": {
+      "type": "array",
+      "description": "Tunable knobs the DSE explores",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "default", "range"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["int", "float", "enum", "bool"] },
+          "default": {},
+          "range": { "type": "string", "description": "Legal values, e.g. '[256, 65536] pow2' or 'choices: a|b|c'" },
+          "storage_impact": { "type": "string", "description": "How this knob changes total_storage_bits" }
+        }
+      }
+    },
+    "unit_tests": {
+      "type": "array",
+      "description": "Behavioral checks derived from the paper; the verify gate runs these",
+      "items": {
+        "type": "object",
+        "required": ["name", "given", "expect"],
+        "properties": {
+          "name": { "type": "string" },
+          "given": { "type": "string", "description": "Input stimulus or synthetic branch stream" },
+          "expect": { "type": "string", "description": "Observable outcome that must hold" }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ambiguities in the paper the distiller could not resolve; integration agent must not guess silently"
+    }
+  }
+}

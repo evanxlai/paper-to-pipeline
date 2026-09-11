@@ -1,0 +1,35 @@
+# evolve-flows search config for the iso-budget DSE stage (loop/dse.py).
+# Modeled on evolve-flows examples/alphaevolve-champsim-simple/config_adaevolve.yaml.
+# Backend: AdaEvolve (local SkyDiscover). Gemini rides the OpenAI-compat
+# endpoint; export GEMINI_API_KEY and forward it through the job runtime env.
+# Swap to config_alphaevolve.yaml (search.type: alphaevolve) if the GCP
+# project has AlphaEvolve API access.
+
+max_iterations: 250
+file_suffix: .h            # candidates are sr_params.h header mutations
+checkpoint_interval: 25
+random_seed: 20260911
+diff_based_generation: true
+max_parallel_iterations: 8
+
+search:
+  type: adaevolve
+  database:
+    population_size: 48
+    num_islands: 4
+
+llm:
+  api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  api_key: ${GEMINI_API_KEY}
+  models:
+    - gemini-3.5-flash          # proposal mutations (cheap, many)
+    - gemini-3.1-pro-preview    # periodic high-effort rewrites
+
+prompt:
+  system_message: >
+    You tune parameters of the sR register-value statistical-corrector
+    component inside a fixed total storage budget. Mutate only the values
+    in sr_params.h. Keep every value inside the range comment on its line.
+    The evaluator rejects candidates whose accounted storage exceeds the
+    budget, so trading table sizes against the base predictor's donors is
+    the interesting move, not growing everything.

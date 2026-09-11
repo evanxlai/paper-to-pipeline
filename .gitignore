@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Simulator checkouts and build output (vendored separately, never committed)
+hosts/champsim/ChampSim/
+hosts/gem5/gem5/
+chia_nodes/cbp2025/cbp2025-sim/
+build/
+*.o
+*.d
+
+# Traces and results (large; live in GCS)
+traces/
+results/
+*.gz
+*.xz
+
+# Secrets and local machine state
+*.pem
+*.key
+id_ed25519*
+.env
+cluster/*.local.yaml
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/

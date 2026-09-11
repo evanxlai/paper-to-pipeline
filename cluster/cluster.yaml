@@ -1,0 +1,106 @@
+# CHIA cluster for the adopt-a-paper loop: local head + GCP spot workers,
+# fully managed tailnet (CHIA runs tailscale everywhere).
+# Modeled on chia/examples/tailscale/cluster_gcp_fullymanaged.yaml.
+#
+# Env vars to export before `chia up cluster/cluster.yaml`:
+#   HEAD_IP               this machine's real IP/hostname (how CHIA SSHes to it)
+#   TS_AUTHKEY            reusable, pre-authorized tailscale auth key
+#   GCP_PROJECT           the Free Trial project id (docs/gcp-setup.md)
+#   GCP_PRIVATE_KEY_PATH  private key; its .pub is injected into VM metadata
+#   GOOGLE_CLOUD_PROJECT  same project id, for the LLM containers
+#
+# Prereqs on this machine (see docs/gcp-setup.md):
+#   pip install google-cloud-compute
+#   gcloud auth application-default login
+#   gcloud auth application-default set-quota-project $GCP_PROJECT
+#   Compute Engine API enabled; conda env "chia_env" with ray + chia on every machine.
+#
+# NOTE (draft): worker_setup_commands below sketch the simulator/trace
+# provisioning; bake a custom image or GCS bucket copy before real DSE runs
+# (re-downloading 14 GiB of traces per spot reclaim wastes time and credit).
+
+cluster_name: paper2pipeline
+
+tailnet:
+    manage_all: true
+    auth_key: ${TS_AUTHKEY}
+    socks_proxy: 127.0.0.1:1155
+
+provider:
+    head_ip: ${HEAD_IP}
+
+auth:
+    ssh_user: ${USER}
+
+gcp_nodes:
+    project: ${GCP_PROJECT}
+    zone: us-central1-a
+    # Trace-run fleet: cheap spot cores for the CBP2025 screening fan-out.
+    sim_worker:
+        machine_type: c2d-standard-32
+        count: 2
+        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        disk_size_gb: 100
+        spot: true
+        ssh_user: chia
+        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
+    # Integration host: on-demand (agents keep long-lived state in the checkouts).
+    host_worker:
+        machine_type: c2d-standard-16
+        count: 1
+        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        disk_size_gb: 200
+        spot: false
+        ssh_user: chia
+        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
+
+available_node_types:
+
+    # 32 fractional slots per VM: one single-threaded ./cbp process per trace.
+    cbp2025_worker:
+        resources: {"cbp2025": 32}
+        num_workers: 2
+        compatible_ips: ["@sim_worker:0", "@sim_worker:1"]
+        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        worker_setup_commands:
+            - sudo apt-get install -y build-essential zlib1g-dev
+            - test -d ~/cbp2025 || git clone https://github.com/ramisheikh/cbp2025 ~/cbp2025
+            - cd ~/cbp2025 && make -j
+            # TODO: gsutil rsync gs://<bucket>/cbp2025-traces ~/traces/cbp2025
+
+    # ChampSim + gem5 checkouts for the integration agents and gate runs.
+    host_worker:
+        resources: {"champsim": 4, "gem5": 4}
+        num_workers: 1
+        compatible_ips: ["@host_worker:0"]
+        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        worker_setup_commands:
+            - sudo apt-get install -y build-essential scons python3-dev zlib1g-dev
+            - test -d ~/ChampSim || git clone https://github.com/ChampSim/ChampSim ~/ChampSim
+            - test -d ~/gem5 || git clone --branch v25.1.0.0 --depth 1 https://github.com/gem5/gem5 ~/gem5
+            # TODO: ChampSim vcpkg bootstrap; gem5 scons prebuild; trace sync
+
+    # Gemini agent (Antigravity CLI). Sign in with `agy` on the head machine
+    # first so ~/.gemini exists; the mount must be writable.
+    antigravity_llm:
+        resources: {"antigravity_creds": 1}
+        num_workers: 1
+        compatible_ips: ["${HEAD_IP}"]
+        docker:
+            image: ghcr.io/ucb-bar/chia-antigravity:latest
+            container_name: p2p_agy_${USER}
+            run_options:
+                - --user $(id -u):$(id -g)
+                - -v ${HOME}/.gemini:/home/ray/.gemini
+            run_setup_commands:
+                - 'echo "user:x:$(id -u):$(id -g)::/home/ray:/bin/bash" >> /etc/passwd'
+
+head_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+
+head_start_ray_commands:
+    - ray stop
+    - ray start --head --port=6379 --dashboard-agent-listen-port=0 --resources='{"head":4}'
+
+worker_start_ray_commands:
+    - ray stop
+    - ray start --address=$RAY_HEAD_IP:6379 --dashboard-agent-listen-port=0

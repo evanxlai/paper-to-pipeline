@@ -1,0 +1,33 @@
+# Iso-storage budget tracks for the sR demonstration (the proposal calls
+# this component RBias; the RUNLTS paper names it sR).
+# The DSE explores the split between the base predictor and sR inside
+# each fixed total. The gate rejects any candidate whose accounted
+# storage exceeds the track total.
+# Note: the CBP2025 contest itself has a single 192 KiB budget; the
+# 64 KiB track is this project's added constrained point.
+
+tracks:
+  - name: iso-192KiB
+    total_storage_bits: 1572864        # 192 KiB * 8
+    hosts: [cbp2025, champsim, gem5]
+    notes: >
+      Matches the large CBP-style budget track. The baseline TAGE-SC-L
+      configuration for each host at this budget is recorded in
+      hosts/<host>/baselines/.
+
+  - name: iso-64KiB
+    total_storage_bits: 524288         # 64 KiB * 8
+    hosts: [cbp2025, champsim, gem5]
+    notes: >
+      The constrained budget track. sR must pay for itself by
+      shrinking base-predictor structures.
+
+screening:
+  trace_subset: experiments/screening-60.list   # ~60 traces, stratified by workload class
+  metric: brmispki_50perc_amean
+  candidates_per_round: 24
+
+full_validation:
+  trace_list: experiments/training-105.list
+  metrics: [brmispki_50perc_amean, cycwppki_50perc_amean, ipc_50perc_amean]
+  promote_top_k: 5

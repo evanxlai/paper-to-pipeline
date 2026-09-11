@@ -1,0 +1,2 @@
+# Stratified ~60-trace screening subset (int 21, web 15, infra 9, fp 8, compress 5, media 2).
+# TODO(week 1): sample from training-105.list once traces are named.
