@@ -57,6 +57,56 @@ serves on location `global` only (404 on `us-central1`), and
 Set `P2P_DSE_CONFIG` to choose which config `--stage dse` uses; it defaults
 to the full 250-iteration `config_adaevolve.yaml`.
 
+### The Vertex route does NOT survive a full-length run (unfixed)
+
+Fine for a smoke test, fatal for a real search. An ADC access token lives
+**60 minutes** (measured: `tokeninfo` reports `expires_in` 3598), and nothing
+in this stack refreshes it:
+
+- `Config.from_yaml` expands `${VERTEX_ACCESS_TOKEN}` **once**, at
+  `run_search` startup.
+- `skydiscover/llm/openai.py` then hands that string to
+  `openai.OpenAI(api_key=...)`, which freezes it into the client. skydiscover
+  has no `token_provider`, no `refresh`, and no `google.auth` usage anywhere.
+- Vertex validates the bearer token on **every** request and answers a stale
+  one with `HTTP 401 UNAUTHENTICATED` (verified by sending a bogus token), so
+  expiry fails hard rather than degrading.
+
+Scale of the problem, from measured timings: build + a 6-trace fan-out took
+517s, so a 60-trace screening evaluation is roughly 9-10 min of wall time
+(traces run in parallel, so the count matters less than the slowest trace).
+At `max_iterations: 250` that is ~37 hours with `max_parallel_iterations: 1`,
+or ~5 hours if the parallel-build race below is also fixed. Either way the
+token expires about **6-7 iterations in** -- within the first 3% of the
+search -- and every LLM call after that 401s.
+
+Three ways out, roughly in order of effort:
+
+1. **Get a real `GEMINI_API_KEY`** and use `config_adaevolve.yaml`. API keys
+   do not expire, so the whole problem disappears. Simplest fix by far.
+2. **Put a tiny OpenAI-compatible reverse proxy in front of Vertex** on the
+   head, and point `llm.api_base` at `127.0.0.1`. The proxy injects a freshly
+   minted token per request, so `api_key` becomes irrelevant. No third-party
+   code gets patched, and it works for any run length.
+3. **Inject a refreshing client** via `LLMModelConfig.init_client`, which
+   `llm_pool.py` will call in preference to constructing `OpenAILLM`. It
+   takes an `openai.OpenAI(http_client=...)` with an httpx auth hook that
+   calls `google.auth`'s auto-refresh. Cleanest conceptually, but
+   `init_client` is `Optional[Callable]` and therefore unreachable from YAML
+   -- it needs a code hook inside the actor, which `run_dse` does not
+   currently have.
+
+Note also *which* identity ADC resolves to here: this machine's
+`application_default_credentials.json` is `type: authorized_user` with a
+refresh token -- a personal Google account, not a service account. So a DSE
+run currently authenticates and bills as whoever ran
+`gcloud auth application-default login`, and the token only exists on the
+head (it reaches the actor because the driver forwards it through
+`runtime_env`). A service account would be the right answer for an
+unattended multi-hour run, though note it does **not** on its own fix the
+expiry above: service accounts also mint 1-hour access tokens, so the
+refresh mechanism is still required.
+
 ## What was found wrong in the first draft (fixed, see loop/dse.py)
 
 1. `experiments/config_adaevolve.yaml`'s `llm.models` was a list of bare
