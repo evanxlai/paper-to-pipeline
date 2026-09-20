@@ -113,6 +113,15 @@ BASH_TOOL_TIMEOUT_S = 300  # short on purpose; long work goes through host nodes
 
 # ---------------------------------------------------------------- dse
 DSE_BACKEND = os.environ.get("P2P_DSE_BACKEND", "adaevolve")  # adaevolve|alphaevolve
+# Which evolve-flows search config --stage dse hands to run_dse. Overridable so
+# a smoke run can use config_adaevolve_smoke{,_vertex}.yaml (3 iterations,
+# pop 2) without editing the entrypoint; the default is the full 250-iteration
+# search. NOTE the smoke_vertex variant is the only one that works without a
+# GEMINI_API_KEY -- see that file's header for why the model must be named
+# "google/<model>" rather than "gemini-<model>".
+DSE_CONFIG = os.environ.get(
+    "P2P_DSE_CONFIG", str(REPO_ROOT / "experiments" / "config_adaevolve.yaml")
+)
 DSE_MAX_ITERATIONS = int(os.environ.get("P2P_DSE_ITERATIONS", "250"))
 DSE_SCREEN_METRIC = "brmispki_50perc_amean"
 DSE_PROMOTE_TOP_K = int(os.environ.get("P2P_DSE_TOP_K", "5"))
@@ -120,5 +129,9 @@ DSE_PROMOTE_TOP_K = int(os.environ.get("P2P_DSE_TOP_K", "5"))
 RUNTIME_ENV = {
     "working_dir": str(REPO_ROOT),
     "excludes": ["../out/", "__pycache__"],
-    "env_vars": {"PYTHONPATH": "."},
+    # "." lets workers import chia_nodes; "loop" is needed too because the
+    # stage-3 EvolverNode actor re-imports loop/sr_evaluator.py by name when
+    # it unpickles the evaluator (see loop/sr_evaluator.py's docstring).
+    # Without it that unpickle dies with ModuleNotFoundError: 'sr_evaluator'.
+    "env_vars": {"PYTHONPATH": ".:loop"},
 }

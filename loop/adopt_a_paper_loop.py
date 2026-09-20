@@ -219,8 +219,7 @@ def main() -> None:
         summary["integrate"] = [integrate(dump, spec, h, args.budget) for h in hosts]
 
     if args.stage in ("dse", "all"):
-        cfg = str(C.REPO_ROOT / "experiments" / "config_adaevolve.yaml")
-        summary["dse"] = [dse.run_dse(h, spec, args.budget, cfg) for h in hosts]
+        summary["dse"] = [dse.run_dse(h, spec, args.budget, C.DSE_CONFIG) for h in hosts]
 
     dump.json("summary.json", summary)
     print(json.dumps(summary, indent=2, default=str))

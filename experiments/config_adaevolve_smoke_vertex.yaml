@@ -1,0 +1,62 @@
+# Smoke-test config routed through Vertex AI instead of the public Gemini
+# endpoint -- this project has no GEMINI_API_KEY, but its GCP project has
+# aiplatform.googleapis.com enabled and ADC works, so we drive the
+# Vertex OpenAI-compatibility endpoint with a bearer token.
+#
+# Two non-obvious things make this work (both verified against
+# skydiscover/skydiscover/config.py, not guessed):
+#
+#  1. The model MUST be named "google/<model>", not "gemini-<model>".
+#     skydiscover's LLMConfig.__post_init__ runs _parse_model_spec() on each
+#     model name; anything starting with "gemini-" matches _BARE_PREFIX_MAP
+#     and gets its api_base FORCIBLY overwritten with the public
+#     generativelanguage.googleapis.com endpoint, silently discarding the
+#     api_base set here. "google/..." is not a registered provider, so it
+#     falls through to the openai default, which -- combined with a custom
+#     api_base below -- trips the `not (user_set_api_base and is_fallback)`
+#     guard and leaves our api_base intact. It also skips the provider-prefix
+#     strip (that only fires when provider != "openai"), so the model name
+#     reaches Vertex as "google/gemini-3.8-flash", which is exactly the form
+#     its openapi endpoint expects.
+#  2. api_base/api_key here are applied via update_model_params(...,
+#     overwrite=False), so they only land if the per-model fields are None.
+#     Point 1 is what keeps them None.
+#
+# ${VERTEX_ACCESS_TOKEN} and ${GCP_PROJECT} are expanded by
+# Config.from_yaml -> _expand_env_vars, which reads os.environ *in the
+# EvolverNode actor process* -- so they must be passed through the driver's
+# ray.init(runtime_env={"env_vars": ...}), not just exported in a shell.
+# Tokens are ~1h ADC access tokens; mint one right before the run.
+#
+# Model availability is project-specific: google/gemini-3.8-flash serves on
+# location "global" only (404s on us-central1), google/gemini-2.5-flash
+# serves on both. Re-probe before assuming.
+
+max_iterations: 3
+file_suffix: .h
+checkpoint_interval: 1
+random_seed: 20260911
+diff_based_generation: true
+max_parallel_iterations: 1
+
+search:
+  type: adaevolve
+  database:
+    population_size: 2
+    num_islands: 1
+
+llm:
+  api_base: "https://aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/global/endpoints/openapi"
+  api_key: ${VERTEX_ACCESS_TOKEN}
+  models:
+    - name: google/gemini-3.8-flash
+      weight: 1.0
+
+prompt:
+  system_message: >
+    You tune parameters of the sR register-value statistical-corrector
+    component inside a fixed total storage budget. Mutate only the values
+    in sr_params.h. Keep every value inside the range comment on its line.
+    The evaluator rejects candidates whose accounted storage exceeds the
+    budget, so trading table sizes against the base predictor's donors is
+    the interesting move, not growing everything.
