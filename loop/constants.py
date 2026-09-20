@@ -135,3 +135,25 @@ RUNTIME_ENV = {
     # Without it that unpickle dies with ModuleNotFoundError: 'sr_evaluator'.
     "env_vars": {"PYTHONPATH": ".:loop"},
 }
+
+# Credentials the stage-3 EvolverNode actor needs in its *own* environment.
+# skydiscover's Config.from_yaml expands ${VAR} from os.environ inside the
+# actor process, not in the submitting shell -- and on a miss its
+# _expand_env_vars leaves the literal text "${GEMINI_API_KEY}" in place
+# rather than raising, so the placeholder itself travels to the API as the
+# key and comes back as an opaque auth failure instead of "key not set".
+# Forwarded only when actually set, so an unset credential stays unset and
+# fails loudly rather than becoming an empty string.
+#
+# GEMINI_API_KEY drives config_adaevolve.yaml (public endpoint, permanent
+# key); VERTEX_ACCESS_TOKEN + GCP_PROJECT drive
+# config_adaevolve_smoke_vertex.yaml (ADC bearer, expires hourly -- see
+# docs/dse-setup.md). Whichever is exported is the route you get.
+#
+# CAVEAT: Ray writes the resolved runtime_env into its own logs, so anything
+# forwarded here is readable in /tmp/ray/session_*/logs/runtime_env*.log on
+# the head. Fine for a short-lived ADC token, worth knowing for a permanent
+# API key.
+for _cred in ("GEMINI_API_KEY", "VERTEX_ACCESS_TOKEN", "GCP_PROJECT"):
+    if os.environ.get(_cred):
+        RUNTIME_ENV["env_vars"][_cred] = os.environ[_cred]
