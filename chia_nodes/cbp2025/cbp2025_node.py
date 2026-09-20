@@ -67,10 +67,16 @@ def _parse_measurement_rows(log: str) -> dict:
         (r"50\s*Perc\s*instructions", "50perc"),
         (r"Full\s*Simulation", "full"),
     ):
-        m = re.search(label + r"[^\d-]*([\d.eE+\-\s]+)", section.group(1))
+        # Jump past the label's own trailing "---" banner dashes (on the same
+        # line) and the column-header row to the first line that actually
+        # starts with a digit -- that's the data row.
+        m = re.search(label + r"[\s\S]*?\n[ \t]*(\d[^\n]*)", section.group(1))
         if not m:
             continue
-        vals = m.group(1).split()
+        # MR is printed as e.g. "0.2049%"; strip the percent sign before
+        # float() rather than excluding it from the value charset (excluding
+        # it truncated the row before the trailing MPKI/CycWP* columns).
+        vals = [v.rstrip("%") for v in m.group(1).split()]
         if len(vals) >= len(_ROW_FIELDS):
             out[key] = {f: float(v) for f, v in zip(_ROW_FIELDS, vals)}
     return out

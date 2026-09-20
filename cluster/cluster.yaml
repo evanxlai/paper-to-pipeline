@@ -21,10 +21,10 @@
 
 cluster_name: paper2pipeline
 
-tailnet:
-    manage_all: true
-    auth_key: ${TS_AUTHKEY}
-    socks_proxy: 127.0.0.1:1155
+#tailnet:
+#    manage_all: true
+#    auth_key: ${TS_AUTHKEY}
+#    socks_proxy: 127.0.0.1:1155
 
 provider:
     head_ip: ${HEAD_IP}
@@ -35,23 +35,32 @@ auth:
 gcp_nodes:
     project: ${GCP_PROJECT}
     zone: us-central1-a
-    # Trace-run fleet: cheap spot cores for the CBP2025 screening fan-out.
+    # Trace-run fleet for the CBP2025 screening fan-out. On-demand (not spot):
+    # spot preemption was killing long-running baseline/dse jobs mid-run and
+    # chia has no auto-heal watchdog to refill preempted nodes (see
+    # docs/handover-spot-preemption.md).
     sim_worker:
-        machine_type: c2d-standard-32
+        #machine_type: c2d-standard-32
+        #machine_type: n1-standard-1
+        #machine_type: e2-small  # too weak: make -j OOMs at 2GB RAM (ray.exceptions.OutOfMemoryError)
+        #machine_type: n2-standard-4  # 4 vCPU each; head(4)+host_worker(2)+2x this(8)=14 > this project's 12-vCPU CPUS_ALL_REGIONS quota
+        machine_type: n2-standard-2  # same 2 vCPU as e2-small but 8GB RAM (vs. 2GB) -- fits the quota and fixes the OOM
         count: 2
         image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
         disk_size_gb: 100
-        spot: true
-        ssh_user: chia
+        spot: false
+        ssh_user: laievan
         ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
     # Integration host: on-demand (agents keep long-lived state in the checkouts).
     host_worker:
-        machine_type: c2d-standard-16
+        #machine_type: c2d-standard-16
+        #machine_type: n1-standard-1
+        machine_type: e2-small
         count: 1
         image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
         disk_size_gb: 200
         spot: false
-        ssh_user: chia
+        ssh_user: laievan
         ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
 
 available_node_types:
@@ -66,7 +75,32 @@ available_node_types:
             - sudo apt-get install -y build-essential zlib1g-dev
             - test -d ~/cbp2025 || git clone https://github.com/ramisheikh/cbp2025 ~/cbp2025
             - cd ~/cbp2025 && make -j
-            # TODO: gsutil rsync gs://<bucket>/cbp2025-traces ~/traces/cbp2025
+            # The kit's own tiny bundled traces, symlinked into P2P_TRACE_DIR
+            # so experiments/smoke-5.list's fast-iteration first line resolves
+            # without waiting on the training-set download below.
+            - >
+              mkdir -p ~/traces/cbp2025/int ~/traces/cbp2025/fp &&
+              ln -sf ~/cbp2025/sample_traces/int/sample_int_trace.gz ~/traces/cbp2025/int/sample_int_trace.gz &&
+              ln -sf ~/cbp2025/sample_traces/fp/sample_fp_trace.gz ~/traces/cbp2025/fp/sample_fp_trace.gz
+            # 105-trace training set (the "competition" set contestants get;
+            # NOT Zenodo 15883615, which also bundles the held-out scoring
+            # traces). ~11.3 GiB compressed; each sim_worker needs its own
+            # full local copy since any node can draw any trace. Re-baking
+            # this into a custom image or GCS bucket would save the ~10min
+            # re-download on every fresh `chia up` -- fine for now since
+            # sim_worker is on-demand, not spot (see note above). Guard
+            # checks a real training-set file, not just the directory: the
+            # sample-trace symlinks above already create ~/traces/cbp2025/int.
+            - >
+              test -f ~/traces/cbp2025/int/int_0_trace.gz || (
+              source ~/.bashrc && conda activate chia_env &&
+              pip install -q gdown &&
+              mkdir -p ~/traces/_dl_cbp2025 ~/traces/cbp2025 &&
+              cd ~/traces/_dl_cbp2025 &&
+              gdown https://drive.google.com/drive/folders/10CL13RGDW3zn-Dx7L0ineRvl7EpRsZDW --continue --retries 3 &&
+              for f in traces/*.tar.xz; do tar -xJf "$f" -C ~/traces/cbp2025/; done &&
+              rm -rf ~/traces/_dl_cbp2025
+              )
 
     # ChampSim + gem5 checkouts for the integration agents and gate runs.
     host_worker:
@@ -83,7 +117,7 @@ available_node_types:
     # Gemini agent (Antigravity CLI). Sign in with `agy` on the head machine
     # first so ~/.gemini exists; the mount must be writable.
     antigravity_llm:
-        resources: {"antigravity_creds": 1}
+        resources: {"antigravity_creds": 4}
         num_workers: 1
         compatible_ips: ["${HEAD_IP}"]
         docker:
@@ -99,7 +133,11 @@ head_env_commands: ["source ~/.bashrc && conda activate chia_env"]
 
 head_start_ray_commands:
     - ray stop
-    - ray start --head --port=6379 --dashboard-agent-listen-port=0 --resources='{"head":4}'
+    # "evolver": evolve_flows.evolver.node.EvolverNode/run_evolver both request
+    # {"evolver": 1.0} for placement; nothing else in this cluster advertises
+    # it, so without this the DSE stage hangs the same way baseline did when
+    # a resource tag had no node behind it.
+    - ray start --head --port=6379 --dashboard-agent-listen-port=0 --resources='{"head":4,"evolver":2}'
 
 worker_start_ray_commands:
     - ray stop

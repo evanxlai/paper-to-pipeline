@@ -20,6 +20,9 @@ host adapters and stage 3 evaluator wiring carry TODOs (see docs/plan.md).
 
 from __future__ import annotations
 
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import argparse
 import json
 from pathlib import Path
@@ -33,15 +36,21 @@ import constants as C
 import dse
 import gate
 import helpers
+import spec_review
 from llm import load_prompt, make_llm, run_llm
 
 from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
 
 
 # ------------------------------------------------------------ stage 1
-def distill(dump: helpers.Dumper) -> dict:
+def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
     """Feature-spec distillation. Paper-only mode gives the agent no tools;
-    paper_plus_reference adds a read-only bash on the artifact checkout."""
+    paper_plus_reference adds a read-only bash on the artifact checkout.
+
+    The distiller's output is a draft. When P2P_SPEC_REVIEW is on it goes
+    through spec_review before being written: deterministic checks, then one
+    evidence-grounded reviewer per spec unit, then a code-side patch merge.
+    Only the reviewed spec reaches the integration agents."""
     paper = Path(C.PAPER_TEXT_PATH).read_text()
     tools = []
     if C.DISTILL_MODE == "paper_plus_reference":
@@ -53,11 +62,16 @@ def distill(dump: helpers.Dumper) -> dict:
                 task_options={"resources": {"cbp2025": 0.1}},
             )
         ]
+    # The schema must be inlined: in paper_only mode the agent has no tools,
+    # so it cannot read spec/feature_spec.schema.json off disk and will
+    # otherwise invent its own field names.
+    schema = Path(C.SPEC_SCHEMA_PATH).read_text()
     llm = make_llm(C.LLM_BACKEND, tools, resume=False)
-    prompt = load_prompt(
-        "distiller.md",
-        feature_name=C.FEATURE_NAME,
-    ) + f"\n\n## The paper\n\n{paper}"
+    prompt = (
+        load_prompt("distiller.md", feature_name=C.FEATURE_NAME)
+        + f"\n\n## The schema\n\n```json\n{schema}\n```"
+        + f"\n\n## The paper\n\n{paper}"
+    )
     try:
         resp = run_llm(llm, prompt, tools)
     finally:
@@ -68,10 +82,14 @@ def distill(dump: helpers.Dumper) -> dict:
     spec, errs = helpers.validate_spec(helpers.extract_json_block(resp.result))
     if errs:
         # One repair turn with the schema errors inlined; still code-gated.
+        # Carry the schema again: the repair runs in a fresh session, and the
+        # bare validator messages do not say what the missing fields mean.
         resp = run_llm(
             make_llm(C.LLM_BACKEND, [], resume=False),
             "Your previous spec had schema errors. Emit the corrected full "
-            "JSON document only.\n\nErrors:\n" + "\n".join(errs)
+            "JSON document only, matching the schema exactly.\n\n"
+            f"## The schema\n\n```json\n{schema}\n```\n\nErrors:\n"
+            + "\n".join(helpers.truncate(e) for e in errs)
             + "\n\nPrevious:\n" + resp.result,
             [],
         )
@@ -79,6 +97,15 @@ def distill(dump: helpers.Dumper) -> dict:
         spec, errs = helpers.validate_spec(helpers.extract_json_block(resp.result))
     if errs or spec is None:
         raise SystemExit(f"distillation failed schema check: {errs}")
+
+    dump.json("spec_draft.json", spec)
+    if C.SPEC_REVIEW:
+        spec, review = spec_review.review_spec(
+            dump, spec, paper, C.BUDGET_TRACKS_BITS[budget]
+        )
+        dump.json("spec_review_summary.json", review)
+        print(json.dumps(review["rounds"], indent=2, default=str))
+
     Path(C.SPEC_OUT_PATH).write_text(json.dumps(spec, indent=2))
     return spec
 
@@ -90,7 +117,12 @@ def record_cbp_baseline(dump: helpers.Dumper, trace_list: Path) -> dict:
     build = get(CBP2025Node.build.chia_remote(C.CBP2025_ROOT, None, C.BUILD_TIMEOUT_S))
     if not build.success:
         raise SystemExit("baseline cbp2025 build failed:\n" + build.log[-4000:])
-    traces = [t.strip() for t in trace_list.read_text().splitlines() if t.strip()]
+    traces = helpers.load_trace_list(trace_list)
+    # TEMP: only run the first trace for faster testing. (Was a hardcoded
+    # "media" substring filter, which silently ran zero traces whenever the
+    # list didn't happen to name a media-workload trace -- e.g. the sample
+    # traces shipped in the cbp2025 kit, which are fp/int only.)
+    traces = traces[:1]
     refs = [
         CBP2025Node.run.chia_remote(build.binary, f"{C.TRACE_DIR}/{t}", (), C.RUN_TIMEOUT_S)
         for t in traces
@@ -175,7 +207,7 @@ def main() -> None:
 
     spec = None
     if args.stage in ("distill", "all"):
-        spec = distill(dump)
+        spec = distill(dump, args.budget)
     elif Path(C.SPEC_OUT_PATH).exists():
         spec = json.loads(Path(C.SPEC_OUT_PATH).read_text())
 

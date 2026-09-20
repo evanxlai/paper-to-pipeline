@@ -28,10 +28,14 @@ if [ ! -d "$TP/runlts/artifact" ]; then
   mkdir -p "$TP/runlts/artifact" && unzip -o "$TP/runlts/artifact.zip" -d "$TP/runlts/artifact"
 fi
 
-# 4. CBP2025 training traces (105 traces, ~14 GiB .gz). Big: run on a worker
-#    or once into a GCS bucket, not on a laptop.
-#    gdown --folder https://drive.google.com/drive/folders/10CL13RGDW3zn-Dx7L0ineRvl7EpRsZDW
-echo "Traces: fetch the Google Drive folder above (or Zenodo 15883615 for the full set)."
+# 4. CBP2025 training traces: the 105-trace "competition" set (~11.3 GiB
+#    compressed .tar.xz per workload). Big: `chia up` now fetches these onto
+#    each sim_worker node directly (cluster/cluster.yaml, cbp2025_worker
+#    worker_setup_commands), not onto this machine.
+#    (Zenodo record 15883615 has the full set -- training plus the held-out
+#    scoring traces released after the workshop -- if that's ever needed
+#    instead of the competition set.)
+echo "Traces: provisioned per-node by 'chia up' (see cluster/cluster.yaml)."
 
 # 5. Hosts.
 test -d "$TP/ChampSim" || git clone https://github.com/ChampSim/ChampSim "$TP/ChampSim"
