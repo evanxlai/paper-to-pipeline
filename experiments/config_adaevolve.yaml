@@ -1,7 +1,19 @@
 # evolve-flows search config for the iso-budget DSE stage (loop/dse.py).
 # Modeled on evolve-flows examples/alphaevolve-champsim-simple/config_adaevolve.yaml.
-# Backend: AdaEvolve (local SkyDiscover). Gemini rides the OpenAI-compat
-# endpoint; export GEMINI_API_KEY and forward it through the job runtime env.
+# Backend: AdaEvolve (local SkyDiscover).
+#
+# Gemini rides the project LLM gateway (loop/llm_gateway.py), which forwards
+# to Vertex AI with a freshly-refreshed bearer per request. That is what makes
+# a 250-iteration (~37h) search possible at all: a raw Vertex bearer lives
+# ~60 minutes and skydiscover freezes it into its OpenAI client at startup,
+# so the unproxied route dies with 401 UNAUTHENTICATED partway through.
+#
+# This config previously pointed at generativelanguage.googleapis.com with
+# ${GEMINI_API_KEY}. That route is unfunded on this project -- it draws on a
+# separate AI Studio prepay pool and returns 402 "prepayment credits
+# depleted" on every model, while Vertex returns 200 with
+# traffic_type: ON_DEMAND. Do not point it back without re-probing both.
+#
 # Swap to config_alphaevolve.yaml (search.type: alphaevolve) if the GCP
 # project has AlphaEvolve API access.
 
@@ -19,11 +31,29 @@ search:
     num_islands: 4
 
 llm:
-  api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
-  api_key: ${GEMINI_API_KEY}
+  # The gateway on the head. ${P2P_GATEWAY_TOKEN} is the gateway's shared
+  # secret, NOT a Google credential, and it does not expire. Both are
+  # expanded by Config.from_yaml -> _expand_env_vars, which reads os.environ
+  # *in the EvolverNode actor process* -- so they must arrive through the
+  # driver's ray.init(runtime_env={"env_vars": ...}); exporting them in your
+  # shell alone is not enough (loop/constants.py forwards them).
+  api_base: "http://10.128.0.2:8900/v1"
+  api_key: ${P2P_GATEWAY_TOKEN}
   models:
-    - gemini-3.5-flash          # proposal mutations (cheap, many)
-    - gemini-3.1-pro-preview    # periodic high-effort rewrites
+    # skydiscover.config.LLMConfig builds each entry as LLMModelConfig(**m);
+    # a bare string here throws (must be a mapping), unlike the docs example
+    # this was drafted from at a glance.
+    #
+    # The "google/" prefix is MANDATORY and is not cosmetic. Any name starting
+    # "gemini-" matches skydiscover's _BARE_PREFIX_MAP, and
+    # LLMConfig.__post_init__ then force-overwrites api_base with the public
+    # endpoint (config.py:197-208) -- silently discarding the gateway URL
+    # above, inside skydiscover's own process, before any request is made.
+    # The gateway cannot defend against this; only the prefix can.
+    - name: google/gemini-3.5-flash          # proposal mutations (cheap, many)
+      weight: 1.0
+    - name: google/gemini-3.1-pro-preview    # periodic high-effort rewrites
+      weight: 1.0
 
 prompt:
   system_message: >

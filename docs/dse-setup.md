@@ -20,16 +20,24 @@ Both must be importable wherever the `EvolverNode` Ray actor actually runs
 -- today that's the machine advertising the `evolver` resource, which is the
 chia head (see `cluster/cluster.yaml`'s `head_start_ray_commands`).
 
-## Picking an LLM route: API key vs. Vertex
+## The LLM route: everything goes through the gateway
 
-`experiments/config_adaevolve.yaml` (the default, 250 iterations) reads
-`GEMINI_API_KEY` for both proposal models, so either export it or forward it
-via `chia job submit --runtime-env-json '{"env_vars": {"GEMINI_API_KEY": "..."}}'`.
+Both adaevolve configs point at the project LLM gateway
+(`loop/llm_gateway.py`, documented in `docs/llm-gateway.md`), which forwards
+to Vertex AI with a freshly-refreshed bearer per request. Start it once and
+export its shared secret:
 
-If you have no Gemini API key but the GCP project has
-`aiplatform.googleapis.com` enabled and working ADC (this project's
-situation), use `experiments/config_adaevolve_smoke_vertex.yaml` instead,
-which drives the Vertex OpenAI-compatibility endpoint with a bearer token.
+```bash
+./scripts/install_llm_gateway.sh
+export P2P_GATEWAY_TOKEN="$(grep P2P_GATEWAY_TOKEN ~/.config/p2p/gateway.env | cut -d= -f2-)"
+```
+
+The public Gemini endpoint with a `GEMINI_API_KEY` is **not** a working
+alternative on this project: that route draws on a separate AI Studio prepay
+pool which is empty and returns `402 prepayment credits depleted`, while
+Vertex returns 200 with `traffic_type: ON_DEMAND`. Re-probe both before
+assuming otherwise.
+
 Two traps to know about, both verified against `skydiscover/config.py`:
 
 - **The model must be named `google/<model>`, not `gemini-<model>`.** Any
@@ -44,27 +52,32 @@ Two traps to know about, both verified against `skydiscover/config.py`:
   name in the `google/gemini-3.8-flash` form its endpoint expects.
 - **`${VAR}` in the config is expanded inside the `EvolverNode` actor.**
   `Config.from_yaml` -> `_expand_env_vars` reads `os.environ` in the actor
-  process, so the token must arrive through the driver's
+  process, so `${P2P_GATEWAY_TOKEN}` must arrive through the driver's
   `ray.init(runtime_env={"env_vars": ...})`; exporting it in your shell alone
-  is not enough. ADC access tokens last ~1h, so mint one per run:
-  `gcloud auth application-default print-access-token`.
+  is not enough. `loop/constants.py` forwards it, but only if it is set in
+  the submitting shell when the driver imports that module.
 
-Vertex model availability is project-specific and must be re-probed, not
-assumed. As of the last check on this project: `google/gemini-3.8-flash`
-serves on location `global` only (404 on `us-central1`), and
-`google/gemini-2.5-flash` serves on both.
+Vertex model availability is project-specific and **drifts over time**, so it
+must be re-probed, not assumed. An earlier version of this doc recorded
+`google/gemini-3.8-flash` as serving on location `global` only, 404ing on
+`us-central1`; on re-probe (2026-09-20) it returns 200 on both, as do
+`google/gemini-2.5-flash`, `google/gemini-3.5-flash` and
+`google/gemini-3.1-pro-preview`. Treat any list here as a snapshot.
 
 Set `P2P_DSE_CONFIG` to choose which config `--stage dse` uses; it defaults
 to the full 250-iteration `config_adaevolve.yaml`.
 
-### The Vertex route does NOT survive a full-length run (unfixed)
+### Token expiry on long runs: fixed by the LLM gateway
 
-Fine for a smoke test, fatal for a real search. An ADC access token lives
-**60 minutes** (measured: `tokeninfo` reports `expires_in` 3598), and nothing
-in this stack refreshes it:
+This used to be an unfixed blocker. It is now handled by
+`loop/llm_gateway.py` -- **see `docs/llm-gateway.md`**, which is the
+authoritative reference. Summary of what the problem was and why the fix
+lives outside this stage:
 
-- `Config.from_yaml` expands `${VERTEX_ACCESS_TOKEN}` **once**, at
-  `run_search` startup.
+An ADC access token lives **60 minutes** (measured: `tokeninfo` reports
+`expires_in` 3593), and nothing in the search stack refreshes it:
+
+- `Config.from_yaml` expands `${VAR}` **once**, at `run_search` startup.
 - `skydiscover/llm/openai.py` then hands that string to
   `openai.OpenAI(api_key=...)`, which freezes it into the client. skydiscover
   has no `token_provider`, no `refresh`, and no `google.auth` usage anywhere.
@@ -77,35 +90,30 @@ Scale of the problem, from measured timings: build + a 6-trace fan-out took
 (traces run in parallel, so the count matters less than the slowest trace).
 At `max_iterations: 250` that is ~37 hours with `max_parallel_iterations: 1`,
 or ~5 hours if the parallel-build race below is also fixed. Either way the
-token expires about **6-7 iterations in** -- within the first 3% of the
-search -- and every LLM call after that 401s.
+token would expire about **6-7 iterations in** -- within the first 3% of the
+search.
 
-Three ways out, roughly in order of effort:
+The fix is a gateway on the head that injects a freshly-refreshed bearer per
+request, so `api_key` in these configs is now the gateway's shared secret
+(`${P2P_GATEWAY_TOKEN}`), which does not expire. Both adaevolve configs point
+at it. Start it with `./scripts/install_llm_gateway.sh` and export the secret
+before submitting; `loop/constants.py` forwards it into the actor.
 
-1. **Get a real `GEMINI_API_KEY`** and use `config_adaevolve.yaml`. API keys
-   do not expire, so the whole problem disappears. Simplest fix by far.
-2. **Put a tiny OpenAI-compatible reverse proxy in front of Vertex** on the
-   head, and point `llm.api_base` at `127.0.0.1`. The proxy injects a freshly
-   minted token per request, so `api_key` becomes irrelevant. No third-party
-   code gets patched, and it works for any run length.
-3. **Inject a refreshing client** via `LLMModelConfig.init_client`, which
-   `llm_pool.py` will call in preference to constructing `OpenAILLM`. It
-   takes an `openai.OpenAI(http_client=...)` with an httpx auth hook that
-   calls `google.auth`'s auto-refresh. Cleanest conceptually, but
-   `init_client` is `Optional[Callable]` and therefore unreachable from YAML
-   -- it needs a code hook inside the actor, which `run_dse` does not
-   currently have.
+A rejected alternative worth recording: `LLMModelConfig.init_client` would
+let you inject a refreshing client in-process, and `llm_pool.py` calls it in
+preference to constructing `OpenAILLM`. But it is `Optional[Callable]` and
+therefore unreachable from YAML -- it needs a code hook inside the
+`EvolverNode` actor, which `run_dse` does not have. That is the concrete
+reason the fix is a proxy rather than a config change.
 
 Note also *which* identity ADC resolves to here: this machine's
 `application_default_credentials.json` is `type: authorized_user` with a
 refresh token -- a personal Google account, not a service account. So a DSE
-run currently authenticates and bills as whoever ran
-`gcloud auth application-default login`, and the token only exists on the
-head (it reaches the actor because the driver forwards it through
-`runtime_env`). A service account would be the right answer for an
-unattended multi-hour run, though note it does **not** on its own fix the
-expiry above: service accounts also mint 1-hour access tokens, so the
-refresh mechanism is still required.
+run authenticates and bills as whoever ran
+`gcloud auth application-default login`. A service account would be the right
+answer for an unattended multi-hour run, though note it does **not** on its
+own fix the expiry: service accounts also mint 1-hour access tokens, so the
+refresh mechanism is still required either way.
 
 ## What was found wrong in the first draft (fixed, see loop/dse.py)
 

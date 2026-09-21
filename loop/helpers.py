@@ -58,12 +58,25 @@ def validate_spec(spec_text: str) -> tuple[dict | None, list[str]]:
         return spec, [f"missing required field: {k}" for k in missing]
 
 
+def truncate(text: str, limit: int = 300) -> str:
+    """Cap one validator message. jsonschema inlines the whole offending
+    value on a type error, which can be an entire nested array."""
+    return text if len(text) <= limit else text[:limit] + " ...[truncated]"
+
+
 def extract_json_block(text: str) -> str:
     """Pull the last fenced JSON block from an LLM reply, else the whole text."""
     import re
 
     blocks = re.findall(r"```(?:json)?\s*\n(.*?)```", text, re.S)
     return blocks[-1] if blocks else text
+
+
+def load_trace_list(path: Path) -> list[str]:
+    """One trace path per line; blank lines and '#'-prefixed comments
+    (the TODO(week 1) placeholders these files ship with) are skipped."""
+    lines = Path(path).read_text().splitlines()
+    return [t.strip() for t in lines if t.strip() and not t.strip().startswith("#")]
 
 
 def baseline_path(host: str, budget: str) -> Path:

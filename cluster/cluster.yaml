@@ -117,7 +117,7 @@ available_node_types:
     # Gemini agent (Antigravity CLI). Sign in with `agy` on the head machine
     # first so ~/.gemini exists; the mount must be writable.
     antigravity_llm:
-        resources: {"antigravity_creds": 4}
+        resources: {"antigravity_creds": 2}
         num_workers: 1
         compatible_ips: ["${HEAD_IP}"]
         docker:

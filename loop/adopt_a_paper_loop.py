@@ -36,6 +36,8 @@ import constants as C
 import dse
 import gate
 import helpers
+import paper_markers
+import spec_checks
 import spec_review
 from llm import load_prompt, make_llm, run_llm
 
@@ -67,9 +69,24 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
     # otherwise invent its own field names.
     schema = Path(C.SPEC_SCHEMA_PATH).read_text()
     llm = make_llm(C.LLM_BACKEND, tools, resume=False)
+    # Ambiguities the source declares about its own figure transcriptions.
+    # Hoisted out of the body so they cannot be skimmed past: the distiller
+    # reading them inline is what did not happen, and the resulting guess
+    # then rode three review rounds as an established fact.
+    ann = paper_markers.annotate(paper)
+    notes = ann.render_notes()
+    caveats = (
+        "\n\n## Declared ambiguities in the source\n\n"
+        "Each of these is a point the input marks `UNCERTAIN`: the figure is "
+        "genuinely ambiguous there. Choose a default so the spec stays "
+        "implementable, but record the alternative in `open_questions`, and "
+        "do not describe either reading as something the paper states.\n\n"
+        + notes
+    ) if notes else ""
     prompt = (
         load_prompt("distiller.md", feature_name=C.FEATURE_NAME)
         + f"\n\n## The schema\n\n```json\n{schema}\n```"
+        + caveats
         + f"\n\n## The paper\n\n{paper}"
     )
     try:
@@ -105,6 +122,28 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
         )
         dump.json("spec_review_summary.json", review)
         print(json.dumps(review["rounds"], indent=2, default=str))
+
+    # Always leave the artifact behind, even when the gate below refuses to
+    # promote it. Failing closed must cost the run its promotion, never its
+    # evidence: a refused run that writes nothing is one nobody can diagnose
+    # without re-running the whole stage.
+    dump.json("spec_final.json", spec)
+
+    # Fail closed, exactly as the schema check above does. An `error` finding
+    # is the spec contradicting itself -- a literal that will not fit its own
+    # field, a total that does not match its parts. The integration agents
+    # implement from this file and never read the paper, so a contradiction
+    # here does not stop them: it produces a predictor that builds, runs, and
+    # is quietly wrong, which the gate cannot distinguish from a real result.
+    errs = [f for f in spec_checks.run_checks(spec, C.BUDGET_TRACKS_BITS[budget])
+            if f.severity == "error"]
+    if errs and not C.SPEC_ALLOW_ERRORS:
+        raise SystemExit(
+            f"spec has {len(errs)} unresolved self-consistency error(s); "
+            f"refusing to write {C.SPEC_OUT_PATH}:\n"
+            + "\n".join(f"  {f.pointer}: {f.message}" for f in errs)
+            + "\nRe-run with P2P_SPEC_ALLOW_ERRORS=1 to write it anyway."
+        )
 
     Path(C.SPEC_OUT_PATH).write_text(json.dumps(spec, indent=2))
     return spec

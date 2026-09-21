@@ -1,0 +1,30 @@
+; systemd --user unit for the project Vertex LLM gateway.
+;
+; Install:  scripts/install_llm_gateway.sh
+; Why --user and not a Ray actor: the gateway must outlive any single job (a
+; 250-iteration DSE search is ~37h and Ray clusters get restarted), and
+; Restart=always is the cheapest supervision that survives a crash.
+;
+; Requires lingering so it survives logout:  sudo loginctl enable-linger $USER
+
+[Unit]
+Description=paper-to-pipeline Vertex AI LLM gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/chia-hackathon/paper-to-pipeline
+; HOME must be explicit: google.auth finds the ADC credential at
+; ~/.config/gcloud/application_default_credentials.json, and a systemd unit
+; does not inherit a login shell's environment.
+Environment=HOME=%h
+EnvironmentFile=%h/.config/p2p/gateway.env
+ExecStart=%h/miniconda3/envs/chia_env/bin/python %h/chia-hackathon/paper-to-pipeline/loop/llm_gateway.py
+Restart=always
+RestartSec=2
+StandardOutput=append:%h/.local/state/p2p-llm-gateway.log
+StandardError=append:%h/.local/state/p2p-llm-gateway.log
+
+[Install]
+WantedBy=default.target

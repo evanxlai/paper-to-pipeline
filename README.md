@@ -65,6 +65,7 @@ loop/                    the CHIA loop (head driver + nodes + prompts)
   adopt_a_paper_loop.py  driver: distill | baseline | integrate | dse
   constants.py           every knob, env-overridable as P2P_*
   llm.py                 Gemini (antigravity/opencode+vertex) or Claude backends
+  llm_gateway.py         OpenAI-compatible proxy to Vertex; refreshes the bearer
   gate.py                the deterministic verify gate (G1..G5)
   dse.py                 evolve-flows wiring for the tuning stage
   prompts/               system, distiller, integrator, debug
@@ -73,8 +74,8 @@ hosts/                   per-host adapters + integration NOTES + recorded baseli
 spec/                    feature-spec JSON schema (+ distilled specs land here)
 cluster/cluster.yaml     head + GCP spot workers, fully managed tailnet
 experiments/             budgets, ablation matrix, DSE config, trace lists
-scripts/                 setup_gcp.sh, fetch_artifacts.sh
-docs/                    proposal, plan, GCP guide, research notes
+scripts/                 setup_gcp.sh, fetch_artifacts.sh, install_llm_gateway.sh
+docs/                    proposal, plan, GCP guide, LLM gateway, research notes
 ```
 
 ## Quickstart (when the TODOs close)
@@ -82,10 +83,11 @@ docs/                    proposal, plan, GCP guide, research notes
 1. Follow [docs/gcp-setup.md](docs/gcp-setup.md): Free Trial credit, `scripts/setup_gcp.sh <project>`.
 2. Run `scripts/fetch_artifacts.sh`. Then download the 105 training traces to a bucket.
 3. Sign in to the Gemini agent CLI once on the head machine: `agy`.
-4. Export `HEAD_IP`, `TS_AUTHKEY`, `GCP_PROJECT`, `GCP_PRIVATE_KEY_PATH`, `GOOGLE_CLOUD_PROJECT`.
-5. `chia up cluster/cluster.yaml`
-6. `chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" --stage all`
-7. `chia down cluster/cluster.yaml` after each session. Spot workers cost credit while idle.
+4. Export `HEAD_IP`, `TS_AUTHKEY`, `GCP_PROJECT`, `GCP_PRIVATE_KEY_PATH`, `GOOGLE_CLOUD_PROJECT` (`source export.sh`).
+5. Start the LLM gateway once: `./scripts/install_llm_gateway.sh`, then `sudo loginctl enable-linger "$USER"` so it survives logout. The DSE stage reaches Gemini through it, because a raw Vertex token expires an hour into a ~37-hour search. See [docs/llm-gateway.md](docs/llm-gateway.md).
+6. `chia up cluster/cluster.yaml`
+7. `chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" --stage all`
+8. `chia down cluster/cluster.yaml` after each session. Spot workers cost credit while idle.
 
 ## References
 

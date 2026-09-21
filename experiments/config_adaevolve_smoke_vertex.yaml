@@ -1,7 +1,12 @@
-# Smoke-test config routed through Vertex AI instead of the public Gemini
-# endpoint -- this project has no GEMINI_API_KEY, but its GCP project has
-# aiplatform.googleapis.com enabled and ADC works, so we drive the
-# Vertex OpenAI-compatibility endpoint with a bearer token.
+# Smoke-test config routed through the project LLM gateway
+# (loop/llm_gateway.py), which forwards to Vertex AI. This project has no
+# usable GEMINI_API_KEY -- the public endpoint is unfunded here and returns
+# 402 -- but its GCP project has aiplatform.googleapis.com enabled and ADC
+# works, and the gateway turns that into a non-expiring interface.
+#
+# This config used to carry ${VERTEX_ACCESS_TOKEN} directly, which worked
+# only for runs shorter than the ~1h ADC token lifetime. The gateway removes
+# that limit; api_key below is now the gateway's shared secret.
 #
 # Two non-obvious things make this work (both verified against
 # skydiscover/skydiscover/config.py, not guessed):
@@ -22,15 +27,16 @@
 #     overwrite=False), so they only land if the per-model fields are None.
 #     Point 1 is what keeps them None.
 #
-# ${VERTEX_ACCESS_TOKEN} and ${GCP_PROJECT} are expanded by
-# Config.from_yaml -> _expand_env_vars, which reads os.environ *in the
-# EvolverNode actor process* -- so they must be passed through the driver's
-# ray.init(runtime_env={"env_vars": ...}), not just exported in a shell.
-# Tokens are ~1h ADC access tokens; mint one right before the run.
+# ${P2P_GATEWAY_TOKEN} is expanded by Config.from_yaml -> _expand_env_vars,
+# which reads os.environ *in the EvolverNode actor process* -- so it must be
+# passed through the driver's ray.init(runtime_env={"env_vars": ...}), not
+# just exported in a shell. loop/constants.py forwards it.
 #
-# Model availability is project-specific: google/gemini-3.8-flash serves on
-# location "global" only (404s on us-central1), google/gemini-2.5-flash
-# serves on both. Re-probe before assuming.
+# Model availability is project-specific AND drifts: the handover doc
+# recorded google/gemini-3.8-flash as serving on "global" only, but on
+# re-probe (2026-09-20) it returns 200 on us-central1 too, as does
+# google/gemini-2.5-flash. Re-probe before assuming either way; the gateway
+# routes model -> location via P2P_GATEWAY_MODEL_LOCATIONS.
 
 max_iterations: 3
 file_suffix: .h
@@ -46,8 +52,8 @@ search:
     num_islands: 1
 
 llm:
-  api_base: "https://aiplatform.googleapis.com/v1/projects/${GCP_PROJECT}/locations/global/endpoints/openapi"
-  api_key: ${VERTEX_ACCESS_TOKEN}
+  api_base: "http://10.128.0.2:8900/v1"
+  api_key: ${P2P_GATEWAY_TOKEN}
   models:
     - name: google/gemini-3.8-flash
       weight: 1.0

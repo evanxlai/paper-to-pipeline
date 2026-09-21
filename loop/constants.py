@@ -86,6 +86,18 @@ LLM_RESOURCE = {"llm": 1.0}
 ANTIGRAVITY_RESOURCE = {"antigravity_creds": 1.0}
 OPENCODE_RESOURCE = {"opencode_creds": 1.0}
 
+# ------------------------------------------------------------ llm gateway
+# loop/llm_gateway.py: an OpenAI-compatible reverse proxy that injects a
+# freshly-refreshed Vertex bearer per request, so consumers survive past the
+# ~1h ADC token lifetime. Runs on the head as a systemd --user unit; see
+# docs/llm-gateway.md. Bound to the head's VPC IP, so the shared secret is
+# mandatory -- anything that can reach the port can spend the project's
+# Vertex credits.
+GATEWAY_HOST = os.environ.get("P2P_GATEWAY_HOST", os.environ.get("HEAD_IP", "127.0.0.1"))
+GATEWAY_PORT = int(os.environ.get("P2P_GATEWAY_PORT", "8900"))
+GATEWAY_URL = os.environ.get("P2P_GATEWAY_URL", f"http://{GATEWAY_HOST}:{GATEWAY_PORT}/v1")
+GATEWAY_TOKEN = os.environ.get("P2P_GATEWAY_TOKEN", "")
+
 # ---------------------------------------------------------------- loop
 NUM_INTEGRATION_ATTEMPTS = int(os.environ.get("P2P_INTEGRATION_ATTEMPTS", "6"))
 
@@ -101,10 +113,28 @@ REVIEW_MAX_UNITS = int(os.environ.get("P2P_REVIEW_MAX_UNITS", "12"))
 # A string field that keeps less than this fraction of its length counts as a
 # regression and must be justified by a patch.
 REGRESSION_RATIO = float(os.environ.get("P2P_REGRESSION_RATIO", "0.4"))
-# Cap on ambiguities promoted to DSE knobs per round. Each one is a real search
+# Cap on ambiguities promoted to DSE knobs, counted across the WHOLE spec and
+# therefore across rounds -- not per round. Each one is a real search
 # dimension, so an unbounded reviewer can blow up the evolver's budget faster
-# than it adds information.
+# than it adds information, and a per-round cap silently multiplies by
+# REVIEW_ROUNDS.
 REVIEW_MAX_PROMOTED = int(os.environ.get("P2P_REVIEW_MAX_PROMOTED", "6"))
+# Independent reviewers re-ask the same question in different words every
+# round, and exact-string dedup never fires on a reword. Two questions about
+# the same spec location whose *topic* signatures -- the spec identifiers and
+# the numbers they mention -- overlap by this fraction are treated as one.
+# Comparing full prose instead barely dedups at all: the shared content of two
+# reworded questions is the identifiers, not the sentence around them.
+REVIEW_QUESTION_SIMILARITY = float(
+    os.environ.get("P2P_REVIEW_QUESTION_SIMILARITY", "0.5")
+)
+# A spec whose own arithmetic contradicts itself must not reach the
+# integration agents: they implement from it alone, and a contradiction there
+# becomes a silent wrong answer in the simulator rather than a build failure.
+# The stage therefore fails closed on any remaining `error` finding, the same
+# way it already fails closed on a schema error. Set to 1 only to inspect a
+# known-bad spec deliberately.
+SPEC_ALLOW_ERRORS = os.environ.get("P2P_SPEC_ALLOW_ERRORS", "0") == "1"
 # Coverage runs one call per chunk; papers under this size take a single call.
 COVERAGE_CHUNK_CHARS = int(os.environ.get("P2P_COVERAGE_CHUNK_CHARS", "60000"))
 BUILD_TIMEOUT_S = int(os.environ.get("P2P_BUILD_TIMEOUT", "1800"))
@@ -139,21 +169,24 @@ RUNTIME_ENV = {
 # Credentials the stage-3 EvolverNode actor needs in its *own* environment.
 # skydiscover's Config.from_yaml expands ${VAR} from os.environ inside the
 # actor process, not in the submitting shell -- and on a miss its
-# _expand_env_vars leaves the literal text "${GEMINI_API_KEY}" in place
-# rather than raising, so the placeholder itself travels to the API as the
-# key and comes back as an opaque auth failure instead of "key not set".
-# Forwarded only when actually set, so an unset credential stays unset and
-# fails loudly rather than becoming an empty string.
+# _expand_env_vars leaves the literal text "${P2P_GATEWAY_TOKEN}" in place
+# rather than raising, so the placeholder itself travels as the key and comes
+# back as an opaque auth failure instead of "key not set". Forwarded only
+# when actually set, so an unset credential stays unset and fails loudly
+# rather than becoming an empty string.
 #
-# GEMINI_API_KEY drives config_adaevolve.yaml (public endpoint, permanent
-# key); VERTEX_ACCESS_TOKEN + GCP_PROJECT drive
-# config_adaevolve_smoke_vertex.yaml (ADC bearer, expires hourly -- see
-# docs/dse-setup.md). Whichever is exported is the route you get.
+# P2P_GATEWAY_TOKEN is the current route: both adaevolve configs point at the
+# LLM gateway (loop/llm_gateway.py), which owns Vertex token refresh, so the
+# secret the actor needs is the gateway's shared secret -- not a Google
+# credential, and it does not expire. GEMINI_API_KEY is kept only for a
+# config that still targets the public endpoint; note that endpoint is
+# unfunded on this project (402 prepayment credits depleted).
 #
 # CAVEAT: Ray writes the resolved runtime_env into its own logs, so anything
 # forwarded here is readable in /tmp/ray/session_*/logs/runtime_env*.log on
-# the head. Fine for a short-lived ADC token, worth knowing for a permanent
-# API key.
-for _cred in ("GEMINI_API_KEY", "VERTEX_ACCESS_TOKEN", "GCP_PROJECT"):
+# the head. That now applies to a long-lived shared secret rather than a
+# 60-minute token, so rotate it (edit the gateway env file and restart)
+# rather than treating it as permanent.
+for _cred in ("P2P_GATEWAY_TOKEN", "GEMINI_API_KEY", "GCP_PROJECT"):
     if os.environ.get(_cred):
         RUNTIME_ENV["env_vars"][_cred] = os.environ[_cred]

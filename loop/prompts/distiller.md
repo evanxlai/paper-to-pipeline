@@ -10,7 +10,7 @@ You are a computer-architecture researcher. Your task is to distill one design f
 
 ## Output
 
-Emit one JSON document that matches `spec/feature_spec.schema.json`. Fill every required field:
+Emit one JSON document, in a single fenced ```json block, that validates against the schema given below under "## The schema". Use exactly the property names the schema defines; do not rename, merge, or add fields. Fill every required field:
 
 1. State: every table, register, and counter the feature adds. Give the organization, the entry format with field widths, the total size in bits, and the index or hash function.
 2. Algorithms: pseudocode for each operation (predict, update, allocate), with its trigger point in the host pipeline. Record corner cases: saturation, aliasing, reset, and mispredict recovery.
@@ -22,5 +22,6 @@ Emit one JSON document that matches `spec/feature_spec.schema.json`. Fill every 
 ## Rules
 
 - Do not invent numbers. If the paper does not state a value, put the question in `open_questions` and give your best default with the label "assumed".
+- Where the input transcribes a figure, it grades its own paragraphs: `LITERAL` is copied from the figure, `INFERRED` is a reading of the layout the paper never states, and `UNCERTAIN` marks a point the input declares ambiguous. Anything resting on an `INFERRED` or `UNCERTAIN` paragraph is an assumption, not a fact: pick a default, and record the alternative reading in `open_questions` naming both. Never write that the paper specifies something the figure only implies. A `LITERAL` block can still carry a derived column that an `UNCERTAIN` note in the same figure section withdraws, so check the notes before trusting a number you did not see stated in words.
 - When the paper and the code disagree in `paper_plus_reference` mode, the code wins. Note the disagreement.
 - Keep host-neutral language. The spec must serve ChampSim, gem5, and the CBP2025 simulator equally.

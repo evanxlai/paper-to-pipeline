@@ -67,11 +67,44 @@ def make_llm(backend: str, tools: list[ChiaTool], resume: bool = True):
     )
 
 
-def run_llm(llm, prompt: str, tools: list[ChiaTool]) -> QueryResult:
+def llm_resources(llm) -> dict:
     if isinstance(llm, OpenCodeLLM):
-        resources = C.OPENCODE_RESOURCE
-    elif isinstance(llm, AntigravityLLM):
-        resources = C.ANTIGRAVITY_RESOURCE
-    else:
-        resources = C.LLM_RESOURCE
-    return get(llm.prompt.options(resources=resources).chia_remote(llm, prompt, tools))
+        return C.OPENCODE_RESOURCE
+    if isinstance(llm, AntigravityLLM):
+        return C.ANTIGRAVITY_RESOURCE
+    return C.LLM_RESOURCE
+
+
+def submit_llm(llm, prompt: str, tools: list[ChiaTool]):
+    """Non-blocking half of run_llm: returns the ref without get()ing it.
+
+    The reviewer stage fans one call out per spec unit, so it needs every
+    prompt in flight before any of them is collected. run_llm blocks, which
+    would serialize the whole round.
+    """
+    return llm.prompt.options(resources=llm_resources(llm)).chia_remote(llm, prompt, tools)
+
+
+def collect_llm(ref, llm=None) -> QueryResult:
+    """Blocking half of run_llm, with the same fail-loud behavior."""
+    resp = get(ref)
+    if not resp.success:
+        raise SystemExit(
+            f"{type(llm).__name__ if llm else 'LLM'} call failed (success=False). "
+            f"result={resp.result!r}\nstream={resp.stream_result!r}"
+        )
+    return resp
+
+
+def run_llm(llm, prompt: str, tools: list[ChiaTool]) -> QueryResult:
+    resources = llm_resources(llm)
+    resp = get(llm.prompt.options(resources=resources).chia_remote(llm, prompt, tools))
+    if not resp.success:
+        # Backend-level failure (bad creds, CLI crash, timeout). Surface it
+        # here: callers only see an empty result, which otherwise shows up
+        # downstream as a bogus "not valid JSON" schema error.
+        raise SystemExit(
+            f"{type(llm).__name__} call failed (success=False). "
+            f"result={resp.result!r}\nstream={resp.stream_result!r}"
+        )
+    return resp
