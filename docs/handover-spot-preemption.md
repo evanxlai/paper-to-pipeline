@@ -105,9 +105,11 @@ the nodes died.
 
 ## Known unrelated gaps (do not treat as bugs to fix under this issue)
 
-- `_run_gate` in `loop/adopt_a_paper_loop.py` is a hardcoded stub that always
-  returns `passed=False` — stage 2 (`integrate`) can never pass yet. This is
-  documented as a TODO in the file's own docstring.
+- The champsim/gem5 gate in `loop/adopt_a_paper_loop.py` (now
+  `default_adapter`, formerly `_run_gate`) is still a stub that always returns
+  `passed=False`, so those two hosts can never pass. The stage itself does run:
+  `loop/tests/integrate_smoke.py` drives it against a fixture host that
+  implements the adapter for real.
 - No code path records a `champsim`/`gem5` baseline — only `cbp2025`'s
   baseline gets recorded by `--stage baseline`
   (`record_cbp_baseline` in `adopt_a_paper_loop.py`). `integrate` needs a

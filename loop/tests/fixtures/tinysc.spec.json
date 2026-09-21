@@ -1,0 +1,107 @@
+{
+  "feature_name": "tinysc",
+  "source": {
+    "paper_title": "TinySC: a global-history statistical corrector for a bimodal predictor (fixture, not a real paper)",
+    "citation": "Synthetic input for loop/tests/integrate_smoke.py. Nothing here is a claim about published work.",
+    "inputs_used": "paper_only"
+  },
+  "summary": "TinySC is a statistical corrector that sits on top of an existing per-PC branch predictor. The base predictor is indexed by the branch PC alone, so it cannot represent a branch whose outcome depends on the outcomes of the branches before it. TinySC adds one table of signed saturating counters indexed by the PC folded with a global branch-history register. When the counter selected for a branch is confident enough, its sign overrides the base prediction; otherwise the base prediction stands. The whole mechanism is behind one enable knob, TINYSC_ENABLE, which defaults to 0; with it off the host must reproduce the base predictor bit for bit.",
+  "state": [
+    {
+      "name": "sc_table",
+      "organization": "Direct-mapped, TINYSC_ENTRIES entries, 256 by default",
+      "entry_format": "One signed saturating counter, 6 bits, range [-32, 31], reset to 0",
+      "size_bits": 1536,
+      "indexing": "index = ((pc >> 2) ^ ghist) & (TINYSC_ENTRIES - 1), where ghist is the global history register below"
+    },
+    {
+      "name": "ghist",
+      "organization": "One shift register",
+      "entry_format": "TINYSC_HIST_BITS bits, 8 by default; bit 0 is the most recent outcome",
+      "size_bits": 8,
+      "indexing": "Not indexed. Shifted left by one on every conditional branch, with the resolved outcome shifted in, then masked to TINYSC_HIST_BITS bits."
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "predict",
+      "trigger": "Once per conditional branch, at prediction time, after the base prediction has been computed and before it is returned to the host.",
+      "pseudocode": "base = base_predict(pc)\nif not TINYSC_ENABLE:\n    return base\nctr = sc_table[index(pc, ghist)]\nif abs(ctr) >= TINYSC_THRESHOLD:\n    return ctr >= 0\nreturn base",
+      "notes": "A counter of exactly 0 is not confident: abs(0) >= threshold is false for any threshold >= 1, so the base prediction stands on an untrained entry. Remember the index used, or recompute it identically in update; ghist must not be advanced between the two."
+    },
+    {
+      "name": "update",
+      "trigger": "Once per conditional branch, at resolution time, immediately after predict for that same branch.",
+      "pseudocode": "base_update(pc, taken)\nif not TINYSC_ENABLE:\n    return\ni = index(pc, ghist)\nif taken and sc_table[i] < 31:\n    sc_table[i] += 1\nif not taken and sc_table[i] > -32:\n    sc_table[i] -= 1\nghist = ((ghist << 1) | taken) & ((1 << TINYSC_HIST_BITS) - 1)",
+      "notes": "The counter is trained on every branch, not only on mispredictions. The base predictor is updated exactly as it was before the port, and ghist is advanced last, after the table write, so predict and update for one branch see the same index."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "The branch PC at prediction time",
+      "description": "Already a parameter of both hook methods.",
+      "fallback": "None needed."
+    },
+    {
+      "need": "The resolved outcome of every conditional branch, in program order",
+      "description": "Feeds the global history register. The host resolves one branch before predicting the next, so program order is exact and no speculative history repair is required.",
+      "fallback": "On a host with speculation, checkpoint and restore ghist. Not applicable here."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 1544,
+    "storage_breakdown": "sc_table 256 entries x 6 bits = 1536 bits, plus an 8-bit global history register = 1544 bits.",
+    "logic_cost_notes": "One XOR, one mask, one comparison and one increment per branch.",
+    "budget_donors": "The bimodal table, whose entry count is already a knob. Sizing is a tuning-stage question and must not be traded off during integration."
+  },
+  "parameters": [
+    {
+      "name": "TINYSC_ENABLE",
+      "type": "bool",
+      "default": 0,
+      "range": "choices: 0|1",
+      "storage_impact": "None. The table is allocated either way; only its effect on predictions is gated."
+    },
+    {
+      "name": "TINYSC_ENTRIES",
+      "type": "int",
+      "default": 256,
+      "range": "[64, 4096] pow2",
+      "storage_impact": "6 bits per entry."
+    },
+    {
+      "name": "TINYSC_HIST_BITS",
+      "type": "int",
+      "default": 8,
+      "range": "[2, 16]",
+      "storage_impact": "One bit of the history register per unit."
+    },
+    {
+      "name": "TINYSC_THRESHOLD",
+      "type": "int",
+      "default": 4,
+      "range": "[1, 32]",
+      "storage_impact": "None."
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "disabled_matches_base_predictor",
+      "given": "TINYSC_ENABLE unset, and any stream of branches driven through predict and update.",
+      "expect": "Every prediction equals the one the unmodified base predictor would have made for the same stream."
+    },
+    {
+      "name": "history_correlated_branch_is_learned",
+      "given": "TINYSC_ENABLE set to 1, and one PC whose outcome follows the repeating period-4 pattern taken, taken, not-taken, not-taken, driven for 400 branches.",
+      "expect": "Over the last 100 of those branches there are at most 5 mispredictions, where the base predictor alone mispredicts about half of them."
+    },
+    {
+      "name": "untrained_entry_defers_to_base",
+      "given": "TINYSC_ENABLE set to 1, and a PC seen for the very first time.",
+      "expect": "The prediction equals the base predictor's, because the selected counter is still 0 and therefore not confident."
+    }
+  ],
+  "open_questions": [
+    "Whether the counter should be trained on every branch or only on a misprediction. The spec assumes every branch; record the choice if you deviate."
+  ]
+}

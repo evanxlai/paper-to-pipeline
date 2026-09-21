@@ -28,7 +28,12 @@ Not done (marked TODO in the code):
 - Host build/run adapters (`hosts/__init__.py`). The gate fails closed until these exist.
 - DSE evaluator wiring against `evolve-flows` (its `ChiaEvaluator` internals are unverified).
 - Trace lists (`experiments/*.list`) wait on the trace download.
-- Nothing was executed yet. No cluster was brought up and no simulator was built.
+- Nothing was executed yet against a real simulator. No cluster was brought up,
+  and neither ChampSim nor gem5 has been built. Stage 3's machinery *has* been
+  run end to end -- LLM call, agent edits, compile, test suite, gate, debug turn
+  -- against the fixture host in `loop/tests/fixtures/toyhost`, via
+  `python loop/tests/integrate_smoke.py`. That says the stage works; it says
+  nothing yet about porting sR into a real model.
 
 ## Fact-check corrections to the proposal
 
@@ -91,6 +96,8 @@ loop/                    the CHIA loop (head driver + nodes + prompts)
   gate.py                the deterministic verify gate (G1..G5)
   dse.py                 evolve-flows wiring for the tuning stage
   prompts/               system, distiller, reviewer, integrator, debug
+  tests/integrate_smoke.py  stage 3 end to end against a fixture host, minutes
+  tests/fixtures/toyhost/   that fixture: a 300-line C++ predictor sim
 chia_nodes/cbp2025/      new CHIA node wrapping the CBP2025 kit (upstream target)
 hosts/                   per-host adapters + integration NOTES + recorded baselines
 spec/                    feature-spec JSON schema (+ distilled specs land here)

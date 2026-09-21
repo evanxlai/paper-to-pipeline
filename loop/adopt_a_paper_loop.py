@@ -25,7 +25,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import argparse
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Optional
 
 import ray
 from chia.base.ChiaFunction import ChiaFunction, get
@@ -173,44 +175,90 @@ def record_cbp_baseline(dump: helpers.Dumper, trace_list: Path) -> dict:
 
 
 # ------------------------------------------------------------ stage 2
-def integrate(dump: helpers.Dumper, spec: dict, host: str, budget: str) -> dict:
-    """Coding agent implements the spec in `host` behind an enable knob,
-    iterating against build/run feedback until the deterministic gate
-    passes or attempts run out.
+@dataclass
+class HostAdapter:
+    """Everything stage 3 needs to know about one host.
 
-    TODO(week 2): host adapters. Per hosts/<host>/NOTES.md:
+    `integrate` holds no per-host branches, so the only thing standing between
+    the real stage and a host is this object: a fixture host (see
+    loop/tests/toy_host.py) drives the production code path rather than a copy
+    of it, and the champsim/gem5 adapters land here without touching the stage.
+    """
+
+    name: str
+    work_dir: str
+    notes: str
+    spec_path: str
+    resources: dict
+    baseline: Callable[[], Optional[dict]]
+    run_gate: Callable[[dict], gate.GateResult]
+
+
+def default_adapter(host: str, budget: str) -> HostAdapter:
+    """The production hosts.
+
+    TODO(week 2): the gate. Per hosts/<host>/NOTES.md:
       champsim: one module dir composing a base TAGE-SC-L + the sR term
                 (multi-module lists keep only the LAST return value).
       gem5:     subclass StatisticalCorrector on TAGE_SC_L_64KB
                 (cleanest verified hook; see NOTES.md option 1).
+    Until those exist the gate fails closed, which is the safe direction: an
+    unimplemented check must never read as a pass.
     """
-    baseline = helpers.load_baseline(host, budget)
+    return HostAdapter(
+        name=host,
+        work_dir={"champsim": C.CHAMPSIM_ROOT, "gem5": C.GEM5_ROOT}[host],
+        notes=(C.REPO_ROOT / "hosts" / host / "NOTES.md").read_text(),
+        spec_path=str(C.SPEC_OUT_PATH),
+        resources={host: 0.1},
+        baseline=lambda: helpers.load_baseline(host, budget),
+        run_gate=lambda baseline: gate.GateResult(
+            False, ["gate adapters not implemented yet (hosts/ TODO)"]
+        ),
+    )
+
+
+def integrate(
+    dump: helpers.Dumper,
+    spec: dict,
+    host: str,
+    budget: str,
+    adapter: Optional[HostAdapter] = None,
+) -> dict:
+    """Coding agent implements the spec in `host` behind an enable knob,
+    iterating against build/run feedback until the deterministic gate
+    passes or attempts run out."""
+    adapter = adapter or default_adapter(host, budget)
+    baseline = adapter.baseline()
     if baseline is None:
         raise SystemExit(f"no recorded baseline for {host}/{budget}; run --stage baseline")
 
-    work_dir = {"champsim": C.CHAMPSIM_ROOT, "gem5": C.GEM5_ROOT}[host]
     bash = BashTool(
-        name=f"{host}_bash",
-        work_dir=work_dir,
+        name=f"{adapter.name}_bash",
+        work_dir=adapter.work_dir,
         timeout_seconds=C.BASH_TOOL_TIMEOUT_S,
-        task_options={"resources": {host: 0.1}},
+        task_options={"resources": adapter.resources},
     )
     llm = make_llm(C.LLM_BACKEND, [bash], resume=True)  # one threaded session
-    notes = (C.REPO_ROOT / "hosts" / host / "NOTES.md").read_text()
     prompt = load_prompt(
         "integrator.md",
-        spec_path=str(C.SPEC_OUT_PATH),
-        host_path=work_dir,
-        host_name=host,
+        spec_path=adapter.spec_path,
+        host_path=adapter.work_dir,
+        host_name=adapter.name,
         feature_name=C.FEATURE_NAME,
-    ) + f"\n\n## Feature spec\n\n{json.dumps(spec, indent=2)}\n\n## Host notes\n\n{notes}"
+    ) + (
+        f"\n\n## Feature spec\n\n{json.dumps(spec, indent=2)}"
+        f"\n\n## Host notes\n\n{adapter.notes}"
+    )
 
     status = "failed"
+    attempts_used = 0
     try:
         resp = run_llm(llm, prompt, [bash])
         dump.llm(f"integrate_{host}_0", resp)
         for attempt in range(C.NUM_INTEGRATION_ATTEMPTS):
-            g = _run_gate(host, budget, baseline)  # TODO: host build/run adapters
+            attempts_used = attempt + 1
+            g = adapter.run_gate(baseline)
             dump.json(f"gate_{host}_{attempt}.json", {"passed": g.passed, "reasons": g.reasons})
             if g.passed:
                 status = "passed"
@@ -220,14 +268,7 @@ def integrate(dump: helpers.Dumper, spec: dict, host: str, budget: str) -> dict:
             dump.llm(f"integrate_{host}_{attempt + 1}", resp)
     finally:
         bash.stop()
-    return {"host": host, "budget": budget, "status": status}
-
-
-def _run_gate(host: str, budget: str, baseline: dict) -> gate.GateResult:
-    """Build + feature-off run + unit tests + feature-on smoke, then
-    gate.check_gate. TODO(week 2): implement via hosts/ adapters; until
-    then the gate fails closed."""
-    return gate.GateResult(False, ["gate adapters not implemented yet (hosts/ TODO)"])
+    return {"host": host, "budget": budget, "status": status, "attempts": attempts_used}
 
 
 # ------------------------------------------------------------ main
