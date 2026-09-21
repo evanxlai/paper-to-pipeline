@@ -1,8 +1,11 @@
 # Iso-storage budget tracks for the sR demonstration (the proposal calls
 # this component RBias; the RUNLTS paper names it sR).
 # The DSE explores the split between the base predictor and sR inside
-# each fixed total. The gate rejects any candidate whose accounted
-# storage exceeds the track total.
+# each fixed total, and rejects any candidate whose accounted storage
+# exceeds the track total. DSE is the ONLY stage that enforces this: the
+# verify gate has no storage condition, and "iso-budget" is not a special
+# mode but this same constraint with the allowance pinned to the host's
+# baseline storage. See docs/stages.md.
 # Note: the CBP2025 contest itself has a single 192 KiB budget; the
 # 64 KiB track is this project's added constrained point.
 

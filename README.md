@@ -1,6 +1,8 @@
 # paper-to-pipeline
 
-An "adopt-a-paper" CHIA loop. Give it a target design, a feature described by a paper, and success criteria. The loop integrates the feature into the design behind a deterministic gate. Then it tunes the feature and the host budget split at fixed total storage. Only the tuned configuration counts as the verdict.
+An "adopt-a-paper" CHIA loop. Give it a target design, a feature described by a paper, and success criteria. The loop plans the port, integrates the feature into the design behind a deterministic gate, and then tunes the feature and the host budget split under a storage constraint. Only the tuned configuration counts as the verdict.
+
+What each stage consumes, emits, and is judged by is specified in [docs/stages.md](docs/stages.md). One rule shapes the whole pipeline: only the DSE stage knows about resource constraints, so every stage before it is about implementing the feature correctly and nothing else.
 
 Team: Evan Lai, Jan Strzeszynski. Accepted project for the Agentic Approaches to Architecture CHIA Hackathon. The accepted proposal text is in [docs/proposal.md](docs/proposal.md).
 
@@ -10,6 +12,7 @@ Demonstration: port sR, the register-value statistical-corrector component of RU
 
 Done:
 
+- The stage contracts, including the plan / integrate / debug split ([docs/stages.md](docs/stages.md)).
 - The loop driver, the LLM backend factory, the deterministic gate, and the prompts (`loop/`).
 - The CBP2025 CHIA node, written for upstreaming (`chia_nodes/cbp2025/`).
 - The feature-spec JSON schema (`spec/feature_spec.schema.json`).
@@ -19,6 +22,9 @@ Done:
 
 Not done (marked TODO in the code):
 
+- The plan node and the debug node (stages 2 and 3b in [docs/stages.md](docs/stages.md)). Today a single `integrate` stage plans and implements in one session, and the debug turn resumes that same session instead of being an independent diagnosis-only node.
+- The port-plan and test-plan JSON schemas (`plan/*.schema.json`) plus their coverage checks, which are what make an unmapped spec item a planning failure rather than an integration surprise.
+- Retiring every budget check from the pre-DSE stages. `gate.py` still carries a storage condition, and `distill`/`integrate` still take a `budget` argument; per the rule above, neither belongs before stage 4.
 - Host build/run adapters (`hosts/__init__.py`). The gate fails closed until these exist.
 - DSE evaluator wiring against `evolve-flows` (its `ChiaEvaluator` internals are unverified).
 - Trace lists (`experiments/*.list`) wait on the trace download.
@@ -44,13 +50,29 @@ paper (+ optional artifact)          docs/research/ has the verified APIs
 [1] distill (LLM node) ----------> spec/sr.<mode>.json  (schema-checked by code)
         |
         v
-[2] integrate (coding agent + BashTool on the host container)
-        |   build / feature-off run / unit tests / feature-on smoke
-        v
-    verify gate (gate.py, plain code; agents never self-report success)
+[1.5] spec review ---------------> evidence-checked spec (spec_review.py)
         |
         v
-[3] iso-budget DSE (evolve-flows evolver mutates sr_params.h)
+[2] plan (LLM node; reads the model, runs the tests it already ships)
+        |
+        +--> plan/sr.<host>.plan.json   how this feature goes into this model
+        +--> plan/sr.<host>.tests.json  correctness tests + performance tests
+        |
+        v
+[3] integrate (coding agent + BashTool on the host container)
+        |   implement from the plan, then run the test plan
+        |        |
+        |        +-- anything fails --> [3b] debug node: root-cause report,
+        |        |                           diagnosis only, never edits ---+
+        |        +----------------- back to the implement node <------------+
+        v
+    verify gate (gate.py, plain code; agents never self-report success)
+        |   G1 build | G2 feature-off == baseline | G3 correctness tests
+        |   G4 feature-on smoke clean | G5 performance direction
+        v
+[4] DSE (evolve-flows evolver mutates sr_params.h)
+        |   the only stage with a constraint set; iso-budget is one allowance
+        |   value, not a special mode
         |   screening fan-out over ~60 traces per candidate on spot workers
         v
     full 105-trace validation of finalists -> tuned-vs-baseline verdict
@@ -62,20 +84,21 @@ CHIA mechanics: every step is a `@ChiaFunction` dispatched over Ray. Agents touc
 
 ```
 loop/                    the CHIA loop (head driver + nodes + prompts)
-  adopt_a_paper_loop.py  driver: distill | baseline | integrate | dse
+  adopt_a_paper_loop.py  driver: distill | baseline | integrate | dse (plan: TODO)
   constants.py           every knob, env-overridable as P2P_*
   llm.py                 Gemini (antigravity/opencode+vertex) or Claude backends
   llm_gateway.py         OpenAI-compatible proxy to Vertex; refreshes the bearer
   gate.py                the deterministic verify gate (G1..G5)
   dse.py                 evolve-flows wiring for the tuning stage
-  prompts/               system, distiller, integrator, debug
+  prompts/               system, distiller, reviewer, integrator, debug
 chia_nodes/cbp2025/      new CHIA node wrapping the CBP2025 kit (upstream target)
 hosts/                   per-host adapters + integration NOTES + recorded baselines
 spec/                    feature-spec JSON schema (+ distilled specs land here)
+plan/                    port-plan + test-plan schemas (TODO; plans land here)
 cluster/cluster.yaml     head + GCP spot workers, fully managed tailnet
 experiments/             budgets, ablation matrix, DSE config, trace lists
 scripts/                 setup_gcp.sh, fetch_artifacts.sh, install_llm_gateway.sh
-docs/                    proposal, plan, GCP guide, LLM gateway, research notes
+docs/                    stage contracts, proposal, plan, GCP guide, gateway, research
 ```
 
 ## Quickstart (when the TODOs close)
