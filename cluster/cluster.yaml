@@ -68,13 +68,26 @@ gcp_nodes:
 
 available_node_types:
 
-    # 32 fractional slots per VM: one single-threaded ./cbp process per trace.
-    cbp2025_worker:
-        resources: {"cbp2025": 32}
-        num_workers: 2
-        compatible_ips: ["@sim_worker:0", "@sim_worker:1"]
+    # The CBP2025 integration host. One machine, its own resource token, and
+    # that is the whole point of splitting it out of cbp2025_worker below.
+    #
+    # Stage 3 hands the coding agent a BashTool pinned to {"cbp2025_host": N}
+    # and then builds what the agent wrote. Those two have to land on the same
+    # filesystem. While both sim_workers advertised only {"cbp2025": N}, Ray
+    # was free to put the shell on one and the build on the other, and the
+    # build would then compile a checkout nobody had edited -- a green gate on
+    # an unported tree, which is the one failure the gate cannot see.
+    #
+    # It also advertises "cbp2025" so this node can take trace work when the
+    # fan-out below is busy. That is safe in the other direction: a trace run
+    # receives the binary as bytes (CBP2025Node.run) and never reads the
+    # checkout.
+    cbp2025_host:
+        resources: {"cbp2025_host": 4, "cbp2025": 2}
+        num_workers: 1
+        compatible_ips: ["@sim_worker:0"]
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
-        worker_setup_commands:
+        worker_setup_commands: &cbp2025_setup
             - sudo apt-get install -y build-essential zlib1g-dev
             - test -d ~/cbp2025 || git clone https://github.com/ramisheikh/cbp2025 ~/cbp2025
             - cd ~/cbp2025 && make -j
@@ -145,6 +158,21 @@ available_node_types:
               test -f ~/traces/cbp2025/int/int_0_trace.gz ||
               { echo "trace download failed -- ~/traces/cbp2025 is not populated"; exit 1; }
 
+    # Trace fan-out for the gate's performance entries and the DSE screening
+    # sweep: one single-threaded ./cbp process per trace, binary shipped as
+    # bytes, so this node never needs the edited checkout.
+    #
+    # The slot count is the machine's vCPU count, not the 32 this block asked
+    # for while sim_worker was still c2d-standard-32. Oversubscribing a
+    # 2-vCPU VM 16x does not run 32 traces faster; it runs all 32 slower and
+    # makes RUN_TIMEOUT_S meaningless.
+    cbp2025_worker:
+        resources: {"cbp2025": 2}
+        num_workers: 1
+        compatible_ips: ["@sim_worker:1"]
+        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        worker_setup_commands: *cbp2025_setup
+
     # ChampSim + gem5 checkouts for the integration agents and gate runs.
     host_worker:
         resources: {"champsim": 4, "gem5": 4}
@@ -183,5 +211,17 @@ head_start_ray_commands:
     - ray start --head --port=6379 --dashboard-agent-listen-port=0 --resources='{"head":4,"evolver":2}'
 
 worker_start_ray_commands:
+    # `ray stop` is asynchronous enough to lose a race with the `ray start`
+    # on the next line. A previous bring-up that failed part-way leaves a
+    # raylet holding the pinned object-manager port (16801), the new raylet
+    # dies with "Address already in use", and `ray start` then reports the
+    # misleading "current node timed out during startup / GCS may be
+    # overloaded". Waiting for the port to clear turns that into either a
+    # clean start or an honest error. 30s of polling costs nothing on the
+    # normal path, where the port is free on the first check.
     - ray stop
+    - >
+      for _ in $(seq 1 30); do
+      ss -ltn 2>/dev/null | grep -qE ':(16800|16801) ' || break; sleep 1;
+      done; sleep 2
     - ray start --address=$RAY_HEAD_IP:6379 --dashboard-agent-listen-port=0
