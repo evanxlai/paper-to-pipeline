@@ -1,0 +1,25 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/knobs/0/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships True where the spec's default is 'true'. A port that quietly ships a different default measures something the spec does not describe."
+      },
+      {
+        "pointer": "/plan/hook_points/0/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'top of file' does not occur in cbp2016_tage_sc_l.h. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": []
+  }
+]

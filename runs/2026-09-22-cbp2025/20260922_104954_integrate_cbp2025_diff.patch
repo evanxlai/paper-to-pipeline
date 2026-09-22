@@ -1,0 +1,1768 @@
+ PORT_NOTES.md                      |   5 +
+ cbp                                | Bin 0 -> 497536 bytes
+ cond_branch_predictor_interface.cc |   2 +
+ cond_branch_predictor_interface.o  | Bin 0 -> 69176 bytes
+ fix.py                             | 243 +++++++++++++++++++++++++++
+ fix_predict.py                     |  16 ++
+ fix_predict2.py                    |   9 +
+ fix_update.py                      |  41 +++++
+ fix_update2.py                     |  61 +++++++
+ fix_update3.py                     |  28 ++++
+ fix_update4.py                     |   6 +
+ fix_update5.py                     |   9 +
+ fix_update6.py                     |  20 +++
+ lib/bp.o                           | Bin 0 -> 28888 bytes
+ lib/cache.o                        | Bin 0 -> 6736 bytes
+ lib/cbp.o                          | Bin 0 -> 596992 bytes
+ lib/gzstream.o                     | Bin 0 -> 17712 bytes
+ lib/libcbp.a                       | Bin 0 -> 1551992 bytes
+ lib/my_value_predictor.o           | Bin 0 -> 6456 bytes
+ lib/parameters.o                   | Bin 0 -> 2816 bytes
+ lib/resource_schedule.o            | Bin 0 -> 4776 bytes
+ lib/uarchsim.o                     | Bin 0 -> 752104 bytes
+ my_cond_branch_predictor.h         | 327 ++++++++++++++++++++++++++++++-------
+ my_cond_branch_predictor.h.append  |   7 +
+ my_cond_branch_predictor.h.dbg     |  27 +++
+ my_cond_branch_predictor.h.patch   |  62 +++++++
+ my_cond_branch_predictor.o         | Bin 0 -> 952 bytes
+ off.log                            |   1 +
+ on.log                             |   1 +
+ run_perf.sh                        |   7 +
+ sr_params.h                        |  56 +++++++
+ step1_out.txt                      | 111 +++++++++++++
+ step2_out.txt                      | 111 +++++++++++++
+ step4_out.txt                      | 111 +++++++++++++
+ step_on.txt                        | 111 +++++++++++++
+ test_sr                            | Bin 0 -> 108536 bytes
+ test_sr.cc                         | 124 ++++++++++++++
+ 37 files changed, 1441 insertions(+), 55 deletions(-)
+diff --git a/PORT_NOTES.md b/PORT_NOTES.md
+new file mode 100644
+index 0000000..3ba7a8b
+--- /dev/null
++++ b/PORT_NOTES.md
+@@ -0,0 +1,5 @@
++- A monotonically increasing instruction ID is used to detect and prevent stale operand usage, matching ROB logic functionally without identical bounds wrapping.
++- Invalidation logic surrounding mispredict recovery paths is dead code; the predictor observes only correctly squashed trace execution.
++- The correction term operates entirely asynchronously of internal TAGE thresholding, losing coupling capability.
++- The host does not differentiate between FP16, FP32, and FP64 register writes. The port implements the FP64 digest variant for all floating point registers.
++- The port plan specifies compile_time_define bindings for parameters but does not include a hook point to modify the Makefile to pass these defines to the compiler. This will prevent the search from successfully varying parameters.
+diff --git a/cbp b/cbp
+new file mode 100755
+index 0000000..dc0691b
+Binary files /dev/null and b/cbp differ
+diff --git a/cond_branch_predictor_interface.cc b/cond_branch_predictor_interface.cc
+index b189157..7240fc0 100644
+--- a/cond_branch_predictor_interface.cc
++++ b/cond_branch_predictor_interface.cc
+@@ -115,6 +115,7 @@ void spec_update(uint64_t seq_no, uint8_t piece, uint64_t pc, InstClass inst_cla
+ // For the sample predictor implementation, we do not leverage decode information
+ void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
+ {
++    cond_predictor_impl.notify_instr_decode(seq_no, piece, _decode_info);
+ }
+ 
+ //
+@@ -137,6 +138,7 @@ void notify_agen_complete(uint64_t seq_no, uint8_t piece, uint64_t pc, const Dec
+ // At the moment, we do not consider updating any other structure, but the contestants are allowed to  update any other predictor state.
+ void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
+ {
++    cond_predictor_impl.notify_instr_execute_resolve(seq_no, piece, _exec_info);
+     const bool is_branch = is_br(_exec_info.dec_info.insn_class);
+     if(is_branch)
+     {
+diff --git a/cond_branch_predictor_interface.o b/cond_branch_predictor_interface.o
+new file mode 100644
+index 0000000..e714386
+Binary files /dev/null and b/cond_branch_predictor_interface.o differ
+diff --git a/fix.py b/fix.py
+new file mode 100644
+index 0000000..7bdd8e0
+--- /dev/null
++++ b/fix.py
+@@ -0,0 +1,243 @@
++content = """#ifndef _PREDICTOR_H_
++#define _PREDICTOR_H_
++
++#include <stdlib.h>
++#include <stdint.h>
++#include <unordered_map>
++#include <vector>
++#include <cassert>
++#include "sr_params.h"
++
++struct SampleHist {
++    uint64_t ghist;
++    bool tage_pred;
++    SampleHist() { ghist = 0; }
++};
++
++struct RegStatus {
++    bool valid;
++    uint16_t payload; 
++    uint16_t decay_ctr;
++    RegStatus() : valid(false), payload(0), decay_ctr(0) {}
++};
++
++class SampleCondPredictor {
++public:
++    SampleHist active_hist;
++    std::unordered_map<uint64_t, SampleHist> pred_time_histories;
++    
++    bool sr_enabled;
++    std::vector<RegStatus> reg_status_table;
++    
++    int8_t WT0[SR_NUM_BANKS][512];
++    int8_t WT1[SR_NUM_BANKS][256];
++    int8_t WT2[SR_NUM_BANKS][128];
++    
++    int8_t UT0[SR_NUM_BANKS][8][SR_NUM_LOGICAL_REGS];
++    int8_t UT1[SR_NUM_BANKS][8][SR_NUM_LOGICAL_REGS];
++    int8_t UT2[SR_NUM_BANKS][8][SR_NUM_LOGICAL_REGS];
++    
++    struct PredState {
++        int best_regs[SR_NUM_BANKS]; 
++        uint16_t digests[SR_NUM_BANKS];
++        bool valid_at_pred[SR_NUM_BANKS][SR_NUM_LOGICAL_REGS]; 
++    };
++    std::unordered_map<uint64_t, PredState> sR_pred_state;
++
++    SampleCondPredictor() {
++        reg_status_table.resize(SR_NUM_LOGICAL_REGS);
++        for(int b=0; b<SR_NUM_BANKS; ++b) {
++            for(int i=0; i<512; ++i) WT0[b][i] = 0;
++            for(int i=0; i<256; ++i) WT1[b][i] = 0;
++            for(int i=0; i<128; ++i) WT2[b][i] = 0;
++            for(int i=0; i<8; ++i) {
++                for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                    UT0[b][i][r] = 0;
++                    UT1[b][i][r] = 0;
++                    UT2[b][i][r] = 0;
++                }
++            }
++        }
++    }
++
++    void setup() {
++        const char* e = getenv("SR_SR_ENABLE");
++        sr_enabled = (e != nullptr && e[0] == '1');
++    }
++
++    void terminate() {}
++
++    uint16_t generate_digest(uint64_t val, uint64_t dest_reg) {
++        int reg_type;
++        if (dest_reg < 32) reg_type = 0;
++        else if (dest_reg < 64) reg_type = 3;
++        else reg_type = 4;
++        
++        if (reg_type == 0) {
++            int trailing_count = 0;
++            int leading_count = 0;
++            if (val == 0) {
++                trailing_count = 64; leading_count = 64;
++            } else if (val == 0xFFFFFFFFFFFFFFFFULL) {
++                trailing_count = 64; leading_count = 64;
++            } else {
++                uint64_t lsb = val & 1;
++                uint64_t t = lsb ? ~val : val;
++                trailing_count = __builtin_ctzll(t);
++                
++                uint64_t msb = val >> 63;
++                uint64_t l = msb ? ~val : val;
++                leading_count = __builtin_clzll(l);
++            }
++            
++            if (SR_ALGORITHMS_0_PSEUDOCODE_VARIANT_2 == 0) {
++                if (trailing_count > 63) trailing_count = 63;
++                if (leading_count > 63) leading_count = 63;
++            }
++            
++            uint64_t lsb6 = val & 0x3F;
++            uint16_t digest = (trailing_count & 0x3F) ^ ((leading_count & 0x3F) << 3) ^ ((lsb6 & 0x3F) << 6);
++            return digest & 0xFFF;
++        }
++        else if (reg_type == 3) {
++            return ((val >> 55) & 0x1FF) << 3;
++        }
++        else if (reg_type == 4) {
++            uint64_t flag4 = val & 0xF;
++            return flag4 | (flag4 << 4) | (flag4 << 8);
++        }
++        return 0;
++    }
++
++    void notify_instr_decode(uint64_t seq_no, uint8_t piece, const DecodeInfo& _decode_info) {
++        if (!sr_enabled) return;
++        if (_decode_info.dst_reg_info.has_value()) {
++            uint64_t dest_reg = _decode_info.dst_reg_info.value();
++            if (dest_reg < SR_NUM_LOGICAL_REGS) {
++                reg_status_table[dest_reg].valid = false;
++                reg_status_table[dest_reg].payload = get_unique_inst_id(seq_no, piece) & 0x3FFF;
++                reg_status_table[dest_reg].decay_ctr = 0;
++            }
++        }
++        for(int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++            if (reg_status_table[r].valid) {
++                if (reg_status_table[r].decay_ctr < SR_DECAY_THRESHOLD_INSTS - 1) {
++                    reg_status_table[r].decay_ctr++;
++                } else if (reg_status_table[r].decay_ctr == SR_DECAY_THRESHOLD_INSTS - 1) {
++                    reg_status_table[r].decay_ctr++;
++                    reg_status_table[r].valid = false;
++                }
++            }
++        }
++    }
++
++    void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, const ExecuteInfo& _exec_info) {
++        if (!sr_enabled) return;
++        if (_exec_info.dst_reg_value.has_value() && _exec_info.dec_info.dst_reg_info.has_value()) {
++            uint64_t dest_reg = _exec_info.dec_info.dst_reg_info.value();
++            uint64_t val = _exec_info.dst_reg_value.value();
++            uint16_t rob_tag = get_unique_inst_id(seq_no, piece) & 0x3FFF;
++            
++            if (dest_reg < SR_NUM_LOGICAL_REGS) {
++                if (!reg_status_table[dest_reg].valid && reg_status_table[dest_reg].payload == rob_tag) {
++                    reg_status_table[dest_reg].payload = generate_digest(val, dest_reg);
++                    reg_status_table[dest_reg].valid = true;
++                    reg_status_table[dest_reg].decay_ctr = 0;
++                }
++            }
++        }
++    }
++
++    uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const {
++        assert(piece < 16);
++        return (seq_no << 4) | (piece & 0x000F);
++    }
++
++    int hash_ut0(uint64_t PC, int bank) { return (PC ^ bank) % 8; }
++    int hash_ut1(uint64_t PC, int bank) { return (PC ^ (bank << 1)) % 8; }
++    int hash_ut2(uint64_t PC, int bank) { return (PC ^ (bank << 2)) % 8; }
++    int hash_wt0(uint64_t PC, uint16_t digest) { return (PC ^ digest) % 512; }
++    int hash_wt1(uint64_t PC, uint16_t digest) { return (PC ^ (digest << 1)) % 256; }
++    int hash_wt2(uint64_t PC, uint16_t digest) { return (PC ^ (digest << 2)) % 128; }
++
++    bool predict(uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred) {
++        active_hist.tage_pred = tage_pred;
++        pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++        const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true);
++        return pred_taken;
++    }
++
++    bool predict_using_given_hist(uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict) {
++        if (!sr_enabled) return hist_to_use.tage_pred;
++        
++        int sR_sum = 0;
++        PredState st;
++        for(int b=0; b<SR_NUM_BANKS; ++b) {
++            st.best_regs[b] = -1;
++            st.digests[b] = 0;
++            for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) st.valid_at_pred[b][r] = false;
++            
++            int best_reg = -1;
++            int best_usefulness = -999999;
++            int idx0 = hash_ut0(PC, b);
++            int idx1 = hash_ut1(PC, b);
++            int idx2 = hash_ut2(PC, b);
++            
++            for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                if (r % 8 == b && reg_status_table[r].valid) {
++                    st.valid_at_pred[b][r] = true;
++                    int u = UT0[b][idx0][r] + UT1[b][idx1][r] + UT2[b][idx2][r];
++                    if (u > best_usefulness) {
++                        best_usefulness = u;
++                        best_reg = r;
++                    }
++                }
++            }
++            st.best_regs[b] = best_reg;
++            
++            int bank_contrib = 0;
++            if (best_reg != -1) {
++                st.digests[b] = reg_status_table[best_reg].payload & 0xFFF;
++                if (best_usefulness > 0) {
++                    uint16_t digest = st.digests[b];
++                    int h0 = hash_wt0(PC, digest);
++                    int h1 = hash_wt1(PC, digest);
++                    int h2 = hash_wt2(PC, digest);
++                    int raw_wt_sum = WT0[b][h0] + WT1[b][h1] + WT2[b][h2];
++                    bank_contrib = (raw_wt_sum * 5) / 2;
++                }
++            }
++            sR_sum += bank_contrib;
++        }
++        
++        if (pred_time_predict) {
++            sR_pred_state[get_unique_inst_id(seq_no, piece)] = st;
++        }
++        
++        if (sR_sum > 0) return true;
++        if (sR_sum < 0) return false;
++        
++        return hist_to_use.tage_pred;
++    }
++
++    void history_update(uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC) {
++        active_hist.ghist = active_hist.ghist << 1;
++        if(taken) active_hist.ghist |= 1;
++    }
++
++    void update(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC) {
++        const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++        const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++        update(PC, resolveDir, predDir, nextPC, pred_time_history);
++        pred_time_histories.erase(pred_hist_key);
++    }
++
++    void update(uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use) {
++    }
++};
++
++#endif
++static SampleCondPredictor cond_predictor_impl;
++"""
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/fix_predict.py b/fix_predict.py
+new file mode 100644
+index 0000000..b9e827e
+--- /dev/null
++++ b/fix_predict.py
+@@ -0,0 +1,16 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++old_predict = """        if (sR_sum > 0) return true;
++        if (sR_sum < 0) return false;
++        
++        return hist_to_use.tage_pred;"""
++
++new_predict = """        if (hist_to_use.tage_pred == false && sR_sum >= 20) return true;
++        if (hist_to_use.tage_pred == true && sR_sum <= -20) return false;
++        return hist_to_use.tage_pred;"""
++
++content = content.replace(old_predict, new_predict)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_predict2.py b/fix_predict2.py
+new file mode 100644
+index 0000000..b221cde
+--- /dev/null
++++ b/fix_predict2.py
+@@ -0,0 +1,9 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++old_update = "if (pred_time_history.tage_pred != resolveDir) {"
++new_update = "if (true) {"
++content = content.replace(old_update, new_update)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_update.py b/fix_update.py
+new file mode 100644
+index 0000000..dc82d98
+--- /dev/null
++++ b/fix_update.py
+@@ -0,0 +1,41 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++# Replace PredState struct
++old_pred_state = """    struct PredState {
++        int best_regs[SR_NUM_BANKS]; 
++        uint16_t digests[SR_NUM_BANKS];
++        bool valid_at_pred[SR_NUM_BANKS][SR_NUM_LOGICAL_REGS]; 
++    };"""
++
++new_pred_state = """    struct PredState {
++        int best_regs[SR_NUM_BANKS]; 
++        uint16_t digests[SR_NUM_BANKS];
++        bool valid_at_pred[SR_NUM_BANKS][SR_NUM_LOGICAL_REGS]; 
++        uint16_t all_digests[SR_NUM_BANKS][SR_NUM_LOGICAL_REGS];
++    };"""
++content = content.replace(old_pred_state, new_pred_state)
++
++# Replace the loop in predict_using_given_hist
++old_loop = """                if (r % 8 == b && reg_status_table[r].valid) {
++                    st.valid_at_pred[b][r] = true;
++                    int u = UT0[b][idx0][r] + UT1[b][idx1][r] + UT2[b][idx2][r];"""
++new_loop = """                if (r % 8 == b && reg_status_table[r].valid) {
++                    st.valid_at_pred[b][r] = true;
++                    st.all_digests[b][r] = reg_status_table[r].payload & 0xFFF;
++                    int u = UT0[b][idx0][r] + UT1[b][idx1][r] + UT2[b][idx2][r];"""
++content = content.replace(old_loop, new_loop)
++
++# Add sat helper
++sat_func = """
++    int8_t sat(int8_t v) {
++        if (v > 31) return 31;
++        if (v < -32) return -32;
++        return v;
++    }
++
++    void update"""
++content = content.replace("    void update", sat_func, 1)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_update2.py b/fix_update2.py
+new file mode 100644
+index 0000000..6b9a86a
+--- /dev/null
++++ b/fix_update2.py
+@@ -0,0 +1,61 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++old_update = """    void update(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC) {
++        const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++        const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++        update(PC, resolveDir, predDir, nextPC, pred_time_history);
++        pred_time_histories.erase(pred_hist_key);
++    }"""
++
++new_update = """    void update(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC) {
++        const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++        const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++        
++        if (sr_enabled) {
++            auto it = sR_pred_state.find(pred_hist_key);
++            if (it != sR_pred_state.end()) {
++                PredState st = it->second;
++                // Update on mispredict
++                if (predDir != resolveDir) {
++                    for(int b=0; b<SR_NUM_BANKS; ++b) {
++                        std::vector<int> avail;
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                            if (st.valid_at_pred[b][r]) avail.push_back(r);
++                        }
++                        if (avail.empty()) continue;
++                        
++                        int r_train = avail[(PC + b) % avail.size()];
++                        uint16_t digest = st.all_digests[b][r_train];
++                        
++                        int h0 = hash_wt0(PC, digest);
++                        int h1 = hash_wt1(PC, digest);
++                        int h2 = hash_wt2(PC, digest);
++                        
++                        int8_t delta = resolveDir ? 1 : -1;
++                        WT0[b][h0] = sat(WT0[b][h0] + delta);
++                        WT1[b][h1] = sat(WT1[b][h1] + delta);
++                        WT2[b][h2] = sat(WT2[b][h2] + delta);
++                        
++                        int idx0 = hash_ut0(PC, b);
++                        int idx1 = hash_ut1(PC, b);
++                        int idx2 = hash_ut2(PC, b);
++                        
++                        bool pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;
++                        int8_t u_delta = pred_agrees ? 1 : -1;
++                        UT0[b][idx0][r_train] = sat(UT0[b][idx0][r_train] + u_delta);
++                        UT1[b][idx1][r_train] = sat(UT1[b][idx1][r_train] + u_delta);
++                        UT2[b][idx2][r_train] = sat(UT2[b][idx2][r_train] + u_delta);
++                    }
++                }
++                sR_pred_state.erase(it);
++            }
++        }
++        
++        update(PC, resolveDir, predDir, nextPC, pred_time_history);
++        pred_time_histories.erase(pred_hist_key);
++    }"""
++content = content.replace(old_update, new_update)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_update3.py b/fix_update3.py
+new file mode 100644
+index 0000000..a5831bb
+--- /dev/null
++++ b/fix_update3.py
+@@ -0,0 +1,28 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++old_code = """                        int8_t delta = resolveDir ? 1 : -1;
++                        WT0[b][h0] = sat(WT0[b][h0] + delta);
++                        WT1[b][h1] = sat(WT1[b][h1] + delta);
++                        WT2[b][h2] = sat(WT2[b][h2] + delta);
++                        
++                        int idx0 = hash_ut0(PC, b);
++                        int idx1 = hash_ut1(PC, b);
++                        int idx2 = hash_ut2(PC, b);
++                        
++                        bool pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;"""
++
++new_code = """                        int8_t delta = resolveDir ? 1 : -1;
++                        bool pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;
++                        
++                        WT0[b][h0] = sat(WT0[b][h0] + delta);
++                        WT1[b][h1] = sat(WT1[b][h1] + delta);
++                        WT2[b][h2] = sat(WT2[b][h2] + delta);
++                        
++                        int idx0 = hash_ut0(PC, b);
++                        int idx1 = hash_ut1(PC, b);
++                        int idx2 = hash_ut2(PC, b);"""
++
++content = content.replace(old_code, new_code)
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_update4.py b/fix_update4.py
+new file mode 100644
+index 0000000..d8c24ff
+--- /dev/null
++++ b/fix_update4.py
+@@ -0,0 +1,6 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++content = content.replace("if (true) {", "if (predDir != resolveDir || (sR_sum >= -10 && sR_sum <= 10)) {")
++# Wait, sR_sum isn't available in update.
++# I must check it at predict time, but I only override if sR_sum is confident.
+diff --git a/fix_update5.py b/fix_update5.py
+new file mode 100644
+index 0000000..7ce2031
+--- /dev/null
++++ b/fix_update5.py
+@@ -0,0 +1,9 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++old_update = "if (predDir != resolveDir) {"
++new_update = "if (pred_time_history.tage_pred != resolveDir) {"
++content = content.replace(old_update, new_update)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_update6.py b/fix_update6.py
+new file mode 100644
+index 0000000..f690d73
+--- /dev/null
++++ b/fix_update6.py
+@@ -0,0 +1,20 @@
++import sys
++content = open('my_cond_branch_predictor.h').read()
++
++old_pred_agrees = "bool pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;"
++new_pred_agrees = """
++                        bool pred_agrees;
++                        if (SR_ALGORITHMS_4_PSEUDOCODE_VARIANT == 0) { // sampled_pred_correct
++                            pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;
++                        } else if (SR_ALGORITHMS_4_PSEUDOCODE_VARIANT == 1) { // sc_correct
++                            pred_agrees = (pred_time_history.tage_pred == resolveDir);
++                        } else if (SR_ALGORITHMS_4_PSEUDOCODE_VARIANT == 2) { // sc_override_correct
++                            pred_agrees = (predDir == resolveDir);
++                        } else { // bank_agree_actual
++                            pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;
++                        }
++"""
++content = content.replace(old_pred_agrees, new_pred_agrees)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/lib/bp.o b/lib/bp.o
+new file mode 100644
+index 0000000..63cebd4
+Binary files /dev/null and b/lib/bp.o differ
+diff --git a/lib/cache.o b/lib/cache.o
+new file mode 100644
+index 0000000..a9c7fe4
+Binary files /dev/null and b/lib/cache.o differ
+diff --git a/lib/cbp.o b/lib/cbp.o
+new file mode 100644
+index 0000000..d80a68d
+Binary files /dev/null and b/lib/cbp.o differ
+diff --git a/lib/gzstream.o b/lib/gzstream.o
+new file mode 100644
+index 0000000..fb2a0c7
+Binary files /dev/null and b/lib/gzstream.o differ
+diff --git a/lib/libcbp.a b/lib/libcbp.a
+new file mode 100644
+index 0000000..9c321e3
+Binary files /dev/null and b/lib/libcbp.a differ
+diff --git a/lib/my_value_predictor.o b/lib/my_value_predictor.o
+new file mode 100644
+index 0000000..3013868
+Binary files /dev/null and b/lib/my_value_predictor.o differ
+diff --git a/lib/parameters.o b/lib/parameters.o
+new file mode 100644
+index 0000000..ae0f97c
+Binary files /dev/null and b/lib/parameters.o differ
+diff --git a/lib/resource_schedule.o b/lib/resource_schedule.o
+new file mode 100644
+index 0000000..1a67bef
+Binary files /dev/null and b/lib/resource_schedule.o differ
+diff --git a/lib/uarchsim.o b/lib/uarchsim.o
+new file mode 100644
+index 0000000..1157d01
+Binary files /dev/null and b/lib/uarchsim.o differ
+diff --git a/my_cond_branch_predictor.h b/my_cond_branch_predictor.h
+index e96ebb8..c90c228 100644
+--- a/my_cond_branch_predictor.h
++++ b/my_cond_branch_predictor.h
+@@ -2,82 +2,299 @@
+ #define _PREDICTOR_H_
+ 
+ #include <stdlib.h>
++#include <stdint.h>
++#include <unordered_map>
++#include <vector>
++#include <cassert>
++#include "sr_params.h"
+ 
+-struct SampleHist
+-{
+-      uint64_t ghist;
+-      bool tage_pred;
+-      //
+-      SampleHist()
+-      {
+-          ghist = 0;
+-      }
++struct SampleHist {
++    uint64_t ghist;
++    bool tage_pred;
++    SampleHist() { ghist = 0; }
+ };
+ 
++struct RegStatus {
++    bool valid;
++    uint16_t payload; 
++    uint16_t decay_ctr;
++    RegStatus() : valid(false), payload(0), decay_ctr(0) {}
++};
+ 
+-class SampleCondPredictor
+-{
+-        SampleHist active_hist;
+-        std::unordered_map<uint64_t/*key*/, SampleHist/*val*/> pred_time_histories;
+-    public:
++class SampleCondPredictor {
++public:
++    SampleHist active_hist;
++    std::unordered_map<uint64_t, SampleHist> pred_time_histories;
++    
++    bool sr_enabled;
++    std::vector<RegStatus> reg_status_table;
++    
++    int8_t WT0[SR_NUM_BANKS][512];
++    int8_t WT1[SR_NUM_BANKS][256];
++    int8_t WT2[SR_NUM_BANKS][128];
++    
++    int8_t UT0[SR_NUM_BANKS][8][SR_NUM_LOGICAL_REGS];
++    int8_t UT1[SR_NUM_BANKS][8][SR_NUM_LOGICAL_REGS];
++    int8_t UT2[SR_NUM_BANKS][8][SR_NUM_LOGICAL_REGS];
++    
++    struct PredState {
++        int best_regs[SR_NUM_BANKS]; 
++        uint16_t digests[SR_NUM_BANKS];
++        bool valid_at_pred[SR_NUM_BANKS][SR_NUM_LOGICAL_REGS]; 
++        uint16_t all_digests[SR_NUM_BANKS][SR_NUM_LOGICAL_REGS];
++    };
++    std::unordered_map<uint64_t, PredState> sR_pred_state;
+ 
+-        SampleCondPredictor (void)
+-        {
++    SampleCondPredictor() {
++        reg_status_table.resize(SR_NUM_LOGICAL_REGS);
++        for(int b=0; b<SR_NUM_BANKS; ++b) {
++            for(int i=0; i<512; ++i) WT0[b][i] = 0;
++            for(int i=0; i<256; ++i) WT1[b][i] = 0;
++            for(int i=0; i<128; ++i) WT2[b][i] = 0;
++            for(int i=0; i<8; ++i) {
++                for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                    UT0[b][i][r] = 0;
++                    UT1[b][i][r] = 0;
++                    UT2[b][i][r] = 0;
++                }
++            }
+         }
++    }
+ 
+-        void setup()
+-        {
+-        }
++    void setup() {
++        const char* e = getenv("SR_SR_ENABLE");
++        sr_enabled = (e != nullptr && e[0] == '1');
++    }
+ 
+-        void terminate()
+-        {
+-        }
++    void terminate() {}
+ 
+-        // sample function to get unique instruction id
+-        uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
+-        {
+-            assert(piece < 16);
+-            return (seq_no << 4) | (piece & 0x000F);
++    uint16_t generate_digest(uint64_t val, uint64_t dest_reg) {
++        int reg_type;
++        if (dest_reg < 32) reg_type = 0;
++        else if (dest_reg < 64) reg_type = 3;
++        else reg_type = 4;
++        
++        if (reg_type == 0) {
++            int trailing_count = 0;
++            int leading_count = 0;
++            if (val == 0) {
++                trailing_count = 64; leading_count = 64;
++            } else if (val == 0xFFFFFFFFFFFFFFFFULL) {
++                trailing_count = 64; leading_count = 64;
++            } else {
++                uint64_t lsb = val & 1;
++                uint64_t t = lsb ? ~val : val;
++                trailing_count = __builtin_ctzll(t);
++                
++                uint64_t msb = val >> 63;
++                uint64_t l = msb ? ~val : val;
++                leading_count = __builtin_clzll(l);
++            }
++            
++            if (SR_ALGORITHMS_0_PSEUDOCODE_VARIANT_2 == 0) {
++                if (trailing_count > 63) trailing_count = 63;
++                if (leading_count > 63) leading_count = 63;
++            }
++            
++            uint64_t lsb6 = val & 0x3F;
++            uint16_t digest = (trailing_count & 0x3F) ^ ((leading_count & 0x3F) << 3) ^ ((lsb6 & 0x3F) << 6);
++            return digest & 0xFFF;
+         }
+-
+-        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
+-        {
+-            active_hist.tage_pred = tage_pred;
+-            // checkpoint current hist
+-            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
+-            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
+-            return pred_taken;
++        else if (reg_type == 3) {
++            return ((val >> 55) & 0x1FF) << 3;
++        }
++        else if (reg_type == 4) {
++            uint64_t flag4 = val & 0xF;
++            return flag4 | (flag4 << 4) | (flag4 << 8);
+         }
++        return 0;
++    }
+ 
+-        bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict)
+-        {
+-            return hist_to_use.tage_pred;
++    void notify_instr_decode(uint64_t seq_no, uint8_t piece, const DecodeInfo& _decode_info) {
++        if (!sr_enabled) return;
++        if (_decode_info.dst_reg_info.has_value()) {
++            uint64_t dest_reg = _decode_info.dst_reg_info.value();
++            if (dest_reg < SR_NUM_LOGICAL_REGS) {
++                reg_status_table[dest_reg].valid = false;
++                reg_status_table[dest_reg].payload = get_unique_inst_id(seq_no, piece) & 0x3FFF;
++                reg_status_table[dest_reg].decay_ctr = 0;
++            }
+         }
++        for(int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++            if (reg_status_table[r].valid) {
++                if (reg_status_table[r].decay_ctr < SR_DECAY_THRESHOLD_INSTS - 1) {
++                    reg_status_table[r].decay_ctr++;
++                } else if (reg_status_table[r].decay_ctr == SR_DECAY_THRESHOLD_INSTS - 1) {
++                    reg_status_table[r].decay_ctr++;
++                    reg_status_table[r].valid = false;
++                }
++            }
++        }
++    }
+ 
+-        void history_update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC)
+-        {
+-            active_hist.ghist = active_hist.ghist << 1;
+-            if(taken)
+-            {
+-                active_hist.ghist |= 1;
++    void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, const ExecuteInfo& _exec_info) {
++        if (!sr_enabled) return;
++        if (_exec_info.dst_reg_value.has_value() && _exec_info.dec_info.dst_reg_info.has_value()) {
++            uint64_t dest_reg = _exec_info.dec_info.dst_reg_info.value();
++            uint64_t val = _exec_info.dst_reg_value.value();
++            uint16_t rob_tag = get_unique_inst_id(seq_no, piece) & 0x3FFF;
++            
++            if (dest_reg < SR_NUM_LOGICAL_REGS) {
++                if (!reg_status_table[dest_reg].valid && reg_status_table[dest_reg].payload == rob_tag) {
++                    reg_status_table[dest_reg].payload = generate_digest(val, dest_reg);
++                    reg_status_table[dest_reg].valid = true;
++                    reg_status_table[dest_reg].decay_ctr = 0;
++                }
+             }
+         }
++    }
++
++    uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const {
++        assert(piece < 16);
++        return (seq_no << 4) | (piece & 0x000F);
++    }
+ 
+-        void update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC)
+-        {
+-            const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
+-            const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
+-            update(PC, resolveDir, predDir, nextPC, pred_time_history);
+-            pred_time_histories.erase(pred_hist_key);
++    int hash_ut0(uint64_t PC, int bank) { return (PC ^ bank) % 8; }
++    int hash_ut1(uint64_t PC, int bank) { return (PC ^ (bank << 1)) % 8; }
++    int hash_ut2(uint64_t PC, int bank) { return (PC ^ (bank << 2)) % 8; }
++    int hash_wt0(uint64_t PC, uint16_t digest) { return (PC ^ digest) % 512; }
++    int hash_wt1(uint64_t PC, uint16_t digest) { return (PC ^ (digest << 1)) % 256; }
++    int hash_wt2(uint64_t PC, uint16_t digest) { return (PC ^ (digest << 2)) % 128; }
++
++    bool predict(uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred) {
++        active_hist.tage_pred = tage_pred;
++        pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++        const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true);
++        return pred_taken;
++    }
++
++    bool predict_using_given_hist(uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict) {
++        if (!sr_enabled) return hist_to_use.tage_pred;
++        
++        int sR_sum = 0;
++        PredState st;
++        for(int b=0; b<SR_NUM_BANKS; ++b) {
++            st.best_regs[b] = -1;
++            st.digests[b] = 0;
++            for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) st.valid_at_pred[b][r] = false;
++            
++            int best_reg = -1;
++            int best_usefulness = -999999;
++            int idx0 = hash_ut0(PC, b);
++            int idx1 = hash_ut1(PC, b);
++            int idx2 = hash_ut2(PC, b);
++            
++            for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                if (r % 8 == b && reg_status_table[r].valid) {
++                    st.valid_at_pred[b][r] = true;
++                    st.all_digests[b][r] = reg_status_table[r].payload & 0xFFF;
++                    int u = UT0[b][idx0][r] + UT1[b][idx1][r] + UT2[b][idx2][r];
++                    if (u > best_usefulness) {
++                        best_usefulness = u;
++                        best_reg = r;
++                    }
++                }
++            }
++            st.best_regs[b] = best_reg;
++            
++            int bank_contrib = 0;
++            if (best_reg != -1) {
++                st.digests[b] = reg_status_table[best_reg].payload & 0xFFF;
++                if (best_usefulness > 0) {
++                    uint16_t digest = st.digests[b];
++                    int h0 = hash_wt0(PC, digest);
++                    int h1 = hash_wt1(PC, digest);
++                    int h2 = hash_wt2(PC, digest);
++                    int raw_wt_sum = WT0[b][h0] + WT1[b][h1] + WT2[b][h2];
++                    bank_contrib = (raw_wt_sum * 5) / 2;
++                }
++            }
++            sR_sum += bank_contrib;
++        }
++        
++        if (pred_time_predict) {
++            sR_pred_state[get_unique_inst_id(seq_no, piece)] = st;
+         }
++        
++        if (hist_to_use.tage_pred == false && sR_sum >= 20) return true;
++        if (hist_to_use.tage_pred == true && sR_sum <= -20) return false;
++        return hist_to_use.tage_pred;
++    }
++
++    void history_update(uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC) {
++        active_hist.ghist = active_hist.ghist << 1;
++        if(taken) active_hist.ghist |= 1;
++    }
+ 
+-        void update (uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use)
+-        {
++
++    int8_t sat(int8_t v) {
++        if (v > 31) return 31;
++        if (v < -32) return -32;
++        return v;
++    }
++
++    void update(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC) {
++        const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++        const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++        
++        if (sr_enabled) {
++            auto it = sR_pred_state.find(pred_hist_key);
++            if (it != sR_pred_state.end()) {
++                PredState st = it->second;
++                // Update on mispredict
++                if (true) {
++                    for(int b=0; b<SR_NUM_BANKS; ++b) {
++                        std::vector<int> avail;
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                            if (st.valid_at_pred[b][r]) avail.push_back(r);
++                        }
++                        if (avail.empty()) continue;
++                        
++                        int r_train = avail[(PC + b) % avail.size()];
++                        uint16_t digest = st.all_digests[b][r_train];
++                        
++                        int h0 = hash_wt0(PC, digest);
++                        int h1 = hash_wt1(PC, digest);
++                        int h2 = hash_wt2(PC, digest);
++                        
++                        int8_t delta = resolveDir ? 1 : -1;
++                        
++                        bool pred_agrees;
++                        if (SR_ALGORITHMS_4_PSEUDOCODE_VARIANT == 0) { // sampled_pred_correct
++                            pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;
++                        } else if (SR_ALGORITHMS_4_PSEUDOCODE_VARIANT == 1) { // sc_correct
++                            pred_agrees = (pred_time_history.tage_pred == resolveDir);
++                        } else if (SR_ALGORITHMS_4_PSEUDOCODE_VARIANT == 2) { // sc_override_correct
++                            pred_agrees = (predDir == resolveDir);
++                        } else { // bank_agree_actual
++                            pred_agrees = ((WT0[b][h0] + WT1[b][h1] + WT2[b][h2]) >= 0) == resolveDir;
++                        }
++
++                        
++                        WT0[b][h0] = sat(WT0[b][h0] + delta);
++                        WT1[b][h1] = sat(WT1[b][h1] + delta);
++                        WT2[b][h2] = sat(WT2[b][h2] + delta);
++                        
++                        int idx0 = hash_ut0(PC, b);
++                        int idx1 = hash_ut1(PC, b);
++                        int idx2 = hash_ut2(PC, b);
++                        int8_t u_delta = pred_agrees ? 1 : -1;
++                        UT0[b][idx0][r_train] = sat(UT0[b][idx0][r_train] + u_delta);
++                        UT1[b][idx1][r_train] = sat(UT1[b][idx1][r_train] + u_delta);
++                        UT2[b][idx2][r_train] = sat(UT2[b][idx2][r_train] + u_delta);
++                    }
++                }
++                sR_pred_state.erase(it);
++            }
+         }
++        
++        update(PC, resolveDir, predDir, nextPC, pred_time_history);
++        pred_time_histories.erase(pred_hist_key);
++    }
++
++    void update(uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use) {
++    }
+ };
+-// =================
+-// Predictor End
+-// =================
+ 
+ #endif
+ static SampleCondPredictor cond_predictor_impl;
+diff --git a/my_cond_branch_predictor.h.append b/my_cond_branch_predictor.h.append
+new file mode 100644
+index 0000000..d12f53b
+--- /dev/null
++++ b/my_cond_branch_predictor.h.append
+@@ -0,0 +1,7 @@
++    int hash_ut0(uint64_t PC, int bank) { return (PC ^ bank) % 8; }
++    int hash_ut1(uint64_t PC, int bank) { return (PC ^ (bank << 1)) % 8; }
++    int hash_ut2(uint64_t PC, int bank) { return (PC ^ (bank << 2)) % 8; }
++
++    int hash_wt0(uint64_t PC, uint16_t digest) { return (PC ^ digest) % 512; }
++    int hash_wt1(uint64_t PC, uint16_t digest) { return (PC ^ (digest << 1)) % 256; }
++    int hash_wt2(uint64_t PC, uint16_t digest) { return (PC ^ (digest << 2)) % 128; }
+diff --git a/my_cond_branch_predictor.h.dbg b/my_cond_branch_predictor.h.dbg
+new file mode 100644
+index 0000000..1900dae
+--- /dev/null
++++ b/my_cond_branch_predictor.h.dbg
+@@ -0,0 +1,27 @@
++#ifndef _PREDICTOR_H_
++#define _PREDICTOR_H_
++
++#include <stdlib.h>
++#include <stdint.h>
++#include <unordered_map>
++#include <vector>
++#include <cassert>
++#include "sr_params.h"
++
++struct SampleHist {
++    uint64_t ghist;
++    bool tage_pred;
++    SampleHist() { ghist = 0; }
++};
++
++struct RegStatus {
++    bool valid;
++    uint16_t payload; 
++    uint16_t decay_ctr;
++    RegStatus() : valid(false), payload(0), decay_ctr(0) {}
++};
++
++extern std::unordered_map<int, int> sr_sum_dist;
++
++class SampleCondPredictor {
++// ... same as before, but print distribution at the end
+diff --git a/my_cond_branch_predictor.h.patch b/my_cond_branch_predictor.h.patch
+new file mode 100644
+index 0000000..d30bffe
+--- /dev/null
++++ b/my_cond_branch_predictor.h.patch
+@@ -0,0 +1,62 @@
++--- my_cond_branch_predictor.h
+++++ my_cond_branch_predictor.h
++@@ -21,7 +21,7 @@
++ struct RegStatus {
++     bool valid;
++     uint16_t payload; // holds 14-bit rob_tag or 12-bit digest
++-    uint8_t decay_ctr;
+++    uint16_t decay_ctr;
++     RegStatus() : valid(false), payload(0), decay_ctr(0) {}
++ };
++ 
++@@ -82,6 +82,75 @@
++         {
++         }
++ 
+++        uint16_t generate_digest(uint64_t val, uint64_t dest_reg) {
+++            // Placeholder for now
+++            return 0;
+++        }
+++
+++        void notify_instr_decode(uint64_t seq_no, uint8_t piece, const DecodeInfo& _decode_info) {
+++            if (!sr_enabled) return;
+++            if (_decode_info.dst_reg_info.has_value()) {
+++                uint64_t dest_reg = _decode_info.dst_reg_info.value();
+++                if (dest_reg < SR_NUM_LOGICAL_REGS) {
+++                    reg_status_table[dest_reg].valid = false;
+++                    reg_status_table[dest_reg].payload = get_unique_inst_id(seq_no, piece) & 0x3FFF;
+++                    reg_status_table[dest_reg].decay_ctr = 0;
+++                }
+++            }
+++            for(int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
+++                if (reg_status_table[r].valid) {
+++                    if (reg_status_table[r].decay_ctr < SR_DECAY_THRESHOLD_INSTS) {
+++                        reg_status_table[r].decay_ctr++;
+++                    }
+++                    if (reg_status_table[r].decay_ctr >= SR_DECAY_THRESHOLD_INSTS) {
+++                        reg_status_table[r].valid = false;
+++                    }
+++                }
+++            }
+++        }
+++
+++        void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, const ExecuteInfo& _exec_info) {
+++            if (!sr_enabled) return;
+++            if (_exec_info.dst_reg_value.has_value() && _exec_info.dec_info.dst_reg_info.has_value()) {
+++                uint64_t dest_reg = _exec_info.dec_info.dst_reg_info.value();
+++                uint64_t val = _exec_info.dst_reg_value.value();
+++                uint16_t rob_tag = get_unique_inst_id(seq_no, piece) & 0x3FFF;
+++                
+++                if (dest_reg < SR_NUM_LOGICAL_REGS) {
+++                    if (!reg_status_table[dest_reg].valid && reg_status_table[dest_reg].payload == rob_tag) {
+++                        reg_status_table[dest_reg].payload = generate_digest(val, dest_reg);
+++                        reg_status_table[dest_reg].valid = true;
+++                        reg_status_table[dest_reg].decay_ctr = 0;
+++                    }
+++                }
+++            }
+++        }
+++
++         // sample function to get unique instruction id
++         uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
++         {
+diff --git a/my_cond_branch_predictor.o b/my_cond_branch_predictor.o
+new file mode 100644
+index 0000000..0ce739f
+Binary files /dev/null and b/my_cond_branch_predictor.o differ
+diff --git a/off.log b/off.log
+new file mode 100644
+index 0000000..1c566a8
+--- /dev/null
++++ b/off.log
+@@ -0,0 +1 @@
++cbp: trace_reader.h:719: bool TraceReader::readInstr(): Assertion `mInstr.mType != InstClass::undefInstClass' failed.
+diff --git a/on.log b/on.log
+new file mode 100644
+index 0000000..1c566a8
+--- /dev/null
++++ b/on.log
+@@ -0,0 +1 @@
++cbp: trace_reader.h:719: bool TraceReader::readInstr(): Assertion `mInstr.mType != InstClass::undefInstClass' failed.
+diff --git a/run_perf.sh b/run_perf.sh
+new file mode 100755
+index 0000000..56f18fc
+--- /dev/null
++++ b/run_perf.sh
+@@ -0,0 +1,7 @@
++#!/bin/bash
++make clean && make -j4 >/dev/null
++echo "Running feature-on..."
++SR_SR_ENABLE=1 ./cbp experiments/perf-4.list > on.log 2>&1
++echo "Running feature-off..."
++SR_SR_ENABLE=0 ./cbp experiments/perf-4.list > off.log 2>&1
++python3 scripts/trace_exec_training_list.py --logs on.log off.log
+diff --git a/sr_params.h b/sr_params.h
+new file mode 100644
+index 0000000..cb663d6
+--- /dev/null
++++ b/sr_params.h
+@@ -0,0 +1,56 @@
++#ifndef SR_PARAMS_H
++#define SR_PARAMS_H
++
++#ifndef SR_NUM_BANKS
++#define SR_NUM_BANKS 8
++#endif
++
++#ifndef SR_NUM_LOGICAL_REGS
++#define SR_NUM_LOGICAL_REGS 65
++#endif
++
++#ifndef SR_DECAY_THRESHOLD_INSTS
++#define SR_DECAY_THRESHOLD_INSTS 256
++#endif
++
++#ifndef SR_DIGEST_WIDTH
++#define SR_DIGEST_WIDTH 12
++#endif
++
++#ifndef SR_WT_WEIGHT_WIDTH
++#define SR_WT_WEIGHT_WIDTH 6
++#endif
++
++#ifndef SR_UT_WEIGHT_WIDTH
++#define SR_UT_WEIGHT_WIDTH 6
++#endif
++
++#ifndef SR_USEFUL_MULTIPLIER
++#define SR_USEFUL_MULTIPLIER 2.5
++#endif
++
++#ifndef SR_ALGORITHMS_0_PSEUDOCODE_VARIANT
++#define SR_ALGORITHMS_0_PSEUDOCODE_VARIANT 0 // choices: align_bit_3|align_bit_0
++#endif
++
++#ifndef SR_ALGORITHMS_0_PSEUDOCODE_VARIANT_2
++#define SR_ALGORITHMS_0_PSEUDOCODE_VARIANT_2 0 // choices: saturate_63|modulo_64|match_sign_bit
++#endif
++
++#ifndef SR_ALGORITHMS_3_PSEUDOCODE_VARIANT
++#define SR_ALGORITHMS_3_PSEUDOCODE_VARIANT 0 // choices: xor_fold|bit_slice|prime_mod
++#endif
++
++#ifndef SR_ALGORITHMS_3_PSEUDOCODE_VARIANT_2
++#define SR_ALGORITHMS_3_PSEUDOCODE_VARIANT_2 0 // choices: xor_hash|concat_fold|crc_hash
++#endif
++
++#ifndef SR_ALGORITHMS_4_PSEUDOCODE_VARIANT
++#define SR_ALGORITHMS_4_PSEUDOCODE_VARIANT 0 // choices: sampled_pred_correct|sc_correct|sc_override_correct|bank_agree_actual
++#endif
++
++#ifndef SR_ALGORITHMS_4_PSEUDOCODE_VARIANT_2
++#define SR_ALGORITHMS_4_PSEUDOCODE_VARIANT_2 0 // choices: xor_fold|prime_mod|crc32|bit_slice
++#endif
++
++#endif // SR_PARAMS_H
+diff --git a/step1_out.txt b/step1_out.txt
+new file mode 100644
+index 0000000..91157f9
+--- /dev/null
++++ b/step1_out.txt
+@@ -0,0 +1,111 @@
++EOF
++WINDOW_SIZE = 1024
++FETCH_WIDTH = 16
++FETCH_NUM_BRANCH = 16
++FETCH_STOP_AT_INDIRECT = 1
++FETCH_STOP_AT_TAKEN = 1
++FETCH_MODEL_ICACHE = 1
++PERFECT_BRANCH_PRED = 0
++PERFECT_INDIRECT_PRED = 1
++PIPELINE_FILL_LATENCY = 10
++NUM_LDST_LANES = 8
++NUM_ALU_LANES = 16
++MEMORY HIERARCHY CONFIGURATION---------------------
++STRIDE Prefetcher = 1
++PERFECT_CACHE = 0
++WRITE_ALLOCATE = 1
++Within-pipeline factors:
++	AGEN latency = 1 cycle
++	Store Queue (SQ): SQ size = window size, oracle memory disambiguation, store-load forwarding = 1 cycle after store's or load's agen.
++	* Note: A store searches the L1$ at commit. The store is released
++	* from the SQ and window, whether it hits or misses. Store misses
++	* are buffered until the block is allocated and the store is
++	* performed in the L1$. While buffered, conflicting loads get
++	* the store's data as they would from the SQ.
++I$: 128 KB, 8-way set-assoc., 64B block size
++L1$: 128 KB, 8-way set-assoc., 64B block size, 3-cycle search latency
++L2$: 4 MB, 8-way set-assoc., 64B block size, 12-cycle search latency
++L3$: 32 MB, 16-way set-assoc., 128B block size, 50-cycle search latency
++Main Memory: 150-cycle fixed search time
++---------------------------STORE QUEUE MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)---------------------------
++Number of loads: 325732
++Number of loads that miss in SQ: 198948 (61.08%)
++Number of PFs issued to the memory system 5341
++---------------------------------------------------------------------------------------------------------------------------------------
++------------------------MEMORY HIERARCHY MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------
++I$:
++	accesses   = 1138403
++	misses     = 310
++	miss ratio = 0.03%
++	pf accesses   = 0
++	pf misses     = 0
++	pf miss ratio = -nan%
++L1$:
++	accesses   = 536590
++	misses     = 1537
++	miss ratio = 0.29%
++	pf accesses   = 5341
++	pf misses     = 475
++	pf miss ratio = 8.89%
++L2$:
++	accesses   = 1847
++	misses     = 1847
++	miss ratio = 100.00%
++	pf accesses   = 475
++	pf misses     = 475
++	pf miss ratio = 100.00%
++L3$:
++	accesses   = 1847
++	misses     = 1507
++	miss ratio = 81.59%
++	pf accesses   = 475
++	pf misses     = 239
++	pf miss ratio = 50.32%
++---------------------------------------------------------------------------------------------------------------------------------------
++----------------------------------------------Prefetcher (Full Simulation i.e. No Warmup)----------------------------------------------
++Num Trainings :325732
++Num Prefetches generated :5341
++Num Prefetches issued :5776
++Num Prefetches filtered by PF queue :0
++Num untimely prefetches dropped from PF queue :0
++Num prefetches not issued LDST contention :435
++Num prefetches not issued stride 0 :172169
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------ILP LIMIT STUDY (Full Simulation i.e. Counts Not Reset When Warmup Ends)--------------------------------
++instructions = 997301
++cycles       = 338411
++CycWP        = 34305
++IPC          = 2.9470
++
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-----------------------------------------------BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)----------------------------------------------
++Type                   NumBr     MispBr        mr     mpki
++CondDirect           128874        264   0.2049%   0.2647
++JumpDirect            25846          0   0.0000%   0.0000
++JumpIndirect          14255          0   0.0000%   0.0000
++JumpReturn            12902          0   0.0000%   0.0000
++Not control          956526          0   0.0000%   0.0000
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 10M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 25M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++---------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (50 Perc instructions)---------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++ Read 997301 instrs 
+diff --git a/step2_out.txt b/step2_out.txt
+new file mode 100644
+index 0000000..91157f9
+--- /dev/null
++++ b/step2_out.txt
+@@ -0,0 +1,111 @@
++EOF
++WINDOW_SIZE = 1024
++FETCH_WIDTH = 16
++FETCH_NUM_BRANCH = 16
++FETCH_STOP_AT_INDIRECT = 1
++FETCH_STOP_AT_TAKEN = 1
++FETCH_MODEL_ICACHE = 1
++PERFECT_BRANCH_PRED = 0
++PERFECT_INDIRECT_PRED = 1
++PIPELINE_FILL_LATENCY = 10
++NUM_LDST_LANES = 8
++NUM_ALU_LANES = 16
++MEMORY HIERARCHY CONFIGURATION---------------------
++STRIDE Prefetcher = 1
++PERFECT_CACHE = 0
++WRITE_ALLOCATE = 1
++Within-pipeline factors:
++	AGEN latency = 1 cycle
++	Store Queue (SQ): SQ size = window size, oracle memory disambiguation, store-load forwarding = 1 cycle after store's or load's agen.
++	* Note: A store searches the L1$ at commit. The store is released
++	* from the SQ and window, whether it hits or misses. Store misses
++	* are buffered until the block is allocated and the store is
++	* performed in the L1$. While buffered, conflicting loads get
++	* the store's data as they would from the SQ.
++I$: 128 KB, 8-way set-assoc., 64B block size
++L1$: 128 KB, 8-way set-assoc., 64B block size, 3-cycle search latency
++L2$: 4 MB, 8-way set-assoc., 64B block size, 12-cycle search latency
++L3$: 32 MB, 16-way set-assoc., 128B block size, 50-cycle search latency
++Main Memory: 150-cycle fixed search time
++---------------------------STORE QUEUE MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)---------------------------
++Number of loads: 325732
++Number of loads that miss in SQ: 198948 (61.08%)
++Number of PFs issued to the memory system 5341
++---------------------------------------------------------------------------------------------------------------------------------------
++------------------------MEMORY HIERARCHY MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------
++I$:
++	accesses   = 1138403
++	misses     = 310
++	miss ratio = 0.03%
++	pf accesses   = 0
++	pf misses     = 0
++	pf miss ratio = -nan%
++L1$:
++	accesses   = 536590
++	misses     = 1537
++	miss ratio = 0.29%
++	pf accesses   = 5341
++	pf misses     = 475
++	pf miss ratio = 8.89%
++L2$:
++	accesses   = 1847
++	misses     = 1847
++	miss ratio = 100.00%
++	pf accesses   = 475
++	pf misses     = 475
++	pf miss ratio = 100.00%
++L3$:
++	accesses   = 1847
++	misses     = 1507
++	miss ratio = 81.59%
++	pf accesses   = 475
++	pf misses     = 239
++	pf miss ratio = 50.32%
++---------------------------------------------------------------------------------------------------------------------------------------
++----------------------------------------------Prefetcher (Full Simulation i.e. No Warmup)----------------------------------------------
++Num Trainings :325732
++Num Prefetches generated :5341
++Num Prefetches issued :5776
++Num Prefetches filtered by PF queue :0
++Num untimely prefetches dropped from PF queue :0
++Num prefetches not issued LDST contention :435
++Num prefetches not issued stride 0 :172169
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------ILP LIMIT STUDY (Full Simulation i.e. Counts Not Reset When Warmup Ends)--------------------------------
++instructions = 997301
++cycles       = 338411
++CycWP        = 34305
++IPC          = 2.9470
++
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-----------------------------------------------BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)----------------------------------------------
++Type                   NumBr     MispBr        mr     mpki
++CondDirect           128874        264   0.2049%   0.2647
++JumpDirect            25846          0   0.0000%   0.0000
++JumpIndirect          14255          0   0.0000%   0.0000
++JumpReturn            12902          0   0.0000%   0.0000
++Not control          956526          0   0.0000%   0.0000
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 10M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 25M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++---------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (50 Perc instructions)---------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++ Read 997301 instrs 
+diff --git a/step4_out.txt b/step4_out.txt
+new file mode 100644
+index 0000000..87a1989
+--- /dev/null
++++ b/step4_out.txt
+@@ -0,0 +1,111 @@
++EOF
++WINDOW_SIZE = 1024
++FETCH_WIDTH = 16
++FETCH_NUM_BRANCH = 16
++FETCH_STOP_AT_INDIRECT = 1
++FETCH_STOP_AT_TAKEN = 1
++FETCH_MODEL_ICACHE = 1
++PERFECT_BRANCH_PRED = 0
++PERFECT_INDIRECT_PRED = 1
++PIPELINE_FILL_LATENCY = 10
++NUM_LDST_LANES = 8
++NUM_ALU_LANES = 16
++MEMORY HIERARCHY CONFIGURATION---------------------
++STRIDE Prefetcher = 1
++PERFECT_CACHE = 0
++WRITE_ALLOCATE = 1
++Within-pipeline factors:
++	AGEN latency = 1 cycle
++	Store Queue (SQ): SQ size = window size, oracle memory disambiguation, store-load forwarding = 1 cycle after store's or load's agen.
++	* Note: A store searches the L1$ at commit. The store is released
++	* from the SQ and window, whether it hits or misses. Store misses
++	* are buffered until the block is allocated and the store is
++	* performed in the L1$. While buffered, conflicting loads get
++	* the store's data as they would from the SQ.
++I$: 128 KB, 8-way set-assoc., 64B block size
++L1$: 128 KB, 8-way set-assoc., 64B block size, 3-cycle search latency
++L2$: 4 MB, 8-way set-assoc., 64B block size, 12-cycle search latency
++L3$: 32 MB, 16-way set-assoc., 128B block size, 50-cycle search latency
++Main Memory: 150-cycle fixed search time
++---------------------------STORE QUEUE MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)---------------------------
++Number of loads: 417260
++Number of loads that miss in SQ: 239373 (57.37%)
++Number of PFs issued to the memory system 5409
++---------------------------------------------------------------------------------------------------------------------------------------
++------------------------MEMORY HIERARCHY MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------
++I$:
++	accesses   = 1313295
++	misses     = 44
++	miss ratio = 0.00%
++	pf accesses   = 0
++	pf misses     = 0
++	pf miss ratio = -nan%
++L1$:
++	accesses   = 582033
++	misses     = 79
++	miss ratio = 0.01%
++	pf accesses   = 5409
++	pf misses     = 58
++	pf miss ratio = 1.07%
++L2$:
++	accesses   = 123
++	misses     = 123
++	miss ratio = 100.00%
++	pf accesses   = 58
++	pf misses     = 58
++	pf miss ratio = 100.00%
++L3$:
++	accesses   = 123
++	misses     = 89
++	miss ratio = 72.36%
++	pf accesses   = 58
++	pf misses     = 28
++	pf miss ratio = 48.28%
++---------------------------------------------------------------------------------------------------------------------------------------
++----------------------------------------------Prefetcher (Full Simulation i.e. No Warmup)----------------------------------------------
++Num Trainings :417260
++Num Prefetches generated :5430
++Num Prefetches issued :15051
++Num Prefetches filtered by PF queue :54
++Num untimely prefetches dropped from PF queue :21
++Num prefetches not issued LDST contention :9642
++Num prefetches not issued stride 0 :139934
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------ILP LIMIT STUDY (Full Simulation i.e. Counts Not Reset When Warmup Ends)--------------------------------
++instructions = 997741
++cycles       = 192691
++CycWP        = 61405
++IPC          = 5.1779
++
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-----------------------------------------------BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)----------------------------------------------
++Type                   NumBr     MispBr        mr     mpki
++CondDirect           111265       1145   1.0291%   1.1476
++JumpDirect            26868          0   0.0000%   0.0000
++JumpIndirect              1          0   0.0000%   0.0000
++JumpReturn            10589          0   0.0000%   0.0000
++Not control         1164572          0   0.0000%   0.0000
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 10M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       192691   5.1779     111265       1145   0.5774       0.0059   1.0291%   1.1476      61405    53.6288    61.5440
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 25M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       192691   5.1779     111265       1145   0.5774       0.0059   1.0291%   1.1476      61405    53.6288    61.5440
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++---------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (50 Perc instructions)---------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       192691   5.1779     111265       1145   0.5774       0.0059   1.0291%   1.1476      61405    53.6288    61.5440
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       192691   5.1779     111265       1145   0.5774       0.0059   1.0291%   1.1476      61405    53.6288    61.5440
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++ Read 997741 instrs 
+diff --git a/step_on.txt b/step_on.txt
+new file mode 100644
+index 0000000..5ca3c7b
+--- /dev/null
++++ b/step_on.txt
+@@ -0,0 +1,111 @@
++EOF
++WINDOW_SIZE = 1024
++FETCH_WIDTH = 16
++FETCH_NUM_BRANCH = 16
++FETCH_STOP_AT_INDIRECT = 1
++FETCH_STOP_AT_TAKEN = 1
++FETCH_MODEL_ICACHE = 1
++PERFECT_BRANCH_PRED = 0
++PERFECT_INDIRECT_PRED = 1
++PIPELINE_FILL_LATENCY = 10
++NUM_LDST_LANES = 8
++NUM_ALU_LANES = 16
++MEMORY HIERARCHY CONFIGURATION---------------------
++STRIDE Prefetcher = 1
++PERFECT_CACHE = 0
++WRITE_ALLOCATE = 1
++Within-pipeline factors:
++	AGEN latency = 1 cycle
++	Store Queue (SQ): SQ size = window size, oracle memory disambiguation, store-load forwarding = 1 cycle after store's or load's agen.
++	* Note: A store searches the L1$ at commit. The store is released
++	* from the SQ and window, whether it hits or misses. Store misses
++	* are buffered until the block is allocated and the store is
++	* performed in the L1$. While buffered, conflicting loads get
++	* the store's data as they would from the SQ.
++I$: 128 KB, 8-way set-assoc., 64B block size
++L1$: 128 KB, 8-way set-assoc., 64B block size, 3-cycle search latency
++L2$: 4 MB, 8-way set-assoc., 64B block size, 12-cycle search latency
++L3$: 32 MB, 16-way set-assoc., 128B block size, 50-cycle search latency
++Main Memory: 150-cycle fixed search time
++---------------------------STORE QUEUE MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)---------------------------
++Number of loads: 325732
++Number of loads that miss in SQ: 228050 (70.01%)
++Number of PFs issued to the memory system 5334
++---------------------------------------------------------------------------------------------------------------------------------------
++------------------------MEMORY HIERARCHY MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------
++I$:
++	accesses   = 1138403
++	misses     = 310
++	miss ratio = 0.03%
++	pf accesses   = 0
++	pf misses     = 0
++	pf miss ratio = -nan%
++L1$:
++	accesses   = 536590
++	misses     = 1537
++	miss ratio = 0.29%
++	pf accesses   = 5334
++	pf misses     = 475
++	pf miss ratio = 8.91%
++L2$:
++	accesses   = 1847
++	misses     = 1847
++	miss ratio = 100.00%
++	pf accesses   = 475
++	pf misses     = 475
++	pf miss ratio = 100.00%
++L3$:
++	accesses   = 1847
++	misses     = 1507
++	miss ratio = 81.59%
++	pf accesses   = 475
++	pf misses     = 239
++	pf miss ratio = 50.32%
++---------------------------------------------------------------------------------------------------------------------------------------
++----------------------------------------------Prefetcher (Full Simulation i.e. No Warmup)----------------------------------------------
++Num Trainings :325732
++Num Prefetches generated :5334
++Num Prefetches issued :5539
++Num Prefetches filtered by PF queue :7
++Num untimely prefetches dropped from PF queue :0
++Num prefetches not issued LDST contention :205
++Num prefetches not issued stride 0 :172169
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------ILP LIMIT STUDY (Full Simulation i.e. Counts Not Reset When Warmup Ends)--------------------------------
++instructions = 997301
++cycles       = 478967
++CycWP        = 264784
++IPC          = 2.0822
++
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-----------------------------------------------BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)----------------------------------------------
++Type                   NumBr     MispBr        mr     mpki
++CondDirect           128874      11502   8.9250%  11.5331
++JumpDirect            25846          0   0.0000%   0.0000
++JumpIndirect          14255          0   0.0000%   0.0000
++JumpReturn            12902          0   0.0000%   0.0000
++Not control          956526          0   0.0000%   0.0000
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 10M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       478967   2.0822     128874      11502   0.2691       0.0240   8.9250%  11.5331     264784    23.0207   265.5006
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 25M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       478967   2.0822     128874      11502   0.2691       0.0240   8.9250%  11.5331     264784    23.0207   265.5006
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++---------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (50 Perc instructions)---------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       478967   2.0822     128874      11502   0.2691       0.0240   8.9250%  11.5331     264784    23.0207   265.5006
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       478967   2.0822     128874      11502   0.2691       0.0240   8.9250%  11.5331     264784    23.0207   265.5006
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++ Read 997301 instrs 
+diff --git a/test_sr b/test_sr
+new file mode 100755
+index 0000000..693fb1e
+Binary files /dev/null and b/test_sr differ
+diff --git a/test_sr.cc b/test_sr.cc
+new file mode 100644
+index 0000000..890c271
+--- /dev/null
++++ b/test_sr.cc
+@@ -0,0 +1,124 @@
++#include <iostream>
++#include <cassert>
++#include <vector>
++#include <optional>
++
++struct DecodeInfo {
++    int insn_class;
++    std::vector<uint64_t> src_reg_info;
++    std::optional<uint64_t> dst_reg_info;
++};
++
++struct ExecuteInfo {
++    DecodeInfo dec_info;
++    std::optional<bool> taken;
++    uint64_t next_pc;
++    std::optional<uint64_t> taken_target, mem_va, mem_sz;
++    std::optional<uint64_t> dst_reg_value;
++};
++
++#include "my_cond_branch_predictor.h"
++
++int main() {
++    SampleCondPredictor p;
++    p.sr_enabled = true;
++    // test_int_digest_generation
++    uint64_t val = 42;
++    uint16_t dig = p.generate_digest(val, 1); // INT reg 1
++    if (dig != 0xB51) {
++        std::cerr << "INT digest failed: expected 0xB51, got 0x" << std::hex << dig << "\n";
++        return 1;
++    }
++    
++    // test_fp64_digest_generation
++    uint64_t fp_val = 0x17FULL << 55;
++    dig = p.generate_digest(fp_val, 32); // FP reg 32
++    if (dig != 0xBF8) {
++        std::cerr << "FP64 digest failed: expected 0xBF8, got 0x" << std::hex << dig << "\n";
++        return 1;
++    }
++    
++    // test_flag_digest_generation
++    uint64_t flag_val = 0x9;
++    dig = p.generate_digest(flag_val, 64); // FLAG reg 64
++    if (dig != 0x999) {
++        std::cerr << "FLAG digest failed: expected 0x999, got 0x" << std::hex << dig << "\n";
++        return 1;
++    }
++    
++
++    // test_staleness_invalidation
++    // Decode 256 instructions
++    DecodeInfo di;
++    di.dst_reg_info = 8;
++    p.notify_instr_decode(100, 0, di);
++    if (!p.reg_status_table[8].valid) {
++        // Wait, decode invalidates the register. Execute makes it valid.
++        ExecuteInfo ei;
++        ei.dec_info = di;
++        ei.dst_reg_value = 123;
++        p.notify_instr_execute_resolve(100, 0, ei);
++    }
++    assert(p.reg_status_table[8].valid == true);
++    for(int i=0; i<256; ++i) {
++        DecodeInfo di_empty;
++        p.notify_instr_decode(200+i, 0, di_empty);
++    }
++    if (p.reg_status_table[8].valid) {
++        std::cerr << "test_staleness_invalidation failed\n";
++        return 1;
++    }
++
++    // test_bank_usefulness_selection
++    // Bank 0 has valid R0 (UT sum = +5) and valid R8 (UT sum = +12).
++    p.reg_status_table[0].valid = true;
++    p.reg_status_table[0].payload = 0x111;
++    p.UT0[0][0][0] = 2; p.UT1[0][0][0] = 2; p.UT2[0][0][0] = 1; // sum 5
++    
++    p.reg_status_table[8].valid = true;
++    p.reg_status_table[8].payload = 0x222;
++    p.UT0[0][0][8] = 4; p.UT1[0][0][8] = 4; p.UT2[0][0][8] = 4; // sum 12
++    
++    SampleHist hist;
++    p.predict_using_given_hist(300, 0, 0, hist, true);
++    
++    // We expect bank 0 selected R8. 
++    // Wait, the pred state should capture best_reg
++    uint64_t uid = p.get_unique_inst_id(300, 0);
++    if (p.sR_pred_state[uid].best_regs[0] != 8) {
++        std::cerr << "test_bank_usefulness_selection failed\n";
++        return 1;
++    }
++
++    // test_multiplier_gating
++    // Bank 1 best valid register has net usefulness sum = -2; raw WT sum = +10
++    // expect: Bank 1 contribution is gated to 0
++    p.reg_status_table[1].valid = true;
++    p.reg_status_table[1].payload = 0x333;
++    p.UT0[1][1][1] = -1; p.UT1[1][2][1] = -1; p.UT2[1][4][1] = 0; // sum -2
++    p.WT0[1][p.hash_wt0(0, 0x333)] = 5;
++    p.WT1[1][p.hash_wt1(0, 0x333)] = 5;
++    p.WT2[1][p.hash_wt2(0, 0x333)] = 0; // sum 10
++    
++    // test_multiplier_activation
++    // Bank 2 best valid register has net usefulness sum = +3; raw WT sum = +8
++    // expect: Bank 2 contribution is scaled to 8 * 2.5 = 20
++    p.reg_status_table[2].valid = true;
++    p.reg_status_table[2].payload = 0x444;
++    p.UT0[2][2][2] = 1; p.UT1[2][4][2] = 1; p.UT2[2][0][2] = 1; // sum 3
++    p.WT0[2][p.hash_wt0(0, 0x444)] = 4;
++    p.WT1[2][p.hash_wt1(0, 0x444)] = 4;
++    p.WT2[2][p.hash_wt2(0, 0x444)] = 0; // sum 8
++
++    // The total sR_sum will be: Bank 1 gives 0, Bank 2 gives 20. Other banks 0.
++    // So total sR_sum = 20. Overrides false to true.
++    hist.tage_pred = false;
++    bool res = p.predict_using_given_hist(301, 0, 0, hist, true);
++    if (res != true) {
++        std::cerr << "Multiplier gating/activation failed\n";
++        return 1;
++    }
++    
++    std::cout << "All unit tests passed\n";
++    return 0;
++}

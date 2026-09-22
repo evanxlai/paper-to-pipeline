@@ -1,0 +1,55 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/spec/unit_tests/1",
+        "code": "uncovered_unit_test",
+        "severity": "error",
+        "message": "unit test 'test_fp64_digest_generation' is implemented by no correctness entry of kind spec_unit_test. Add one naming its spec_pointer and the test_file it lands in."
+      },
+      {
+        "pointer": "/spec/unit_tests/2",
+        "code": "uncovered_unit_test",
+        "severity": "error",
+        "message": "unit test 'test_flag_digest_generation' is implemented by no correctness entry of kind spec_unit_test. Add one naming its spec_pointer and the test_file it lands in."
+      },
+      {
+        "pointer": "/spec/unit_tests/3",
+        "code": "uncovered_unit_test",
+        "severity": "error",
+        "message": "unit test 'test_staleness_invalidation' is implemented by no correctness entry of kind spec_unit_test. Add one naming its spec_pointer and the test_file it lands in."
+      },
+      {
+        "pointer": "/spec/unit_tests/4",
+        "code": "uncovered_unit_test",
+        "severity": "error",
+        "message": "unit test 'test_bank_usefulness_selection' is implemented by no correctness entry of kind spec_unit_test. Add one naming its spec_pointer and the test_file it lands in."
+      },
+      {
+        "pointer": "/spec/unit_tests/5",
+        "code": "uncovered_unit_test",
+        "severity": "error",
+        "message": "unit test 'test_multiplier_gating' is implemented by no correctness entry of kind spec_unit_test. Add one naming its spec_pointer and the test_file it lands in."
+      },
+      {
+        "pointer": "/spec/unit_tests/6",
+        "code": "uncovered_unit_test",
+        "severity": "error",
+        "message": "unit test 'test_multiplier_activation' is implemented by no correctness entry of kind spec_unit_test. Add one naming its spec_pointer and the test_file it lands in."
+      },
+      {
+        "pointer": "/plan/knobs/0/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships True where the spec's default is 'true'. A port that quietly ships a different default measures something the spec does not describe."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": []
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "stage": "integrate",
+  "budget": "iso-192KiB",
+  "integrate": [
+    {
+      "host": "cbp2025",
+      "baseline": "iso-192KiB",
+      "status": "needs_replan",
+      "attempts": 1,
+      "plan_revisions": 0,
+      "escalation": {
+        "pointer": "/correctness/1/pass_condition/baseline_pointer",
+        "reason": "The baseline pointer includes the 'sample_traces/' prefix ('/per_trace/sample_traces~1int~1sample_int_trace.gz'), but the recorded baseline in this host uses '/per_trace/int~1sample_int_trace.gz' as explicitly stated in the host notes."
+      }
+    }
+  ]
+}

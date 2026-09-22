@@ -1,0 +1,20 @@
+{
+  "n": 2,
+  "failed": [],
+  "brmispki_50perc_amean": 0.7061499999999999,
+  "cycwppki_50perc_amean": 47.9709,
+  "ipc_50perc_amean": 4.06245,
+  "trace_list": "experiments/smoke-2.list",
+  "per_trace": {
+    "int/sample_int_trace.gz": {
+      "brmispki_50perc_amean": 0.2647,
+      "cycwppki_50perc_amean": 34.3978,
+      "ipc_50perc_amean": 2.947
+    },
+    "fp/sample_fp_trace.gz": {
+      "brmispki_50perc_amean": 1.1476,
+      "cycwppki_50perc_amean": 61.544,
+      "ipc_50perc_amean": 5.1779
+    }
+  }
+}

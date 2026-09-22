@@ -1,0 +1,9 @@
+{
+  "passed": false,
+  "reasons": [
+    "G2 [baseline_g2] no recorded baseline at '/per_trace/sample_traces~1int~1sample_int_trace.gz'",
+    "G5 [perf_cycwppki] cycwppki_50perc_amean moved +0.0000 relative (388.06515 -> 388.06515, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric."
+  ],
+  "warnings": [],
+  "plan_revision": 0
+}

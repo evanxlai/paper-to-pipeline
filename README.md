@@ -17,7 +17,10 @@ exist rather than into approximations of them.
 [docs/cbp2025-runbook.md](docs/cbp2025-runbook.md) has the commands and the
 measured timings.
 
-What has run, with artifacts in the repository:
+What has run. The artifacts are in
+[runs/2026-09-22-cbp2025/](runs/2026-09-22-cbp2025/), copied out of the
+untracked `out/` so the runs behind these claims can be read from the
+repository alone:
 
 - **Stage 2 (plan).** `plan/sr.cbp2025.{plan,tests}.json`, written by an
   agent with an MCP shell on the checkout node and accepted by

@@ -1,0 +1,17 @@
+{
+  "stage": "integrate",
+  "budget": "iso-192KiB",
+  "integrate": [
+    {
+      "host": "cbp2025",
+      "baseline": "iso-192KiB",
+      "status": "needs_replan",
+      "attempts": 1,
+      "plan_revisions": 0,
+      "escalation": {
+        "pointer": "/host_interfaces/4",
+        "reason": "The fallback resolution requires conditionally inverting the SC prediction but provides no threshold parameter or formula to determine when sR_sum is confident enough to override TAGE."
+      }
+    }
+  ]
+}
