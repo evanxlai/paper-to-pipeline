@@ -1,0 +1,204 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:allocate_destination",
+        "algo:update_digest",
+        "algo:predict",
+        "algo:update",
+        "global"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 14,
+        "info": 8
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 13,
+        "info": 7
+      },
+      "inconsistent_patches": 0,
+      "hedged_evidence": 0,
+      "carried_uncertainties": 0,
+      "verdicts": {
+        "SUPPORTED": 30,
+        "UNDERSPECIFIED": 10,
+        "UNSUPPORTED": 16,
+        "INCONSISTENT": 2,
+        "CONTRADICTED": 1
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 1,
+      "units": [
+        "algo:allocate_destination",
+        "algo:update_digest",
+        "algo:predict",
+        "algo:update",
+        "algo:extract_format_specific_bits",
+        "global",
+        "orphan"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 13,
+        "info": 7
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 4,
+        "info": 3
+      },
+      "inconsistent_patches": 0,
+      "hedged_evidence": 0,
+      "carried_uncertainties": 0,
+      "verdicts": {
+        "SUPPORTED": 30,
+        "UNSUPPORTED": 17,
+        "UNDERSPECIFIED": 10,
+        "INCONSISTENT": 1,
+        "CONTRADICTED": 2
+      },
+      "accepted": false,
+      "reject_reason": "deterministic checks got worse"
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'lead_zeros_or_ones(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'trail_zeros_or_ones(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'type(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'length(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'skew(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'empty(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'skew(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'update_counter(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/unit_tests/2/expect",
+        "code": "vacuous_test",
+        "severity": "warn",
+        "message": "expectation contains no value or comparison, so the gate cannot decide whether it passed."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update_digest' reads 'FLAG', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update_digest' reads 'FP', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update_digest' reads 'Table', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update_digest' reads 'V', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'predict' reads 'UT', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'predict' reads 'WT', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update' reads 'Table', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update' reads 'UT', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update' reads 'WT', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'extract_format_specific_bits' reads 'V', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'extract_format_specific_bits' reads 'format', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      }
+    ],
+    "errors": 0,
+    "open_questions": 21,
+    "parameters": 4,
+    "complete": true,
+    "unreviewed_units": []
+  },
+  "source_ambiguities": []
+}

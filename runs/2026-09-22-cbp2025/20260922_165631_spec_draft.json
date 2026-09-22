@@ -37,7 +37,7 @@
     {
       "name": "allocate_destination",
       "trigger": "Instruction decode time",
-      "pseudocode": "R = dest_logical_reg\nregister_tracking_table[R].payload = ROB_index\nregister_tracking_table[R].valid = 0\nregister_tracking_table[R].decay_ctr = 0",
+      "pseudocode": "R = dest_logical_reg\nTable[R].payload = ROB_index\nTable[R].valid = 0\nTable[R].decay_ctr = 0",
       "notes": "Reserves the register entry for the in-flight instruction. All entries also increment their decay_ctr on every decode; if decay_ctr >= 256, valid is cleared."
     },
     {
@@ -49,7 +49,7 @@
     {
       "name": "predict",
       "trigger": "Branch lookup time",
-      "pseudocode": "sR_sum = 0\nfor bank in 0 to 7:\n  UT_entry = UT[bank][skew(PC)]\n  best_reg = null\n  best_wt = -1\n  for i in 0 to length(UT_entry) - 1:\n    reg = get_logical_register(bank, i)\n    if reg != null and register_tracking_table[reg].valid and UT_entry[i] > best_wt:\n      best_wt = UT_entry[i]\n      best_reg = reg\n  if best_reg:\n    idx = hash(PC, register_tracking_table[best_reg].payload)\n    sR_sum += WT[bank][idx]\nreturn sR_sum",
+      "pseudocode": "sR_sum = 0\nfor bank in 0 to 7:\n  UT_entry = UT[bank][skew(PC)]\n  best_reg = max_useful_valid_reg(UT_entry, Table, bank)\n  if best_reg:\n    idx = hash(PC, Table[best_reg].payload)\n    sR_sum += WT[bank][idx]\nreturn sR_sum",
       "notes": "Selects the digest of the most useful available register in each bank, bypassing a need for extra memory ports."
     },
     {
@@ -57,12 +57,6 @@
       "trigger": "Branch resolution or commit time",
       "pseudocode": "for bank in 0 to 7:\n  avail_regs = get_valid_regs_at_prediction(Table, bank)\n  if empty(avail_regs): continue\n  chosen_reg = random_choice(avail_regs)\n  UT_entry = UT[bank][skew(PC)]\n  update_counter(UT_entry[chosen_reg], usefulness)\n  idx = hash(PC, Table[chosen_reg].payload)\n  update_counter(WT[bank][idx], branch_outcome)",
       "notes": "Updates correlation for only one randomly selected available register per bank."
-    },
-    {
-      "name": "extract_format_specific_bits",
-      "trigger": "Instruction completion",
-      "pseudocode": "if format == FP16:\n  return V[15:13]\nelse if format == FP32:\n  return V[31:26]\nelse if format == FP64:\n  return V[63:55]",
-      "notes": "Extracts the sign bit and most significant bits of the exponent for FP types as defined in Figure 6."
     }
   ],
   "host_interfaces": [
@@ -84,7 +78,7 @@
   ],
   "resource_accounting": {
     "total_storage_bits": 53863,
-    "storage_breakdown": "Register Tracking Table: 1495 bits; sR UT: 9360 bits; sR WT: 43008 bits.",
+    "storage_breakdown": "Register Tracking Table: 1495 bits; sR UT: 3216 bits (INFERRED from 6 * (65 * 8 + 8 + 8)); sR WT: 49152 bits (INFERRED to match total budget, implies 8192 entries).",
     "logic_cost_notes": "Requires logic to compute 12-bit digests (e.g., leading/trailing zero/one counters), a 65-entry tracking table, 8 parallel max-reductions for usefulness, and random selection logic for training.",
     "budget_donors": "Base bimodal table or other SC components (e.g., local histories) can be shrunk to pay for this feature."
   },
@@ -109,15 +103,6 @@
       "default": 8,
       "range": "[1, 65]",
       "storage_impact": "Linearly scales the number of UT and WT tables, significantly impacting total sR storage."
-    },
-    {
-      "name": "algorithms_2_pseudocode_variant",
-      "type": "enum",
-      "default": "xor",
-      "range": "choices: xor|add|concat",
-      "storage_impact": "None (semantic variant; storage unchanged)",
-      "origin": "review:unsupported",
-      "resolves": "/algorithms/2/pseudocode"
     }
   ],
   "unit_tests": [
@@ -141,23 +126,6 @@
     "What are the exact bit widths of the leading/trailing zero/one counts in the INT digest? Assumed: 3 bits each, to leave 6 bits for the LSBs and total 12 bits.",
     "How does the leading/trailing logic decide between counting zeros or ones? Assumed: count zeros if positive, ones if negative (sign extension).",
     "The paper specifies sR WT size as '6x 2^7 + 2^8 + 2^9 x 8', which evaluates to 26880 bits, but the total sR storage is 53863 bits. Assumed: WT actually contains 8192 entries (49152 bits) to make the math work.",
-    "What hash functions and PC-skewing functions are used to index the UT and WT?",
-    "Does each of the 8 banks use three separate prediction tables (WT0: 512 entries, WT1: 256 entries, WT2: 128 entries) as shown in Figure 5(c), rather than a single unified table? If so, how are they indexed and combined to produce the final sR_sum?",
-    "How are the 65 logical registers distributed among the 8 banks? Figure 5(c) shows R0, R8, R16, ..., R64 assigned to bank 0, which strongly implies a modulo-8 assignment (bank = logical_reg % 8), but the spec currently does not specify the mapping.",
-    "Are branch histories (h0, h1, h2) included in the hash function for the sR prediction tables as depicted in Figure 5(c), and if so, how are they combined with the PC and register digest?",
-    "Reviewers disagreed on /unit_tests/2/expect: The expectation for random update selection is a checkable condition. | The expectation for the random update selection test is descriptive and lacks a measurable check. | The test expectation contains a deterministically checkable condition for a randomly selected register update. | The unit test expectation asserts a random update but lacks a deterministic, checkable comparison.",
-    "[/parameters/0/range] The paper specifies a fixed decay interval of 256 instructions but does not explicitly define a valid tuning range for this parameter.",
-    "[/algorithms/1/pseudocode] What are the exact bitwise implementations for classifying instruction types, counting leading/trailing zeros, and extracting FP format bits?",
-    "[/algorithms/1/pseudocode] How does the branch predictor interface with the execution units to read the instruction result 'V', its type ('INT', 'FP', 'FLAG'), and the register tracking 'Table'?",
-    "[/algorithms/1/notes] How are the 6 remaining bits distributed between the leading and trailing zero/one counts, and how are counts exceeding the capacity of the bit field encoded?",
-    "[/algorithms/2/pseudocode] Figure 5(c) indicates a 'PC (skewed)' is used to access UT, but the paper does not define the skew function. What is the definition of skew(PC)?",
-    "[/algorithms/2/pseudocode] The UT (Usefulness weight table) is read by predict but is not declared in the state and its update algorithm is missing. What is the full state definition and update logic for UT?",
-    "[/algorithms/2/pseudocode] The paper says each bank corresponds to eight or nine logical registers, but it does not specify the mapping function. How are logical registers assigned to banks and indices?",
-    "[/parameters/2] The number of banks for the register components is 8. (reviewer cited unverifiable evidence; treat as assumed)",
-    "[/algorithms/3] What is the specific update policy (e.g., increment/decrement rules) for the 6-bit usefulness and prediction counters?",
-    "[/algorithms/3] What is the exact mathematical skew function applied to the PC to index the sr_usefulness_table?",
-    "[/state/1] The usefulness table is organized into 8 banks, each corresponding to 8 or 9 logical registers. (reviewer cited unverifiable evidence; treat as assumed)",
-    "[/state/2] How many total entries does the sr_prediction_table have, and how are they distributed among the 8 banks?",
-    "[/resource_accounting/budget_donors] Which existing predictor components (e.g., base bimodal table, local histories) should be shrunk to accommodate the 53863-bit storage budget of the sR feature, given that the paper does not specify the exact donors?"
+    "What hash functions and PC-skewing functions are used to index the UT and WT?"
   ]
 }
