@@ -252,7 +252,7 @@
           },
           "range": {
             "type": "string",
-            "description": "Legal values, in the spec's range syntax: '[lo, hi]' or '[lo, hi] pow2'. Legal means the host still builds and runs correctly at every value in it, so read what else the symbol feeds (index widths, shifts, derived sizes) before widening it. Include values below the default: that is the direction a tight budget explores."
+            "description": "Legal values, in the spec's range syntax: '[lo, hi]' or '[lo, hi] pow2'. Legal means the host still builds and runs correctly at every value in it, so read what else the symbol feeds (index widths, shifts, derived sizes) before widening it. Include values on both sides of the default: below it is how a tight allowance pays for the feature, and above it is how a generous one spends spare storage on the host."
           },
           "binding": { "$ref": "#/$defs/binding" },
           "description": {
