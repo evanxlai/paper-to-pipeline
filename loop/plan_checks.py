@@ -306,6 +306,189 @@ def _check_knobs(spec: dict, plan: dict) -> list[Finding]:
     return out
 
 
+def expected_host_macro(name: str) -> str:
+    """The #define dse.params_header emits for a host knob."""
+    import constraints
+
+    return constraints.HOST_PREFIX + str(name).upper()
+
+
+def _squash(text: str) -> str:
+    return " ".join(str(text).split())
+
+
+def _check_host_knobs(plan: dict, host_root=None) -> list[Finding]:
+    """The host's sizing knobs: named the way stage 4 will write them, legal
+    at their own default, and each one a line somebody actually read.
+
+    The last part is the one that matters. A host knob whose default is not
+    the clean tree's value changes the host with the feature off, and G2
+    then fails on a port that did nothing wrong. So `observed` has to be in
+    the file and has to hold `default`."""
+    import constraints
+
+    out: list[Finding] = []
+    knobs = plan.get("host_knobs")
+    if knobs is None:
+        return out  # the schema reports the missing field
+    if not knobs:
+        out.append(Finding(
+            "/plan/host_knobs", "no_host_knobs", "warn",
+            "no host knobs, so stage 4 cannot shrink any host structure. A feature "
+            "that costs storage can then be tuned only at allowances the unmodified "
+            "host leaves room under. Expose the host's sizing defines unless this host "
+            "genuinely has none.",
+        ))
+    seen: dict[str, dict[str, int]] = {"name": {}, "macro": {}, "host_symbol": {}}
+    root = Path(host_root) if host_root is not None else None
+    for i, knob in enumerate(knobs):
+        knob = knob or {}
+        at = f"/plan/host_knobs/{i}"
+        name, macro = knob.get("name"), knob.get("macro")
+        if name is not None and macro != expected_host_macro(name):
+            out.append(Finding(
+                f"{at}/macro", "host_macro_mismatch", "error",
+                f"'{macro}' is not the define stage 4 emits for host knob '{name}'; that "
+                f"is '{expected_host_macro(name)}'.",
+            ))
+        for field in ("name", "macro", "host_symbol"):
+            value = knob.get(field)
+            if value is None:
+                continue
+            if value in seen[field]:
+                out.append(Finding(
+                    f"{at}/{field}", f"duplicate_host_{field}", "error",
+                    f"{field} '{value}' is already used by "
+                    f"/plan/host_knobs/{seen[field][value]}. Two knobs driving one symbol "
+                    f"means the header sets it twice and only one setting wins.",
+                ))
+            else:
+                seen[field][value] = i
+
+        default = knob.get("default")
+        as_knob = constraints.Knob(macro or "", name or "", knob.get("type", "int"),
+                                   default, knob.get("range", ""), "host")
+        from spec_checks import parse_range
+        if parse_range(knob.get("range")) is None:
+            out.append(Finding(
+                f"{at}/range", "range_unparsed", "warn",
+                f"range {knob.get('range')!r} does not match '[lo, hi]' or "
+                f"'[lo, hi] pow2', so stage 4 cannot tell a legal value from an "
+                f"illegal one.",
+            ))
+        else:
+            problem = constraints.range_error(as_knob, default)
+            if problem:
+                out.append(Finding(
+                    f"{at}/default", "host_default_out_of_range", "error",
+                    f"the clean tree's value is outside the knob's own range: {problem}.",
+                ))
+
+        observed, symbol = knob.get("observed") or "", knob.get("host_symbol") or ""
+        if symbol and symbol not in observed:
+            out.append(Finding(
+                f"{at}/observed", "host_observed_symbol", "error",
+                f"the observed line does not mention '{symbol}', so it is not the line "
+                f"that sets it.",
+            ))
+        if isinstance(default, (int, float)) and not isinstance(default, bool):
+            shown = str(int(default)) if float(default).is_integer() else str(default)
+            if not re.search(rf"(?<![\w.]){re.escape(shown)}(?![\w.])", observed):
+                out.append(Finding(
+                    f"{at}/default", "host_default_not_observed", "error",
+                    f"the observed line {observed.strip()!r} does not hold the value "
+                    f"{shown}. A host knob ships at the clean tree's value, never "
+                    f"another; with any other default the feature-off build is not the "
+                    f"baseline and G2 fails.",
+                ))
+        rel = knob.get("file")
+        if root is not None and rel:
+            path = root / rel
+            if not path.exists():
+                out.append(Finding(
+                    f"{at}/file", "host_knob_file_missing", "error",
+                    f"'{rel}' does not exist under {root}.",
+                ))
+            elif observed:
+                body = path.read_text(errors="replace")
+                if _squash(observed) not in {_squash(line) for line in body.splitlines()} \
+                        and _squash(observed) not in _squash(body):
+                    out.append(Finding(
+                        f"{at}/observed", "host_observed_missing", "error",
+                        f"{observed.strip()!r} does not occur in {rel}. Copy the line "
+                        f"that sets {symbol or 'the symbol'} verbatim from the checkout.",
+                    ))
+    return out
+
+
+def _check_host_storage(plan: dict, measured_bits: int | None = None) -> list[Finding]:
+    """The host's storage terms reproduce the host's own accounting at the
+    clean tree's values, and read only host knobs.
+
+    Accounting, not a budget. It exists because stage 4 costs every candidate
+    with these terms: a term that is wrong at the defaults puts every
+    candidate off by the same silent amount, and a knob no term reads is one
+    the search can move without its cost moving."""
+    import constraints
+
+    out: list[Finding] = []
+    knobs = plan.get("host_knobs") or []
+    storage = plan.get("host_storage")
+    if not knobs:
+        return out
+    if not isinstance(storage, dict):
+        out.append(Finding(
+            "/plan/host_storage", "host_storage_missing", "error",
+            "the plan exposes host knobs but no host_storage, so stage 4 cannot tell "
+            "what shrinking one of them saves.",
+        ))
+        return out
+    defaults = {k.get("name"): k.get("default") for k in knobs if isinstance(k, dict)}
+    total, read, broken = 0.0, set(), False
+    for i, term in enumerate(storage.get("terms") or []):
+        at = f"/plan/host_storage/terms/{i}/formula"
+        formula = (term or {}).get("formula", "")
+        try:
+            names = constraints.names_in(formula)
+            unknown = sorted(n for n in names if n not in defaults)
+            if unknown:
+                out.append(Finding(
+                    at, "host_formula_unknown_name", "error",
+                    f"{formula!r} reads {', '.join(unknown)}, which is no host knob's "
+                    f"name. Write a number for anything no knob sets.",
+                ))
+                broken = True
+                continue
+            read |= names
+            total += constraints.evaluate(formula, defaults)
+        except constraints.FormulaError as e:
+            out.append(Finding(at, "host_formula_invalid", "error", f"{formula!r} {e}."))
+            broken = True
+    declared = storage.get("baseline_bits")
+    if not broken and isinstance(declared, (int, float)) and abs(total - declared) >= 0.5:
+        out.append(Finding(
+            "/plan/host_storage/baseline_bits", "host_storage_disagrees", "error",
+            f"the terms sum to {total:g} bits at the clean tree's values, but "
+            f"baseline_bits says {declared}. Follow the host's own accounting term by "
+            f"term; a structure no knob resizes is a constant term.",
+        ))
+    if measured_bits is not None and declared != measured_bits:
+        out.append(Finding(
+            "/plan/host_storage/baseline_bits", "host_storage_unmeasured", "error",
+            f"the host's own accounting reports {measured_bits} bits on the clean tree, "
+            f"and the plan says {declared}.",
+        ))
+    for i, knob in enumerate(knobs):
+        name = (knob or {}).get("name")
+        if name is not None and name not in read:
+            out.append(Finding(
+                f"/plan/host_knobs/{i}", "host_knob_unaccounted", "warn",
+                f"no host_storage term reads '{name}'. If it resizes a structure, the "
+                f"search would move it without its cost moving.",
+            ))
+    return out
+
+
 def _check_enable_knob(spec: dict, plan: dict, tests: dict) -> list[Finding]:
     """The enable knob's name lives in the port plan and is referenced, by
     absence, from the test plan. Both halves of every rule here sit in
@@ -742,20 +925,22 @@ def _check_baseline_pointers(tests: dict, baseline: dict) -> list[Finding]:
 
 def run_checks(
     spec: dict, port_plan: dict, test_plan: dict, host_root=None, baseline=None,
-    repo_root=None,
+    repo_root=None, host_storage_bits: int | None = None,
 ) -> list[Finding]:
     """All deterministic plan checks, in a stable order.
 
-    `host_root`, `baseline` and `repo_root` are optional for the same reason
-    `budget_bits` is optional in spec_checks.run_checks: the pure checks stay
-    unit-testable with no filesystem, and the ones that need the host tree,
-    the recorded baseline or this repository only run when the caller passes
-    them."""
+    `host_root`, `baseline`, `repo_root` and `host_storage_bits` are optional
+    for the same reason `budget_bits` is optional in spec_checks.run_checks:
+    the pure checks stay unit-testable with no filesystem, and the ones that
+    need the host tree, the recorded baseline, this repository or the host's
+    own storage measurement only run when the caller passes them."""
     findings: list[Finding] = []
     findings += _check_coverage(spec, port_plan, test_plan)
     findings += _check_references(port_plan, test_plan)
     findings += _check_pointers(spec, port_plan, test_plan)
     findings += _check_knobs(spec, port_plan)
+    findings += _check_host_knobs(port_plan, host_root)
+    findings += _check_host_storage(port_plan, host_storage_bits)
     findings += _check_enable_knob(spec, port_plan, test_plan)
     findings += _check_pair(spec, port_plan, test_plan)
     findings += _check_test_plan(test_plan)

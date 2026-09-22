@@ -757,10 +757,76 @@ def _check_carried_state(spec: dict) -> list[Finding]:
     return out
 
 
+def _costs_storage(parameter: dict) -> bool:
+    """Does the spec say this parameter changes the storage total?"""
+    impact = str(parameter.get("storage_impact") or "").strip().lower()
+    return bool(impact) and not impact.startswith(("none", "no storage", "0 "))
+
+
+def _check_size_formulas(spec: dict) -> list[Finding]:
+    """Each `size_formula` is arithmetic over declared parameters and, at the
+    defaults, equals the `size_bits` beside it.
+
+    Accounting, not a budget: nothing here compares a size with an allowance.
+    It exists because stage 4 re-derives every candidate's storage from these
+    formulas, so a formula that disagrees with its own entry at the defaults
+    would put every candidate's cost off by the same silent amount."""
+    import constraints
+
+    out: list[Finding] = []
+    params = spec.get("parameters") or []
+    defaults = {p.get("name"): p.get("default") for p in params}
+    read: set[str] = set()
+    for si, s in enumerate(spec.get("state") or []):
+        formula = s.get("size_formula")
+        if formula is None:
+            continue
+        at = f"/state/{si}/size_formula"
+        try:
+            names = constraints.names_in(formula)
+        except constraints.FormulaError as e:
+            out.append(Finding(at, "formula_invalid", "error", f"{formula!r} {e}."))
+            continue
+        read |= names
+        unknown = sorted(n for n in names if n not in defaults)
+        if unknown:
+            out.append(Finding(
+                at, "formula_unknown_name", "error",
+                f"{formula!r} reads {', '.join(unknown)}, which no parameter declares. "
+                f"A formula may read only parameters[].name.",
+            ))
+            continue
+        try:
+            value = constraints.evaluate(formula, defaults)
+        except constraints.FormulaError as e:
+            out.append(Finding(at, "formula_invalid", "error",
+                               f"{formula!r} fails at the defaults: {e}."))
+            continue
+        declared = s.get("size_bits")
+        if isinstance(declared, (int, float)) and abs(value - declared) >= 0.5:
+            out.append(Finding(
+                at, "formula_disagrees", "error",
+                f"{formula!r} gives {value:g} bits at the defaults, but size_bits says "
+                f"{declared}. Stage 4 costs every candidate with the formula, so one of "
+                f"the two is wrong.",
+            ))
+
+    for pi, p in enumerate(params):
+        if _costs_storage(p) and p.get("name") not in read:
+            out.append(Finding(
+                f"/parameters/{pi}", "storage_param_unaccounted", "warn",
+                f"'{p.get('name')}' says it changes storage "
+                f"({str(p.get('storage_impact'))[:80]!r}), but no state[].size_formula "
+                f"reads it. Stage 4 would move this knob without its cost moving.",
+            ))
+    return out
+
+
 def run_checks(spec: dict, budget_bits: int | None = None) -> list[Finding]:
     """All deterministic checks, in a stable order."""
     findings: list[Finding] = []
     findings += _check_storage(spec, budget_bits)
+    findings += _check_size_formulas(spec)
     findings += _check_parameters(spec)
     findings += _check_breakdown(spec)
     findings += _check_algorithms(spec)

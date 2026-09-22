@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/evanlai/paper-to-pipeline/plan/port_plan.schema.json",
   "title": "PortPlan",
-  "description": "How one feature spec goes into one host model. Written by the plan node (stage 2) after reading the host checkout at `host_revision`, and read by the integration node (stage 3), which treats it as authoritative on WHERE and HOW to hook. The feature spec stays authoritative on WHAT the mechanism is, so a plan never restates pseudocode.\n\nNothing here may mention a resource budget. Only the DSE stage knows about constraints (docs/stages.md), so this document has no storage split, no donor structure and no allowance. `additionalProperties` is false throughout for that reason as much as for typo-catching: a budget smuggled in under an invented field name fails validation instead of reaching the integrator as an instruction.",
+  "description": "How one feature spec goes into one host model. Written by the plan node (stage 2) after reading the host checkout at `host_revision`, and read by the integration node (stage 3), which treats it as authoritative on WHERE and HOW to hook. The feature spec stays authoritative on WHAT the mechanism is, so a plan never restates pseudocode.\n\nNothing here may mention a resource budget. Only the DSE stage applies constraints (docs/stages.md), so this document has no storage split and no allowance. What it does carry is the host's own sizing knobs (`host_knobs`) and what the host's structures cost at any setting of them (`host_storage`). Those are facts about the tree, not decisions: every host knob ships at the clean tree's value, and choosing any other value is stage 4's job alone. Stage 4 cannot pay for a feature by shrinking a host structure it cannot move, which is why the plan exposes them. `additionalProperties` is false throughout, as much to stop a budget smuggled in under an invented field name as for typo-catching: a budget there fails validation instead of reaching the integrator as an instruction.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,7 +17,8 @@
     "feature_enable",
     "steps",
     "risks",
-    "open_questions"
+    "open_questions",
+    "host_knobs"
   ],
   "properties": {
     "feature_name": {
@@ -212,6 +213,91 @@
           },
           "notes": { "type": "string" }
         }
+      }
+    },
+    "host_knobs": {
+      "type": "array",
+      "description": "The host's own sizing knobs: every define, parameter or constant that sets the size of a host structure the port leaves in place (table entry counts, tag widths, counter widths, bank counts). Stage 4 reads these from the same generated params header as the feature's knobs, under `HOST_` macros, so it can trade host storage against the feature's. Each one ships at the clean tree's value, so with every host knob at its default the host is bit-identical to the recorded baseline and G2 is unaffected. Record the knob and its legal range; never a smaller or larger value. May be empty only for a host with no resizable structure, and then `host_storage` is omitted.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "macro", "host_symbol", "file", "observed", "type", "default", "range", "binding", "description"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "description": "Lower-case handle, usually the host symbol lower-cased, e.g. 'logg'. `host_storage` formulas refer to the knob by this name."
+          },
+          "macro": {
+            "type": "string",
+            "pattern": "^HOST_[A-Z0-9_]+$",
+            "description": "Literally 'HOST_' plus `name` upper-cased. This is the #define stage 4 mutates in the params header; code cross-checks it."
+          },
+          "host_symbol": {
+            "type": "string",
+            "description": "The host's own identifier this knob replaces, e.g. the macro 'LOGG'."
+          },
+          "file": {
+            "type": "string",
+            "description": "Path, relative to the checkout root, of the file that defines `host_symbol`."
+          },
+          "observed": {
+            "type": "string",
+            "description": "The line in `file` that sets `host_symbol` today, copied verbatim, including its value. Code checks that it occurs in the checkout and holds `default`, so a plan can only expose a knob somebody read."
+          },
+          "type": { "type": "string", "enum": ["int", "float"] },
+          "default": {
+            "type": "number",
+            "description": "The value the clean tree uses, exactly. Not a proposal."
+          },
+          "range": {
+            "type": "string",
+            "description": "Legal values, in the spec's range syntax: '[lo, hi]' or '[lo, hi] pow2'. Legal means the host still builds and runs correctly at every value in it, so read what else the symbol feeds (index widths, shifts, derived sizes) before widening it. Include values below the default: that is the direction a tight budget explores."
+          },
+          "binding": { "$ref": "#/$defs/binding" },
+          "description": {
+            "type": "string",
+            "description": "What the knob sizes, in terms of the host's structures, and anything that limits it (e.g. 'the two shortest-history tables are half size, so it must stay at least 2')."
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "host_storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline_bits", "measured_by", "terms"],
+      "description": "The host's accounted storage, as formulas over `host_knobs[].name`, so stage 4 can cost a candidate that shrinks the host. Required whenever `host_knobs` is non-empty. This is accounting, not a budget: it says what the host costs, never what it may cost.",
+      "properties": {
+        "baseline_bits": {
+          "type": "integer",
+          "description": "The host's storage in bits at the clean tree's values, as the host's own accounting reports it. Measured, not computed from `terms`: code evaluates the terms at the defaults and requires them to reproduce this number."
+        },
+        "measured_by": {
+          "type": "string",
+          "description": "The command, or the host's accounting function, whose output gave `baseline_bits`."
+        },
+        "terms": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per host structure, following the host's own accounting. Their sum is the host's storage. A structure no knob resizes is still a term, with a constant formula, so that the sum reproduces `baseline_bits`.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["structure", "formula"],
+            "properties": {
+              "structure": {
+                "type": "string",
+                "description": "What the term counts, e.g. 'tagged tables, high banks'."
+              },
+              "formula": {
+                "type": "string",
+                "description": "Bits, as arithmetic over host knob names and numbers: + - * / // % ** << >>, parentheses, and min, max, log2, ceil, floor, abs, int. Never ^ for a power; Python reads it as XOR."
+              }
+            }
+          }
+        },
+        "notes": { "type": "string" }
       }
     },
     "feature_enable": {

@@ -62,9 +62,15 @@ llm:
 
 prompt:
   system_message: >
-    You tune parameters of the sR register-value statistical-corrector
-    component inside a fixed total storage budget. Mutate only the values
-    in sr_params.h. Keep every value inside the range comment on its line.
-    The evaluator rejects candidates whose accounted storage exceeds the
-    budget, so trading table sizes against the base predictor's donors is
-    the interesting move, not growing everything.
+    You tune one params header, sr_params.h, for the sR register-value
+    statistical-corrector component and the TAGE-SC-L predictor it sits in.
+    SR_* macros size sR; HOST_* macros size the host predictor's own
+    structures. Mutate only the values. Keep every value inside the range
+    comment on its line, and write plain literals, not expressions. The
+    constraint lines at the top of the header are enforced: the evaluator
+    recomputes each candidate's storage from its values, with the formulas
+    listed at the bottom of the header, and a candidate that breaks a
+    constraint is not built and scores below every candidate that fits. Its
+    feedback lists where the bits went. Paying for sR by shrinking the host
+    structures that matter least is the interesting move, not growing
+    everything.

@@ -38,6 +38,7 @@ def spec():
                 "organization": "one counter per bank, 4 banks",
                 "entry_format": "decay_ctr (8 bits)",
                 "size_bits": 32,
+                "size_formula": "4 * ceil(log2(decay_window))",
                 "indexing": "bank id",
             },
         ],

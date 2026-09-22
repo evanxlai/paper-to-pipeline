@@ -49,6 +49,10 @@
           "organization": { "type": "string", "description": "e.g. '4-way set-associative, 1024 sets'" },
           "entry_format": { "type": "string", "description": "Fields and widths per entry" },
           "size_bits": { "type": "integer", "description": "Total storage in bits at default parameters" },
+          "size_formula": {
+            "type": "string",
+            "description": "This entry's storage in bits as an arithmetic expression over `parameters[].name`, e.g. 'num_banks * (wt0_entries + wt1_entries) * wt_ctr_bits'. Allowed: numbers, parameter names, + - * / // % ** << >>, parentheses, and min, max, log2, ceil, floor, abs, int. Never ^ for a power. Evaluated at the defaults it must equal `size_bits`. Omit it only for an entry no parameter resizes; stage 4 re-derives every candidate's storage from these formulas, so a structure a knob resizes without a formula is one whose cost the search cannot see."
+          },
           "indexing": { "type": "string", "description": "Index/hash function, inputs and fold widths" }
         }
       }

@@ -1,0 +1,179 @@
+{
+  "_comment": "Test fixture, not a plan: a hand-written host_knobs/host_storage pair for the CBP2025 kit at 6074966, following predictorsize() in cbp2016_tage_sc_l.h term by term. Its terms reproduce the 524615 bits that function prints. The loop never reads this file; the planner derives its own.",
+  "host_knobs": [
+    {
+      "name": "logg",
+      "macro": "HOST_LOGG",
+      "host_symbol": "LOGG",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGG 10         /* logsize of the  banks in the  tagged TAGE tables */",
+      "type": "int",
+      "default": 10,
+      "range": "[7, 12]",
+      "binding": "compile_time_define",
+      "description": "Entries per tagged bank, log2, for every bank (logg[i] = LOGG)."
+    },
+    {
+      "name": "tbits",
+      "macro": "HOST_TBITS",
+      "host_symbol": "TBITS",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define TBITS 8         //minimum width of the tags  (low history lengths), +4 for high history lengths",
+      "type": "int",
+      "default": 8,
+      "range": "[6, 12]",
+      "binding": "compile_time_define",
+      "description": "Tag width of the low banks; the high banks use TBITS + 4."
+    },
+    {
+      "name": "nbanklow",
+      "macro": "HOST_NBANKLOW",
+      "host_symbol": "NBANKLOW",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define NBANKLOW 10     // number of banks in the shared bank-interleaved for the low history lengths",
+      "type": "int",
+      "default": 10,
+      "range": "[6, 10]",
+      "binding": "compile_time_define",
+      "description": "Tagged banks shared by the short histories."
+    },
+    {
+      "name": "nbankhigh",
+      "macro": "HOST_NBANKHIGH",
+      "host_symbol": "NBANKHIGH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define NBANKHIGH 20        // number of banks in the shared bank-interleaved for the  history lengths",
+      "type": "int",
+      "default": 20,
+      "range": "[12, 20]",
+      "binding": "compile_time_define",
+      "description": "Tagged banks shared by the long histories."
+    },
+    {
+      "name": "cwidth",
+      "macro": "HOST_CWIDTH",
+      "host_symbol": "CWIDTH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define CWIDTH 3        // predictor counter width on the TAGE tagged tables",
+      "type": "int",
+      "default": 3,
+      "range": "[2, 4]",
+      "binding": "compile_time_define",
+      "description": "Prediction counter width in the tagged tables."
+    },
+    {
+      "name": "logb",
+      "macro": "HOST_LOGB",
+      "host_symbol": "LOGB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGB 13         // log of number of entries in bimodal predictor",
+      "type": "int",
+      "default": 13,
+      "range": "[10, 15]",
+      "binding": "compile_time_define",
+      "description": "Bimodal entries, log2; hysteresis is shared by 2^HYSTSHIFT entries."
+    },
+    {
+      "name": "percwidth",
+      "macro": "HOST_PERCWIDTH",
+      "host_symbol": "PERCWIDTH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define PERCWIDTH 6     //Statistical corrector  counter width 5 -> 6 : 0.6 %",
+      "type": "int",
+      "default": 6,
+      "range": "[4, 8]",
+      "binding": "compile_time_define",
+      "description": "Width of every statistical-corrector weight counter."
+    },
+    {
+      "name": "loggnb",
+      "macro": "HOST_LOGGNB",
+      "host_symbol": "LOGGNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGGNB 10       // 1 1K + 2 * 512-entry tables",
+      "type": "int",
+      "default": 10,
+      "range": "[8, 11]",
+      "binding": "compile_time_define",
+      "description": "Global-history GEHL tables, log2; two of the three are half size."
+    }
+  ],
+  "host_storage": {
+    "baseline_bits": 524615,
+    "measured_by": "predictorsize() in cbp2016_tage_sc_l.h, built with PRINTSIZE on a scratch copy",
+    "terms": [
+      {
+        "structure": "tagged tables, high banks",
+        "formula": "nbankhigh * 2**logg * (cwidth + 1 + tbits + 4)"
+      },
+      {
+        "structure": "tagged tables, low banks",
+        "formula": "nbanklow * 2**logg * (cwidth + 1 + tbits)"
+      },
+      {
+        "structure": "use-alt-on-NA counters",
+        "formula": "16 * 5"
+      },
+      {
+        "structure": "bimodal, prediction and shared hysteresis",
+        "formula": "2**logb + 2**(logb - 2)"
+      },
+      {
+        "structure": "global history, m[NHIST]",
+        "formula": "3000"
+      },
+      {
+        "structure": "path history",
+        "formula": "27"
+      },
+      {
+        "structure": "TICK counter",
+        "formula": "10"
+      },
+      {
+        "structure": "loop predictor",
+        "formula": "(1 << 5) * (2 * 10 + 10 + 4 + 4 + 1)"
+      },
+      {
+        "structure": "loop predictor again: predictorsize() counts it inside the SC figure too",
+        "formula": "(1 << 5) * (2 * 10 + 10 + 4 + 4 + 1)"
+      },
+      {
+        "structure": "SC update thresholds and component weights",
+        "formula": "12 + 8 * 64 + 3 * 6 * 8"
+      },
+      {
+        "structure": "SC bias tables",
+        "formula": "percwidth * 3 * 2**8"
+      },
+      {
+        "structure": "SC global GEHL",
+        "formula": "(3 - 2) * 2**loggnb * percwidth + 2**(loggnb - 1) * 2 * percwidth + 40"
+      },
+      {
+        "structure": "SC path GEHL",
+        "formula": "(3 - 2) * 2**9 * percwidth + 2**8 * 2 * percwidth"
+      },
+      {
+        "structure": "SC first local GEHL and histories",
+        "formula": "(3 - 2) * 2**10 * percwidth + 2**9 * 2 * percwidth + 256 * 11 + 6 * 8"
+      },
+      {
+        "structure": "SC second local GEHL and histories",
+        "formula": "(3 - 2) * 2**9 * percwidth + 2**8 * 2 * percwidth + 16 * 16 + 6 * 8"
+      },
+      {
+        "structure": "SC third local GEHL and histories",
+        "formula": "(2 - 2) * 2**10 * percwidth + 2**9 * 2 * percwidth + 16 * 9 + 6 * 8"
+      },
+      {
+        "structure": "SC IMLI tables and histories",
+        "formula": "2**7 * percwidth + 8 + 2 * 2**8 * percwidth + 2 * 6 * 8 + 256 * 10"
+      },
+      {
+        "structure": "chooser counters",
+        "formula": "2 * 7"
+      }
+    ]
+  }
+}

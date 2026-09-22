@@ -21,15 +21,17 @@ The plan is authoritative on **where and how** to hook. The spec is authoritativ
 2. Realize every `spec_map[]` entry at the `hook_ids` it names, implementing the spec's behaviour for that item. Do not simplify a mechanism because it is hard to hook.
 3. The enable knob is `feature_enable.name`, defaulting off by the `default_off` mechanism the plan describes. With it off, the host must execute the exact baseline behaviour the plan's `off_path` claims.
 4. Expose every `knobs[]` entry under exactly the `macro` the plan names, with the `default` it records. The tuning stage mutates one generated params header and nothing else, so a knob under any other name is one it can never move.
-5. Implement each `interface_resolutions[]` entry as its `resolution` says, and copy any `fidelity_note` into `PORT_NOTES.md`. The planner already chose; you are not re-choosing.
-6. Add each `spec_unit_test` from the test plan into the `test_file` it names, printing exactly the string its `pass_condition` matches.
+5. Expose every `host_knobs[]` entry the same way: make `host_symbol` take its value from `macro`, where the plan's `observed` line sets it today. For a define that means replacing `#define LOGG 10` with `#define LOGG HOST_LOGG`, and including `sr_params.h` at the top of that file, before anything reads the symbol. With every macro at its default the host must be bit-identical to the baseline, and G2 checks that. Before the tuning stage searches, it builds each knob once at a second value and stops if the binary does not change, so a knob wired to nothing is caught there.
+6. Create `sr_params.h` with exactly the content under `## The params header` below. That is the file the tuning stage regenerates, with values changed and nothing else.
+7. Implement each `interface_resolutions[]` entry as its `resolution` says, and copy any `fidelity_note` into `PORT_NOTES.md`. The planner already chose; you are not re-choosing.
+8. Add each `spec_unit_test` from the test plan into the `test_file` it names, printing exactly the string its `pass_condition` matches.
 
 ## What you may not decide
 
 - Do not revisit `structure.rejected_alternatives`. Those were decided against this tree.
 - Do not re-answer an `open_questions[].assumption`. The plan took a reading; implement it.
 - Do not rename a knob, a macro, or a test marker.
-- Do not touch storage budgets or shrink a host structure to make room. That belongs to the tuning stage alone.
+- Do not touch storage budgets, change a host knob's default, or shrink a host structure to make room. Exposing a host knob is your job; choosing its value belongs to the tuning stage alone.
 - Do not quietly hook somewhere the plan does not name. A deviation nobody recorded is one nobody can diagnose. If the plan is wrong about the tree, you can propose a revision to it. The rules for that arrive with the first debug turn. Until then, implement the plan as written. Record anything that looks wrong in `PORT_NOTES.md`.
 
 ## Loop

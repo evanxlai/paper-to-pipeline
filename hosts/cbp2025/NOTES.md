@@ -175,14 +175,82 @@ Two consequences belong in the plan.
 
 ## Parameters live in `sr_params.h`
 
-Stage 4 mutates one generated header and nothing else. It writes `sr_params.h`. That file holds one `#define SR_<PARAMETER_NAME_UPPER_CASED> <value>` per spec parameter. See `loop/dse.py:params_header_from_spec`. Four rules follow.
+Stage 4 mutates one generated header and nothing else. It writes `sr_params.h`. That file holds one `#define SR_<PARAMETER_NAME_UPPER_CASED> <value>` per spec parameter, then one `#define HOST_<NAME>` per plan host knob. See `loop/dse.py:params_header`. Four rules follow.
 
 - The port must `#include "sr_params.h"` from `my_cond_branch_predictor.h`.
 - Every tunable must come from an `SR_*` macro. A hard-coded value is a value the search can never move.
-- The port must create `sr_params.h` itself, with the spec defaults. The file is not in the checkout, and the build has to work long before stage 4 runs.
+- The port must create `sr_params.h` itself, with exactly the content stage 3's prompt gives under "The params header". The file is not in the checkout, and the build has to work long before stage 4 runs.
 - An `enum` parameter arrives as an integer index into its choice list, not as prose. The mapping sits in a trailing comment. Implement it as an `#if` and `#elif` ladder, or as a `switch`.
 
 The enable knob is the one exception to "everything through the header". It is also `SR_SR_ENABLE` in the header. The gate flips it through the environment, so let the environment win at run time.
+
+The same header also carries the host's own sizing knobs, as `HOST_*` macros. The plan lists them in `host_knobs`, and stage 3 is handed the exact header to create. See the next section.
+
+## Host knobs, and what TAGE-SC-L costs
+
+Stage 4 has to be able to shrink TAGE-SC-L to pay for sR, so the plan exposes the host's sizing defines as `host_knobs` and writes what they cost as `host_storage`. Everything below was read or run at commit `6074966` on 2026-09-22.
+
+**The host counts its own storage.** `predictorsize()` in `cbp2016_tage_sc_l.h` (line 345) adds up every table from the same defines that size them. It prints its result at setup when `PRINTSIZE` is defined, and line 26 ships that as a comment, `//#define PRINTSIZE`. Measure on a scratch copy, never in the checkout:
+
+```sh
+rm -rf /tmp/p2p_size && cp -r . /tmp/p2p_size && cd /tmp/p2p_size \
+  && sed -i 's#^//\#define PRINTSIZE#\#define PRINTSIZE#' cbp2016_tage_sc_l.h \
+  && make clean >/dev/null && make -s >/dev/null 2>&1 \
+  && ./cbp sample_traces/int/sample_int_trace.gz 2>&1 | grep -o '(TAGE [0-9]*)\|(LOOP [0-9]*)\|(SC [0-9]*)\|(TOTAL [0-9]* bits'
+```
+
+On the clean tree it prints `(TAGE 463917)`, `(LOOP 1248)`, `(SC 59450)` and `(TOTAL 524615 bits`. Stage 2 runs the same measurement itself (`adapter.measure_host_storage`) and requires `host_storage.baseline_bits` to equal it.
+
+**Follow `predictorsize()` term by term, quirk included.** It counts the loop predictor's 1248 bits twice: once on its own, and again inside the SC figure, because it keeps adding into the same variable. The total the check compares with is that function's total, so the terms have to reproduce it, double count and all. A term that "fixes" it disagrees with the measurement by 1248.
+
+**`predictorsize()`, term by term.** Written in the host's own symbols. It reproduces the function's 524615 exactly at the defaults, which `loop/tests/test_constraints.py` checks. In `host_storage`, write each symbol you expose as a knob by its knob name, and each one you do not as its number. A bracketed array element is a constant set in the file.
+
+| structure | bits | at the defaults |
+| --- | --- | --- |
+| tagged tables, high banks | `NBANKHIGH * 2**LOGG * (CWIDTH + UWIDTH + TBITS + 4)` | 327680 |
+| tagged tables, low banks | `NBANKLOW * 2**LOGG * (CWIDTH + UWIDTH + TBITS)` | 122880 |
+| use-alt-on-NA counters | `2**LOGSIZEUSEALT * ALTWIDTH` | 80 |
+| bimodal, with shared hysteresis | `2**LOGB + 2**(LOGB - HYSTSHIFT)` | 10240 |
+| global history, `m[NHIST]` | `3000` | 3000 |
+| path history | `PHISTWIDTH` | 27 |
+| TICK counter | `10` | 10 |
+| loop predictor | `2**LOGL * (2 * WIDTHNBITERLOOP + LOOPTAG + 4 + 4 + 1)` | 1248 |
+| loop predictor, counted again inside SC | the same | 1248 |
+| SC thresholds and component weights | `WIDTHRES + WIDTHRESP * 2**LOGSIZEUP + 3 * EWIDTH * 2**LOGSIZEUPS` | 668 |
+| SC bias tables | `PERCWIDTH * 3 * 2**LOGBIAS` | 4608 |
+| SC global GEHL | `(GNB - 2) * 2**LOGGNB * PERCWIDTH + 2**(LOGGNB - 1) * 2 * PERCWIDTH + Gm[0]` | 12328 |
+| SC path GEHL | `(PNB - 2) * 2**LOGPNB * PERCWIDTH + 2**(LOGPNB - 1) * 2 * PERCWIDTH` | 6144 |
+| SC first local | `(LNB - 2) * 2**LOGLNB * PERCWIDTH + 2**(LOGLNB - 1) * 2 * PERCWIDTH + NLOCAL * Lm[0] + EWIDTH * 2**LOGSIZEUPS` | 15152 |
+| SC second local | `(SNB - 2) * 2**LOGSNB * PERCWIDTH + 2**(LOGSNB - 1) * 2 * PERCWIDTH + NSECLOCAL * Sm[0] + EWIDTH * 2**LOGSIZEUPS` | 6448 |
+| SC third local | `(TNB - 2) * 2**LOGTNB * PERCWIDTH + 2**(LOGTNB - 1) * 2 * PERCWIDTH + NTLOCAL * Tm[0] + EWIDTH * 2**LOGSIZEUPS` | 6336 |
+| SC IMLI | `2**(LOGINB - 1) * PERCWIDTH + Im[0] + IMNB * 2**(LOGIMNB - 1) * PERCWIDTH + 2 * EWIDTH * 2**LOGSIZEUPS + 256 * IMm[0]` | 6504 |
+| chooser counters | `2 * CONFWIDTH` | 14 |
+
+The constants behind it: `UWIDTH` 1, `LOGSIZEUSEALT` 4, `ALTWIDTH` 5, `HYSTSHIFT` 2, `PHISTWIDTH` 27, `WIDTHNBITERLOOP` 10, `LOOPTAG` 10, `WIDTHRES` 12, `WIDTHRESP` 8, `LOGSIZEUP` 6, `LOGSIZEUPS` 3, `GNB` 3, `PNB` 3, `LNB` 3, `SNB` 3, `TNB` 2, `NLOCAL` 256, `NSECLOCAL` 16, `NTLOCAL` 16, `IMNB` 2, `CONFWIDTH` 7, and the history lengths `Gm[0]` 40, `Lm[0]` 11, `Sm[0]` 16, `Tm[0]` 9, `Im[0]` 8, `IMm[0]` 10. `logg[i] = LOGG` and `TB[i] = TBITS + 4 * (i >= BORN)` (lines 552-553) are why every bank has `2**LOGG` entries and the high banks have 4 more tag bits.
+
+**The sizing defines.** Every one of these feeds `predictorsize()`:
+
+| define | line | default | sizes |
+| --- | --- | --- | --- |
+| `LOGG` | 212 | 10 | entries per tagged bank, log2 |
+| `TBITS` | 213 | 8 | tag width, low banks; high banks get 4 more |
+| `NBANKLOW`, `NBANKHIGH` | 194, 195 | 10, 20 | tagged bank counts |
+| `CWIDTH`, `UWIDTH` | 227, 226 | 3, 1 | tagged counter and useful-bit widths |
+| `LOGB`, `HYSTSHIFT` | 222, 221 | 13, 2 | bimodal entries, log2, and hysteresis sharing |
+| `PERCWIDTH` | 42 | 6 | every SC weight counter |
+| `LOGBIAS` | 45 | 8 | the three SC bias tables, log2 |
+| `LOGGNB`, `LOGPNB`, `LOGLNB`, `LOGSNB`, `LOGTNB` | 72, 81, 88, 98, 108 | 10, 9, 10, 9, 10 | the SC GEHL tables, log2 |
+| `LOGINB`, `LOGIMNB` | 54, 61 | 8, 9 | the IMLI tables, log2 |
+| `LOGL` | 17 | 5 | loop predictor entries, log2 |
+| `EWIDTH` | 141 | 6 | the SC component weights |
+
+Before widening a range, read what else the define feeds. Three examples. The bank counts interact with `BORN`, `BORNINFASSOC` and `BORNSUPASSOC`, which place tables in banks. `LOGSIZEUPS` is `LOGSIZEUP/2`. Each GEHL component has two half-size tables, `(1 << (LOG - 1))`.
+
+**How a host knob is wired.** Every one of these is a file-scope `#define`, and several size file-scope arrays such as `int8_t Bias[(1 << LOGBIAS)]`. So the wiring is textual: `#include "sr_params.h"` at the top of `cbp2016_tage_sc_l.h`, and `#define LOGG 10` becomes `#define LOGG HOST_LOGG`. `cond_branch_predictor_interface.cc` includes `cbp2016_tage_sc_l.h` before `my_cond_branch_predictor.h`, so the include has to be in `cbp2016_tage_sc_l.h` itself. With every macro at its default the binary is the baseline's, and G2 holds.
+
+**Stage 4 proves each knob is wired.** Two builds of the same tree give byte-identical `cbp` binaries on this kit, which was checked by hand. So before searching, stage 4 builds every knob once at a second legal value. It stops if a knob that costs storage produces the default binary, because the search would then credit storage the predictor never gave up.
+
+**The 64 KiB track has no room at the defaults.** 64 KiB is 524288 bits. The unmodified host alone is 524615 by its own accounting, 327 over, and sR at its paper defaults adds 53863. At that allowance the search starts infeasible and has to shrink something before any candidate scores.
 
 ## Build
 

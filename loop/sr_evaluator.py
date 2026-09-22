@@ -34,6 +34,7 @@ import json
 import os
 
 import constants as C
+import constraints as K
 from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
 from skydiscover.evaluation.chia_evaluator import ChiaEvaluator
 from skydiscover.evaluation.evaluation_result import EvaluationResult
@@ -68,6 +69,31 @@ def _unwrap(result):
 _eval_binary: contextvars.ContextVar[bytes | None] = contextvars.ContextVar(
     "_eval_binary", default=None
 )
+# The same handoff for the candidate's static metrics (its accounted storage
+# and the breakdown behind it), so the scored result can report them.
+_eval_static: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "_eval_static", default=None
+)
+
+
+def infeasible_score(report: "K.CandidateReport", constraints: list) -> float:
+    """The score of a candidate that breaks a constraint: in [0, 1), so it is
+    below every candidate that fits (1000 / (1 + MPKI) is above 1 for any
+    MPKI under 999), and higher the closer it comes to fitting.
+
+    Zero for everything would leave a search that starts over the allowance
+    with no direction at all, and at a tight allowance that is where the
+    defaults start: the paper's feature on the unmodified host."""
+    if report.errors:
+        return 0.0
+    score = 1.0
+    for c in constraints:
+        value = report.metrics.get(c.metric)
+        if c.phase != "static" or value is None or c.holds(value) or not value:
+            continue
+        ratio = c.allowance / value if c.comparison in ("<=", "<") else value / c.allowance
+        score *= max(0.0, min(ratio, 1.0))
+    return min(score, 0.99)
 
 
 class SRParamsEvaluator(ChiaEvaluator):
@@ -79,6 +105,9 @@ class SRParamsEvaluator(ChiaEvaluator):
         build_timeout_s: int,
         run_timeout_s: int,
         feature_env: dict | None = None,
+        spec: dict | None = None,
+        port_plan: dict | None = None,
+        constraints: list | None = None,
     ):
         self._cbp_root = cbp_root
         self._screening_traces = list(screening_traces)
@@ -92,6 +121,14 @@ class SRParamsEvaluator(ChiaEvaluator):
         # nothing. dse.run_dse derives this from the port plan's
         # feature_enable block, which is the only place the knob is named.
         self._feature_env = dict(feature_env or {})
+        # What a candidate must satisfy before it is built, and what it is
+        # costed from. Plain dicts, because this instance is pickled to the
+        # EvolverNode actor. With no spec there is nothing to check, which is
+        # how the older tests construct it.
+        self._spec = spec
+        self._port_plan = port_plan or {}
+        self._constraints = [K.Constraint(c["metric"], c["comparison"], c["allowance"],
+                                          c.get("name", "")) for c in constraints or []]
         super().__init__(
             build_fn=self._build,
             run_fn=self._run,
@@ -119,8 +156,30 @@ class SRParamsEvaluator(ChiaEvaluator):
             self._feature_env,
         )
 
+    def check(self, program_solution: str):
+        """The candidate's static report, or None when there is no spec to
+        check it against."""
+        if self._spec is None:
+            return None
+        return K.check_static(program_solution, self._spec, self._port_plan,
+                              self._constraints)
+
     async def _dispatch_build(self, program_solution, label):
         _eval_binary.set(None)
+        _eval_static.set(None)
+        report = self.check(program_solution)
+        if report is not None and not report.ok:
+            # Refused before the build. It costs no build and no trace, and
+            # the message is the proposer's feedback: which value is illegal
+            # or which constraint broke, and where the bits are.
+            return EvaluationResult(
+                metrics={"error": 0.0,
+                         "combined_score": infeasible_score(report, self._constraints),
+                         **{k: float(v) for k, v in report.metrics.items()}},
+                artifacts={"failure_stage": "constraints", "report": report.message()},
+            )
+        if report is not None:
+            _eval_static.set({"metrics": report.metrics, "breakdown": report.breakdown})
         result = _unwrap(await super()._dispatch_build(program_solution, label))
         if isinstance(result, EvaluationResult) or result is None:
             return result
@@ -166,10 +225,20 @@ class SRParamsEvaluator(ChiaEvaluator):
                 metrics={"error": 0.0, "combined_score": 0.0},
                 artifacts={"failure_stage": "run", "agg": json.dumps(agg, default=str)},
             )
+        measured = K.check_measured(agg, self._constraints)
+        static = _eval_static.get() or {}
+        if measured:
+            return EvaluationResult(
+                metrics={"error": 0.0, "combined_score": 0.0},
+                artifacts={"failure_stage": "constraints",
+                           "report": "\n".join(measured),
+                           "agg": json.dumps(agg, default=str)},
+            )
         # Lower MPKI is better; skydiscover maximizes combined_score.
         metrics = {"combined_score": 1000.0 / (1.0 + mpki)}
         metrics.update({k: v for k, v in agg.items() if isinstance(v, (int, float))})
-        return EvaluationResult(
-            metrics=metrics,
-            artifacts={"agg": json.dumps(agg, default=str)},
-        )
+        metrics.update({k: float(v) for k, v in (static.get("metrics") or {}).items()})
+        artifacts = {"agg": json.dumps(agg, default=str)}
+        if static.get("breakdown"):
+            artifacts["storage_breakdown"] = json.dumps(static["breakdown"])
+        return EvaluationResult(metrics=metrics, artifacts=artifacts)

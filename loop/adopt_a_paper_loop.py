@@ -295,6 +295,7 @@ def plan(dump: helpers.Dumper, spec: dict, host: str,
     work_dir, notes = host_paths(host)
     mirror = checks_root(host)
     revision = None
+    host_storage_bits = None
     if host == "cbp2025":
         # Read the commit off the worker that actually holds the checkout,
         # and refuse to run the file checks against a mirror at some other
@@ -320,6 +321,11 @@ def plan(dump: helpers.Dumper, spec: dict, host: str,
                 f"scripts/fetch_artifacts.sh, or `git -C {mirror} fetch && git "
                 f"-C {mirror} checkout {revision}`."
             )
+        # The host's own storage accounting on the clean tree. The plan's
+        # host_storage has to reproduce it, because stage 4 costs every
+        # candidate that shrinks the host with those terms.
+        host_storage_bits = cbp2025_adapter.host_storage_bits(work_dir)
+        print(f"[plan] host storage by its own accounting: {host_storage_bits} bits")
     bash = BashTool(
         name=f"{host}_bash",
         work_dir=work_dir,
@@ -334,6 +340,7 @@ def plan(dump: helpers.Dumper, spec: dict, host: str,
             # is a repair turn here rather than a frozen G2 that stage 3 can
             # only escalate.
             baseline=helpers.load_baseline(host, baseline_key),
+            host_storage_bits=host_storage_bits,
         )
     finally:
         bash.stop()
@@ -576,6 +583,11 @@ def integrate(
         f"\n\n## Port plan\n\n```json\n{json.dumps(port_plan, indent=2)}\n```"
         f"\n\n## Test plan\n\n```json\n{json.dumps(test_plan, indent=2)}\n```"
         f"\n\n## Feature spec\n\n```json\n{json.dumps(spec, indent=2)}\n```"
+        f"\n\n## The params header\n\n"
+        f"Create `sr_params.h` with exactly this content. Stage 4 regenerates "
+        f"it from the same spec and plan, with the values changed and nothing "
+        f"else, so every macro below must be one the port reads.\n\n"
+        f"```c\n{dse.params_header(spec, port_plan)}```"
         f"\n\n## Host notes\n\n{adapter.notes}"
     )
 

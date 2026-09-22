@@ -161,6 +161,27 @@
       "default": 4
     }
   ],
+  "host_knobs": [
+    {
+      "name": "bimodal_entries",
+      "macro": "HOST_BIMODAL_ENTRIES",
+      "host_symbol": "bimodal_entries",
+      "file": "src/params.h",
+      "observed": "inline long bimodal_entries() { return param(\"BIMODAL_ENTRIES\", 1024); }",
+      "type": "int",
+      "default": 1024,
+      "range": "[64, 4096] pow2",
+      "binding": "compile_time_define",
+      "description": "Entries in the baseline bimodal table of two-bit counters. The port makes the accessor's fallback HOST_BIMODAL_ENTRIES, so the environment can still override it. bimodal_index masks with size - 1, so the value must stay a power of two."
+    }
+  ],
+  "host_storage": {
+    "baseline_bits": 2048,
+    "measured_by": "Counted from src/predictor.h and src/params.h: one vector of bimodal_entries() two-bit counters. The toy host has no storage-accounting function of its own.",
+    "terms": [
+      { "structure": "bimodal table", "formula": "bimodal_entries * 2" }
+    ]
+  },
   "feature_enable": {
     "name": "TINYSC_ENABLE",
     "macro": "SR_TINYSC_ENABLE",

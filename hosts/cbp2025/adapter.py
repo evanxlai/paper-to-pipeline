@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -195,6 +196,71 @@ def materialize_port_tree(
                     or "(not a git checkout)",
         "cleaned": [line for line in removed.splitlines() if line.strip()],
     }
+
+
+_PRINTSIZE_OFF = "//#define PRINTSIZE"
+_SIZE_RE = re.compile(r"\((TAGE|LOOP|SC|TOTAL) (\d+)")
+
+
+@ChiaFunction(resources={C.CBP2025_HOST_RESOURCE: 1.0})
+def measure_host_storage(cbp_root: str, timeout_s: int = 600) -> dict:
+    """The host predictor's storage in bits, by its own accounting.
+
+    TAGE-SC-L carries `predictorsize()`, which sums every table from the
+    same defines that size them, and prints it at setup when `PRINTSIZE` is
+    defined. This builds a scratch copy with that one line switched on and
+    runs the bundled int sample trace just long enough to read the line.
+    The checkout itself is never touched.
+
+    Stage 2 compares the plan's `host_storage.baseline_bits` with this, so
+    the number stage 4 costs every candidate against is the host's own
+    rather than one the planner recalled. Measured on this kit at commit
+    6074966: TAGE 463917, LOOP 1248, SC 59450, TOTAL 524615. The loop
+    predictor's 1248 bits are counted twice, once alone and once inside the
+    SC figure, because `predictorsize()` keeps accumulating into the same
+    variable; the total above is that function's, double count included."""
+    import tempfile
+
+    source = Path(cbp_root)
+    with tempfile.TemporaryDirectory(prefix="p2p_hostsize_") as scratch:
+        tree = Path(scratch) / "tree"
+        shutil.copytree(source, tree, symlinks=True,
+                        ignore=shutil.ignore_patterns(".git", "*.o", "cbp"))
+        header = tree / "cbp2016_tage_sc_l.h"
+        text = header.read_text()
+        if _PRINTSIZE_OFF not in text:
+            return {"ok": False, "error": f"no '{_PRINTSIZE_OFF}' line in {header.name}"}
+        header.write_text(text.replace(_PRINTSIZE_OFF, "#define PRINTSIZE", 1))
+        try:
+            build = subprocess.run("make clean && make -j", shell=True, cwd=tree,
+                                   capture_output=True, text=True, timeout=timeout_s)
+            if build.returncode != 0:
+                return {"ok": False, "error": "build failed",
+                        "log": (build.stdout + build.stderr)[-2000:]}
+            run = subprocess.run(
+                ["./cbp", "sample_traces/int/sample_int_trace.gz"], cwd=tree,
+                capture_output=True, text=True, timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"timed out after {timeout_s}s"}
+        parts = {k.lower(): int(v) for k, v in _SIZE_RE.findall(run.stdout + run.stderr)}
+        if "total" not in parts:
+            return {"ok": False, "error": "no '(TOTAL N bits' line in the output",
+                    "log": (run.stdout + run.stderr)[-2000:]}
+        return {"ok": True, "bits": parts["total"], "parts": parts,
+                "measured_by": "predictorsize() in cbp2016_tage_sc_l.h, built with "
+                               "PRINTSIZE on a scratch copy of the checkout"}
+
+
+def host_storage_bits(cbp_root: str = C.CBP2025_ROOT) -> Optional[int]:
+    """`measure_host_storage` on the checkout node, or None if it failed.
+
+    None skips the stage-2 comparison rather than failing the stage: the plan
+    still has to be self-consistent, and the reason is printed."""
+    result = get(measure_host_storage.chia_remote(cbp_root))
+    if not result.get("ok"):
+        print(f"[plan] could not measure the host's storage: {result.get('error')}")
+        return None
+    return result["bits"]
 
 
 @ChiaFunction(resources={C.CBP2025_HOST_RESOURCE: 0.1})

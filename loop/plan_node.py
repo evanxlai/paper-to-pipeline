@@ -114,6 +114,7 @@ def make_plan(
     repair_turns: int | None = None,
     checks_root: str | None = None,
     baseline: dict | None = None,
+    host_storage_bits: int | None = None,
 ) -> tuple[dict, dict]:
     """Plan the port of `spec` into `host`, or refuse to.
 
@@ -126,7 +127,12 @@ def make_plan(
     on, and this node runs on the head, where that path holds nothing. Such
     a host passes a head-local mirror at the same revision, and `revision`
     then carries the worker checkout's real commit so a mirror that has
-    drifted is a planning error rather than a silent one."""
+    drifted is a planning error rather than a silent one.
+
+    `host_storage_bits` is the host's own storage accounting, measured on
+    the clean tree by the host adapter where it can. The plan's
+    `host_storage.baseline_bits` has to equal it, so the number stage 4 costs
+    every candidate against is measured rather than recalled."""
     # Lazy, like spec_review: this module stays importable, and testable,
     # without chia installed.
     from llm import load_prompt, make_llm, run_llm
@@ -179,7 +185,8 @@ def make_plan(
     dump.llm(f"plan_{host}_0", resp)
 
     port_plan, test_plan, errors = parse_reply(resp.result)
-    findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision, baseline)
+    findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision,
+                       baseline, host_storage_bits)
     rounds = [{"turn": 0, "schema_errors": errors, "findings": [f.as_dict() for f in findings]}]
 
     for turn in range(turns):
@@ -188,7 +195,8 @@ def make_plan(
         resp = run_llm(llm, _repair_prompt(errors, findings, bool(errors)), tools)
         dump.llm(f"plan_{host}_repair_{turn}", resp)
         port_plan, test_plan, errors = parse_reply(resp.result)
-        findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision, baseline)
+        findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision,
+                           baseline, host_storage_bits)
         rounds.append({
             "turn": turn + 1, "schema_errors": errors,
             "findings": [f.as_dict() for f in findings],
@@ -248,7 +256,8 @@ def _blocking(findings) -> list:
     return [f for f in findings if f.severity == "error"]
 
 
-def _checks(spec, port_plan, test_plan, work_dir, revision, baseline=None) -> list:
+def _checks(spec, port_plan, test_plan, work_dir, revision, baseline=None,
+            host_storage_bits=None) -> list:
     """Plan checks, plus the two facts only the caller can know.
 
     `baseline` is the recorded baseline G2 will compare against. Resolving
@@ -260,7 +269,7 @@ def _checks(spec, port_plan, test_plan, work_dir, revision, baseline=None) -> li
         return []
     findings = plan_checks.run_checks(
         spec, port_plan, test_plan, host_root=work_dir, baseline=baseline,
-        repo_root=C.REPO_ROOT)
+        repo_root=C.REPO_ROOT, host_storage_bits=host_storage_bits)
     if revision is not None and port_plan.get("host_revision") != revision:
         findings.append(spec_checks.Finding(
             "/plan/host_revision", "revision_not_measured", "error",

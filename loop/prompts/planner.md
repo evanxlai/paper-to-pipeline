@@ -34,6 +34,15 @@ Answer one question: how does this feature go into *this* model?
 
 Do not restate the spec's pseudocode. The spec is authoritative on what the mechanism is; your plan is authoritative on where it goes.
 
+## The host's own knobs
+
+The tuning stage has to be able to shrink the host to pay for the feature, and it can only move what the plan exposes. So the plan also records the host's own sizing knobs and what the host's structures cost. This is accounting, not a decision: you expose each knob at the clean tree's value and never choose another.
+
+1. Find every define, parameter or constant that sets the size of a host structure the port leaves in place: table entry counts, tag widths, counter widths, bank counts. The host's own storage accounting is the best list, when it has one (the host notes say where). Every size it adds up reads some of them.
+2. Give each one a `host_knobs` entry. `name` is the host symbol lower-cased, `macro` is `HOST_` plus the name upper-cased, and `observed` is the line that sets the symbol, copied verbatim from the checkout. `default` is the value in that line. Code checks that the line is in the file and holds the default, because a host knob at any other value changes the host with the feature off, and G2 then fails a port that did nothing wrong.
+3. Give each a `range` the host really tolerates. Read what else the symbol feeds (index widths, shifts, half-size tables, derived constants) before you widen it, and include values below the default: that is the direction a tight allowance explores. Before stage 4 searches, it builds every knob once at a second legal value, and it stops if a knob that costs storage does not change the binary.
+4. Write `host_storage`. Measure `baseline_bits` with the host's own accounting, the way the host notes describe, and record how in `measured_by`. Then write one `terms` entry per structure, following that accounting term by term, as arithmetic over the knob names. A structure no knob resizes is still a term, with a constant formula. Code evaluates the terms at the defaults and requires them to equal `baseline_bits` exactly, and it compares `baseline_bits` with its own measurement of the clean tree. Write a power as `**` or `<<`, never `^`.
+
 ## The test plan
 
 Answer the other question: how will we know it worked?
@@ -48,7 +57,7 @@ Prefer a pass condition that proves the test ran. "The output contains no failur
 
 ## Rules
 
-- Say nothing about storage budgets, donor structures or allowances. `resource_accounting` in the spec is a fact about the paper and an input to the tuning stage; it is not a planning instruction, and the integration agent never shrinks a host structure to make room. Both schemas reject unknown fields, so a budget under an invented name fails validation rather than reaching the agent.
+- Say nothing about storage budgets or allowances, and never choose a host knob value other than the clean tree's. Exposing a host knob and recording what it costs is accounting; deciding to shrink it is the tuning stage's job, and the integration agent never shrinks a host structure. Describe a host knob by what it sizes, without the words "budget", "donor" or "allowance": a check flags them, because the integrator reads plan prose as instructions. Both schemas reject unknown fields, so a budget under an invented name fails validation rather than reaching the agent.
 - Do not invent a measurement. Run it or record that you could not.
 - Pick the correctness entry ids before you write the port plan: `steps[].verify` and `risks[].detected_by` refer to them by name.
 - `feature_name`, `host` and `host_revision` must be identical in both documents. Code compares them.

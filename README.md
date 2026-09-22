@@ -70,22 +70,32 @@ where the escalation sent it.
   `spec_checks`, whose `budget_fit` check compares the spec's accounted
   storage against an allowance. Per the rule above that comparison belongs
   to stage 4 alone.
-- **The tuning stage cannot change the feature's size.** This is the
-  largest gap and it was found by running the stage. sR's 53,863 bits sit
-  80 percent in weight tables and 17 percent in usefulness tables. A bank
-  count and a set of entry counts size both, and the spec records those as
-  prose in `state[].organization`. Only `parameters[]` becomes a knob, so
-  the first real search had two: a decay interval worth no bits, and a
-  digest width reaching at most the 1,495-bit register table. That is
-  under half a percent of the storage, and the iso-budget comparison at
-  192 KiB and 64 KiB has never been made. Three things are missing.
-  Nothing requires distill to expose a sizing dimension as a parameter.
-  Nothing checks that the search can move the accounted storage. The
-  evaluator has no storage accounting, so it cannot reject an over-budget
-  candidate, and the iso-budget claim rests on the search prompt alone.
-- No knob for the budget donors either. `resource_accounting` names the
-  base TAGE predictor as the donor. The proposal's question is how to split
-  storage between it and sR. Nothing in the pipeline can move that split.
+- **The tuning stage could not change the feature's size, or the host's.**
+  Found by running stage 4: its only two knobs reached under half a percent
+  of sR's storage, and nothing could shrink TAGE-SC-L to pay for sR. This
+  is now addressed in code, unit-tested, and **not yet run on the cluster**.
+  The spec (`spec/sr.paper_only.json`, refined by hand from the paper) has
+  twelve knobs, covering counter widths, field widths, table sizes and bank
+  count, plus one `size_formula` per structure. The plan now exposes the
+  host's own sizing defines as `host_knobs`, at the clean tree's values,
+  with `host_storage` formulas that must reproduce the host's own
+  accounting. Stage 2 measures that accounting itself. The evaluator
+  recomputes every candidate's storage from its header values and refuses
+  an over-allowance candidate before building it. A preflight builds each
+  knob at a second value and stops the search if a knob that costs storage
+  changes nothing. See `loop/constraints.py` and
+  `loop/tests/test_constraints.py`.
+- **Constraints are more general than storage.** A constraint is
+  `{metric, comparison, allowance}`, and the evaluator applies whatever set
+  it is handed: static metrics before the build, measured ones after the
+  traces. Only storage is in the set today, for time.
+- **The budget tracks do not match the host yet.** The kit's TAGE-SC-L is
+  524,615 bits by its own `predictorsize()`, which is 327 bits over the
+  64 KiB track before sR is added. At 192 KiB the recorded baseline is that
+  same 64 KiB-class host. If the plan lets host knobs grow past their
+  defaults, a 192 KiB search can buy TAGE capacity the baseline never had.
+  The 192 KiB verdict is therefore not iso-storage until the baseline is a
+  192 KiB host configuration, or the host knobs can only shrink.
 - G5 compares the port against its own feature-off run. G2 proves that run
   is the baseline on one sample trace, not on the performance traces. That
   leaves a narrow gap: a port that leaks only on the larger traces sets its

@@ -10,13 +10,16 @@ gem5, or the CBP2025 kit.
 
 ## The one rule that shapes the split
 
-**Only the DSE stage knows about resource constraints.** Every stage before it exists to
+**Only the DSE stage applies resource constraints.** Every stage before it exists to
 implement the paper's feature *correctly*, and nothing more.
 
 A storage budget is a constraint over a candidate's accounted resources. "Iso-budget" is
 not a special mode: it is one value of that constraint, with the allowance pinned to the
 host's baseline storage. A 192 KiB track and a 64 KiB track are two allowances, not two
-kinds of run.
+kinds of run. Storage is also not the only constraint there can be. It is the first one,
+and the only one the demonstration uses, but a latency bound, a logic-cost bound or an
+IPC floor has the same shape, and stage 4 applies whatever set it is given (see stage 4
+below).
 
 Consequences, all of them load-bearing:
 
@@ -28,6 +31,11 @@ Consequences, all of them load-bearing:
   self-consistency check is not a budget check.
 - `resource_accounting.budget_donors` is a DSE input, not an integration instruction. The
   integrator never shrinks a host structure to make room.
+- Accounting is not a budget decision, so it may happen before DSE. The spec says what
+  each of its structures costs at any parameter setting (`state[].size_formula`). The
+  plan exposes the host's own sizing knobs (`host_knobs`) and says what the host's
+  structures cost (`host_storage`), because stage 4 cannot shrink what it cannot move.
+  Both ship every value at its default. Choosing any other value is stage 4's alone.
 
 The reason is diagnostic clarity. A stage that has to satisfy correctness *and* a budget
 cannot distinguish "the feature is implemented wrong" from "the feature does not fit",
@@ -112,12 +120,16 @@ this feature go into *this* model, and how will we know it worked?
 | `hook_points[]` | file, symbol, and what goes there; a site being *modified* also records what it does today, so a plan can only claim a hook point somebody read |
 | `spec_map[]` | spec JSON pointer -> code site; this is the coverage check's input |
 | `interface_resolutions[]` | every `host_interfaces[].need` -> `exact`, `fallback` or `unavailable`, with a rationale, and for the last two what the port loses. The met needs are recorded too: that is what lets coverage demand a decision per need rather than only for the ones the planner found hard |
-| `knobs[]` | each spec parameter -> its host-native knob, named to the `SR_<NAME>` convention `dse.params_header_from_spec` emits, so stage 4 can mutate it |
+| `knobs[]` | each spec parameter -> its host-native knob, named to the `SR_<NAME>` convention `dse.params_header` emits, so stage 4 can mutate it |
+| `host_knobs[]` | each host sizing define the port leaves in place -> a `HOST_<NAME>` macro in the same header, at the clean tree's value, with the verbatim line it replaces and its legal range. Code checks that the line is in the checkout and holds the default |
+| `host_storage` | the host's storage as one formula per structure over the host knobs, plus `baseline_bits`, the host's own accounting on the clean tree. Code requires the formulas to reproduce that number at the defaults, and stage 2 measures the number itself where the host can |
 | `feature_enable` | the enable knob's name, its default-off mechanism, and what executes on the off path — G2 is a claim about this, so the plan states it before the integrator is held to it |
 | `steps[]` | ordered, individually buildable increments |
 | `risks[]`, `open_questions[]` | what could go wrong, and what the spec left unresolved |
 
-Note what is absent: no storage split, no donor structures, no budget. Those are stage 4's
+Note what is absent: no storage split, no allowance, no budget. The plan exposes the
+host's sizing knobs and says what they cost, which is accounting; it never picks a value
+other than the clean tree's. Which structures shrink, and by how much, is stage 4's
 subject.
 
 ### Test plan (`plan/<feature>.<host>.tests.json`)
@@ -225,8 +237,8 @@ surviving entry is frozen apart from a named allowlist.
 | | Fields |
 |---|---|
 | Revisable | `hook_points` entire, `structure.choice`, `spec_map[].realization` and `hook_ids`, `steps`, `risks`, `interface_resolutions[].status` / `resolution` / `rationale` / `fidelity_note`, `knobs[].host_knob` and `binding`, `open_questions[].cost_if_wrong`, `correctness[].command` / `env` / `test_file`, any `timeout_seconds`, any `description`, `notes`, `smoke.run`, and anything added |
-| Frozen | `feature_name`, `host`, `host_revision`, `spec_inputs_used`, every `pass_condition`, every `clean_tree_result`, `baseline_rel_tol`, both `performance[]` thresholds, `performance[].metric` / `direction` / `baseline`, the smoke and performance trace sets, `knobs[].macro` and `default`, `feature_enable.name` and `macro`, a `rejected_alternatives` entry, an `open_questions[].assumption` |
-| Append-only | `metric_keys`, `correctness[]`, `performance[]`, `spec_map[]` pointers, `knobs[]`, `interface_resolutions[]`, `open_questions[]`, `structure.rejected_alternatives`, `smoke.traces` |
+| Frozen | `feature_name`, `host`, `host_revision`, `spec_inputs_used`, every `pass_condition`, every `clean_tree_result`, `baseline_rel_tol`, both `performance[]` thresholds, `performance[].metric` / `direction` / `baseline`, the smoke and performance trace sets, `knobs[].macro` and `default`, `host_knobs[].macro`, `type` and `default`, `host_storage.baseline_bits`, `feature_enable.name` and `macro`, a `rejected_alternatives` entry, an `open_questions[].assumption` |
+| Append-only | `metric_keys`, `correctness[]`, `performance[]`, `spec_map[]` pointers, `knobs[]`, `host_knobs[]`, `interface_resolutions[]`, `open_questions[]`, `structure.rejected_alternatives`, `smoke.traces` |
 
 No rule compares two numbers for looseness. A threshold is frozen in both directions on
 purpose: each one has its own sense of "tighter", a `no_regression` band inverts it, and
@@ -290,15 +302,31 @@ node that finds the defect states it, and code decides whether it may be acted o
 
 ## Stage 4: DSE
 
-- **In:** the gate-passed integration; the spec's `parameters` and `resource_accounting`;
-  a **constraint set**; the screening and full trace lists; the evolve-flows search
-  config.
+- **In:** the gate-passed integration; the spec's `parameters` and `state[].size_formula`;
+  the plan's `host_knobs` and `host_storage`; a **constraint set**; the screening and full
+  trace lists; the evolve-flows search config.
 - **Out:** the tuned candidate and the tuned-vs-baseline verdict. Only the tuned
   configuration counts as the verdict.
 - Candidates are not free-form code: the evolver mutates one params header that
-  instantiates the spec's `parameters`, and the constraint is re-derived from the same
-  values, so a candidate cannot misreport its own cost.
+  instantiates the spec's `parameters` (`SR_*`) and the plan's host knobs (`HOST_*`), and
+  every constraint is re-derived from the same values, so a candidate cannot misreport its
+  own cost.
 
-A constraint is `{metric, comparison, allowance}`. Storage is the one the demonstration
-uses, with the two allowances in `experiments/budgets.yaml`. Rejecting an over-budget
-candidate happens here, in the search, and nowhere earlier.
+A constraint is `{metric, comparison, allowance}` (`loop/constraints.py`). Storage is the
+one the demonstration uses, with the two allowances in `experiments/budgets.yaml`.
+Rejecting an over-budget candidate happens here, in the search, and nowhere earlier.
+
+Constraints are more general than storage, and the mechanism is built for that. A
+*static* metric is computed from the header values before anything is built; storage is
+one, the sum of the spec's formulas and the host's, and a candidate that breaks it costs
+no build and no trace. A *measured* metric is read off the screening aggregate after the
+traces run, so an IPC floor or a CycWPPKI ceiling needs no new code at all. A new static
+metric is one function in `constraints.STATIC_METRICS`; a new constraint of either kind is
+one more entry in `dse.constraint_set`. A candidate that breaks a constraint scores below
+every candidate that fits, and higher the closer it comes, so a search that starts
+infeasible still has a direction.
+
+Before searching, stage 4 builds every knob once at a second legal value (`dse.preflight`).
+Two builds of the same header must give the same binary, and a knob whose change leaves
+the binary unchanged is wired to nothing. For a knob that costs storage that stops the
+stage, because the search would credit bits the predictor never gave up.

@@ -241,6 +241,11 @@ DSE_CONFIG = os.environ.get(
 DSE_MAX_ITERATIONS = int(os.environ.get("P2P_DSE_ITERATIONS", "250"))
 DSE_SCREEN_METRIC = "brmispki_50perc_amean"
 DSE_PROMOTE_TOP_K = int(os.environ.get("P2P_DSE_TOP_K", "5"))
+# Stage 4 builds every knob once at a second value before searching, and stops
+# if a knob that costs storage turns out to be wired to nothing (loop/dse.py
+# `preflight`). About one build per knob, ~20 s each on the cluster. Turn it
+# off only to exercise the machinery; the storage figures are then unproven.
+DSE_PREFLIGHT = os.environ.get("P2P_DSE_PREFLIGHT", "1") == "1"
 
 RUNTIME_ENV = {
     "working_dir": str(REPO_ROOT),

@@ -125,6 +125,14 @@ _PORT_COLLECTIONS = {
     # knob the macro drives, and how the value reaches the host, are facts
     # about the tree that integration is entitled to correct.
     "knobs": ("spec_pointer", {"host_knob", "binding", "notes"}),
+    # A host knob's macro is what stage 4 mutates and its default is the clean
+    # tree's value, which G2 depends on, so both are frozen, as is its type.
+    # Where the symbol lives, how the value reaches it and which values the
+    # host really tolerates are facts integration can be first to learn.
+    "host_knobs": (
+        "name",
+        {"host_symbol", "file", "observed", "binding", "range", "description", "notes"},
+    ),
     # The legitimate revision, and the common one: the same spec item now
     # lands at different hook points, realized a different way. `spec_item` is
     # the verbatim echo that stops an off-by-one pointer from satisfying
@@ -310,6 +318,25 @@ def _check_smoke(old_tests: dict, new_tests: dict) -> list[Finding]:
     return out
 
 
+def _check_host_storage(old_port: dict, new_port: dict) -> list[Finding]:
+    """`host_storage.baseline_bits` is frozen; its terms are not.
+
+    The number was measured on the clean tree, like a `clean_tree_result`,
+    and that tree no longer exists by stage 3, so a revision cannot honestly
+    restate it. The terms are the plan's reading of the host's accounting and
+    may be corrected; `plan_checks` then requires the corrected terms to
+    reproduce the frozen number."""
+    old = (old_port.get("host_storage") or {}).get("baseline_bits")
+    new = (new_port.get("host_storage") or {}).get("baseline_bits")
+    if old is not None and new != old:
+        return [Finding(
+            "/plan/host_storage/baseline_bits", "revision_froze_field", "error",
+            f"baseline_bits is frozen at {old}; this revision says {new}. It was "
+            f"measured on the clean tree, which a revision cannot re-measure.",
+        )]
+    return []
+
+
 def _check_feature_enable(old_port: dict, new_port: dict) -> list[Finding]:
     """The knob's identity is frozen; the prose about its off path is not, but
     a change to it is recorded.
@@ -466,6 +493,7 @@ def guard(old_port: dict, old_tests: dict, new_port: dict, new_tests: dict) -> l
     findings += _check_smoke(old_tests, new_tests)
     findings += _check_performance_run(old_tests, new_tests)
     findings += _check_feature_enable(old_port, new_port)
+    findings += _check_host_storage(old_port, new_port)
     findings += _check_rejected_alternatives(old_port, new_port)
     for name, (key, revisable) in _PORT_COLLECTIONS.items():
         findings += _check_collection("/plan", old_port, new_port, name, key, revisable)
