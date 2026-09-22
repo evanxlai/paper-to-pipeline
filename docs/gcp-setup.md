@@ -49,6 +49,11 @@ CHIA can use your GCP account for Gemini model calls. Follow https://docs.chialo
 The proposal targets $600 to $1,100 of total spend across compute and Gemini credits. The Free Trial credit covers $300 per account.
 
 - Use `c2d` spot instances for trace runs. The proposal estimates $0.01 to $0.02 per core-hour.
-- Store traces once in a regional bucket. The estimate is 160 GiB, or $30 to $50 with overhead.
+- Store traces once in a regional bucket. The 105-trace training set is about 14 GiB
+  compressed, so regional standard storage costs well under $1 per month. (The 160 GiB
+  figure in the proposal is unverified; see README "Fact-check corrections" item 3. The
+  full post-contest set on Zenodo is 72.69 GiB, and this project does not need it.)
+- The bucket for this project is `gs://a3-chia-hack26ath-7728-cbp2025`, in `us-central1`
+  to match the cluster zone in `cluster/cluster.yaml`. Traces live under `cbp2025/<workload>/`.
 - Before the first large run, set a budget alert in the GCP console.
 - Tear the cluster down after each session. Spot instances still cost credit while idle.

@@ -6,17 +6,28 @@ other as a search that appeared to run while scoring every candidate zero.
 They are cheap to pin down here, so they should never come back silently.
 
 `sr_evaluator` needs skydiscover/evolve-flows (not on PyPI, see
-docs/dse-setup.md), so these skip rather than fail where it is not installed.
-The `params_header_from_spec` tests below need none of that and always run.
+docs/dse-setup.md), so the tests that import it skip rather than fail where it
+is not installed. They declare that by taking the `skydiscover` fixture below;
+the `params_header_from_spec` tests need only `dse` and always run.
 """
 
 import pytest
 
 import dse
 
-skydiscover = pytest.importorskip(
-    "skydiscover", reason="skydiscover/evolve-flows not installed (docs/dse-setup.md)"
-)
+
+@pytest.fixture
+def skydiscover():
+    """Skip the requesting test when evolve-flows is absent.
+
+    This is a fixture rather than a module-level `importorskip` so that a
+    missing skydiscover only skips the tests that actually import
+    `sr_evaluator`, not the whole file (which would silently drop the header
+    tests as well).
+    """
+    return pytest.importorskip(
+        "skydiscover", reason="skydiscover/evolve-flows not installed (docs/dse-setup.md)"
+    )
 
 
 @pytest.fixture
@@ -72,7 +83,7 @@ def test_overrides_replace_defaults(spec):
 
 # ------------------------------------------------- bug 1: relative trace paths
 
-def test_run_prefixes_relative_trace_with_trace_dir(tmp_path, monkeypatch):
+def test_run_prefixes_relative_trace_with_trace_dir(skydiscover, tmp_path, monkeypatch):
     """helpers.load_trace_list returns entries verbatim ('int/x_trace.gz').
 
     Passing those through bare made every ./cbp invocation resolve the trace
@@ -104,7 +115,7 @@ def test_run_prefixes_relative_trace_with_trace_dir(tmp_path, monkeypatch):
     assert captured["trace_path"] == f"{C.TRACE_DIR}/int/sample_int_trace.gz"
 
 
-def test_run_leaves_absolute_trace_path_alone(tmp_path, monkeypatch):
+def test_run_leaves_absolute_trace_path_alone(skydiscover, tmp_path, monkeypatch):
     import sr_evaluator
 
     captured = {}
@@ -125,7 +136,7 @@ def test_run_leaves_absolute_trace_path_alone(tmp_path, monkeypatch):
     assert captured["trace_path"] == "/abs/t.gz"
 
 
-def test_run_without_a_build_raises(tmp_path):
+def test_run_without_a_build_raises(skydiscover, tmp_path):
     """run_fn is never handed the build artifact, so a missing binary means the
     build/run ordering broke -- fail loudly rather than dispatching garbage."""
     import sr_evaluator
@@ -143,7 +154,7 @@ def test_run_without_a_build_raises(tmp_path):
 
 # ------------------------------------------- bug 2: evaluator must pickle
 
-def test_evaluator_is_module_scope_so_it_pickles_by_reference(tmp_path):
+def test_evaluator_is_module_scope_so_it_pickles_by_reference(skydiscover, tmp_path):
     """The evaluator instance is pickled to the EvolverNode actor: bridge.py
     registers it and generates a shim that calls evaluate_program on it.
 
@@ -170,7 +181,7 @@ def test_evaluator_is_module_scope_so_it_pickles_by_reference(tmp_path):
         ev.close()
 
 
-def test_evaluator_class_is_not_nested_in_a_function(tmp_path):
+def test_evaluator_class_is_not_nested_in_a_function(skydiscover, tmp_path):
     """Guards the structural property directly: a '<locals>' in the qualname
     means someone moved the class back inside a factory, which reintroduces
     by-value pickling even if the ContextVar happens to be gone."""
