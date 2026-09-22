@@ -30,6 +30,37 @@ def skydiscover():
     )
 
 
+def capture_run(monkeypatch, sr_evaluator):
+    """Intercept the evaluator's trace dispatch and record its arguments.
+
+    `_run` reaches Ray through `CBP2025Node.run.options(resources=...)`, and
+    the resource override is not decoration: the trace nodes and the node
+    holding the ported checkout advertise different tokens. Patching
+    `chia_remote` alone therefore misses, and the test dispatches a real Ray
+    task against whatever cluster happens to be up. That is how these two
+    tests started failing with "No module named 'chia_nodes'" from a worker
+    rather than with an assertion.
+    """
+    captured = {}
+
+    class _Handle:
+        @staticmethod
+        def chia_remote(binary, trace_path, extra_args, timeout_s, env=None):
+            captured.update(
+                binary=binary, trace_path=trace_path, extra_args=extra_args,
+                timeout_s=timeout_s, env=env,
+            )
+            return object()
+
+    def fake_options(**kwargs):
+        captured["resources"] = kwargs.get("resources")
+        return _Handle
+
+    monkeypatch.setattr(sr_evaluator.CBP2025Node.run, "options", fake_options)
+    monkeypatch.setattr(sr_evaluator.CBP2025Node.run, "chia_remote", _Handle.chia_remote)
+    return captured
+
+
 @pytest.fixture
 def spec():
     """A minimal spec exercising each parameter type the header renderer emits."""
@@ -94,16 +125,11 @@ def test_run_prefixes_relative_trace_with_trace_dir(skydiscover, tmp_path, monke
     import constants as C
     import sr_evaluator
 
-    captured = {}
-
-    def fake_chia_remote(binary, trace_path, extra_args, timeout_s):
-        captured["trace_path"] = trace_path
-        return object()
-
-    monkeypatch.setattr(sr_evaluator.CBP2025Node.run, "chia_remote", fake_chia_remote)
+    captured = capture_run(monkeypatch, sr_evaluator)
 
     ev = sr_evaluator.SRParamsEvaluator(
-        "/nonexistent/cbp2025", ["int/sample_int_trace.gz"], str(tmp_path), 60, 60
+        "/nonexistent/cbp2025", ["int/sample_int_trace.gz"], str(tmp_path), 60, 60,
+        feature_env={"SR_SR_ENABLE": "1"},
     )
     try:
         sr_evaluator._eval_binary.set(b"fake-binary")
@@ -113,16 +139,17 @@ def test_run_prefixes_relative_trace_with_trace_dir(skydiscover, tmp_path, monke
         ev.close()
 
     assert captured["trace_path"] == f"{C.TRACE_DIR}/int/sample_int_trace.gz"
+    assert captured["resources"] == {C.CBP2025_RESOURCE: 1.0}
+    # The search tunes a feature that has to be switched on. The port
+    # defaults its enable knob off because G2 requires that, so a screening
+    # run with an empty environment measures the baseline 250 times.
+    assert captured["env"] == {"SR_SR_ENABLE": "1"}
 
 
 def test_run_leaves_absolute_trace_path_alone(skydiscover, tmp_path, monkeypatch):
     import sr_evaluator
 
-    captured = {}
-    monkeypatch.setattr(
-        sr_evaluator.CBP2025Node.run, "chia_remote",
-        lambda b, t, e, s: captured.setdefault("trace_path", t),
-    )
+    captured = capture_run(monkeypatch, sr_evaluator)
     ev = sr_evaluator.SRParamsEvaluator(
         "/nonexistent/cbp2025", ["/abs/t.gz"], str(tmp_path), 60, 60
     )

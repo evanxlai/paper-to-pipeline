@@ -1,0 +1,176 @@
+{
+  "feature_name": "sr",
+  "host": "cbp2025",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+  "metric_keys": [
+    "brmispki_50perc_amean",
+    "cycwppki_50perc_amean",
+    "ipc_50perc_amean"
+  ],
+  "baseline_rel_tol": 0,
+  "smoke": {
+    "trace_list": "experiments/smoke-2.list",
+    "run": {
+      "mode": "host_adapter"
+    }
+  },
+  "correctness": [
+    {
+      "id": "smoke_int",
+      "kind": "existing_regression",
+      "description": "Runs the sample integer trace on the clean tree safely without crashing.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997301 instrs "
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": " Read 997301 instrs "
+      }
+    },
+    {
+      "id": "baseline_int",
+      "kind": "feature_off_baseline",
+      "description": "Runs the sample integer trace with feature disabled to check that output completely strictly mirrors the baseline.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "smoke_fp",
+      "kind": "existing_regression",
+      "description": "Runs the sample floating-point trace on the clean tree without crashing.",
+      "command": "./cbp sample_traces/fp/sample_fp_trace.gz",
+      "feature_state": "off",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997741 instrs "
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": " Read 997741 instrs "
+      }
+    },
+    {
+      "id": "unit_test_0",
+      "kind": "spec_unit_test",
+      "description": "Test integer digest generation.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 0",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/0",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_1",
+      "kind": "spec_unit_test",
+      "description": "Test fp64 digest generation.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 1",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/1",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_2",
+      "kind": "spec_unit_test",
+      "description": "Test flag digest generation.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 2",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/2",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_3",
+      "kind": "spec_unit_test",
+      "description": "Test staleness invalidation.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 3",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/3",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_4",
+      "kind": "spec_unit_test",
+      "description": "Test bank usefulness selection.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 4",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/4",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_5",
+      "kind": "spec_unit_test",
+      "description": "Test multiplier gating.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 5",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/5",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_6",
+      "kind": "spec_unit_test",
+      "description": "Test multiplier activation.",
+      "command": "g++ -std=c++17 -I. -I./lib -o test_sr test_sr.cc my_cond_branch_predictor.cc ./lib/libcbp.a -lz && ./test_sr 6",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/6",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_cycwppki",
+      "description": "CycWPPKI should decrease as claimed by the paper.",
+      "metric": "cycwppki_50perc_amean",
+      "direction": "decrease",
+      "trace_list": "experiments/perf-8.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "run": {
+        "mode": "host_adapter"
+      },
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": [
+          {
+            "metric": "ipc_50perc_amean",
+            "direction": "increase",
+            "max_relative_regression": 0.0
+          }
+        ]
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.01,
+        "claim_source": "Paper's headline claim."
+      }
+    }
+  ]
+}

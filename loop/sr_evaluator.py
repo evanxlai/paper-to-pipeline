@@ -57,11 +57,20 @@ class SRParamsEvaluator(ChiaEvaluator):
         output_dir: str,
         build_timeout_s: int,
         run_timeout_s: int,
+        feature_env: dict | None = None,
     ):
         self._cbp_root = cbp_root
         self._screening_traces = list(screening_traces)
         self._build_timeout_s = build_timeout_s
         self._run_timeout_s = run_timeout_s
+        # The environment that turns the ported feature ON. Without it the
+        # search tunes a feature that is not running: the port defaults its
+        # enable knob off (the gate's G2 requires that), so every candidate
+        # would execute the identical baseline predictor and score the same.
+        # The search would then look healthy for 250 iterations and learn
+        # nothing. dse.run_dse derives this from the port plan's
+        # feature_enable block, which is the only place the knob is named.
+        self._feature_env = dict(feature_env or {})
         super().__init__(
             build_fn=self._build,
             run_fn=self._run,
@@ -76,10 +85,17 @@ class SRParamsEvaluator(ChiaEvaluator):
         # overlaying just this file assumes the checkout's predictor already
         # #includes "sr_params.h" (stage-2 integration's job -- until then the
         # header is inert and every candidate scores identically).
-        return CBP2025Node.build.chia_remote(
+        # Pinned to the node that holds the checkout. The default token on
+        # CBP2025Node.build is "cbp2025", which every trace node also
+        # advertises, and cbp_root here is the PORTED tree -- it exists on
+        # one machine only.
+        return CBP2025Node.build.options(
+            resources={C.CBP2025_HOST_RESOURCE: 1.0}
+        ).chia_remote(
             self._cbp_root,
             {"sr_params.h": program_solution.encode()},
             self._build_timeout_s,
+            self._feature_env,
         )
 
     async def _dispatch_build(self, program_solution, label):
@@ -113,7 +129,11 @@ class SRParamsEvaluator(ChiaEvaluator):
         # and the search appears to run normally while scoring every candidate
         # identically zero.
         trace = workload if os.path.isabs(workload) else f"{C.TRACE_DIR}/{workload}"
-        return CBP2025Node.run.chia_remote(binary, trace, (), self._run_timeout_s)
+        return CBP2025Node.run.options(
+            resources={C.CBP2025_RESOURCE: 1.0}
+        ).chia_remote(
+            binary, trace, (), self._run_timeout_s, self._feature_env
+        )
 
     def _map_results(self, run_results: list) -> EvaluationResult:
         agg = CBP2025Node.aggregate(list(run_results))

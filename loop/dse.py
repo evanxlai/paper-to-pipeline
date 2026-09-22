@@ -125,6 +125,27 @@ def params_header_from_spec(spec: dict, overrides: dict | None = None) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _feature_env(host: str, spec: dict) -> dict:
+    """The environment that turns the ported feature on during the search.
+
+    Read off the port plan rather than assumed, because the enable knob's
+    name is the plan's to choose and the gate already reads it from there.
+    An absent plan returns an empty dict and the search then tunes a feature
+    that never runs, so say so loudly instead."""
+    import plan_revision
+    from hosts.cbp2025 import adapter as cbp2025_adapter
+
+    port_plan, _tests, _rev = plan_revision.latest(host, spec.get("feature_name"))
+    enable = (port_plan or {}).get("feature_enable") or {}
+    if not enable.get("name"):
+        raise SystemExit(
+            f"no port plan for {host}/{spec.get('feature_name')}, so the name of "
+            f"the enable knob is unknown and every candidate would be screened "
+            f"with the feature off. Run --stage plan and --stage integrate first."
+        )
+    return cbp2025_adapter.enable_env(enable, True)
+
+
 def run_dse(
     host: str, spec: dict, budget_name: str, config_path: str,
     screening_list_path: Path | str = C.SCREENING_LIST,
@@ -140,9 +161,15 @@ def run_dse(
     output_dir = str(C.OUT_DIR / "dse" / host)
     os.makedirs(output_dir, exist_ok=True)
 
+    # The ported tree, not the pristine checkout. sr_params.h is the only
+    # file the evolver mutates, and it means nothing until stage 3 has
+    # written a predictor that includes it. Screening the pristine kit would
+    # build the baseline 250 times and report that none of the parameters
+    # matter.
     evaluator = SRParamsEvaluator(
-        C.CBP2025_ROOT, screening, output_dir,
+        C.CBP2025_PORT_ROOT, screening, output_dir,
         C.BUILD_TIMEOUT_S, C.RUN_TIMEOUT_S,
+        feature_env=_feature_env(host, spec),
     )
     initial = params_header_from_spec(spec)
     config_content = Path(config_path).read_text()

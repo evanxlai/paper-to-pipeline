@@ -124,11 +124,19 @@ BUDGET_TRACKS_BITS = {
 LLM_BACKEND = os.environ.get("P2P_LLM_BACKEND", "antigravity")  # claude|antigravity|opencode
 # Gemini per the proposal budget; agy effort tier rides on the model id
 # (-high/-medium/-low select reasoning effort, not a different model).
-# Was gemini-3.1-pro-high until the account moved to GCP/Vertex auth: the Pro
-# preview publisher model is not enabled for this project and 404s, while the
-# 3.8 Flash family serves fine. `agy models` lists what the account can see;
-# availability still has to be smoke-tested per project.
-ANTIGRAVITY_MODEL = os.environ.get("P2P_ANTIGRAVITY_MODEL", "gemini-3.8-flash-medium")
+#
+# Back to gemini-3.1-pro-high. It 404'd for a while after the account moved
+# to GCP/Vertex auth, which is why this said gemini-3.8-flash-medium, and it
+# serves again as of 2026-09-22 (smoke-tested with
+# loop/tests/llm_cluster_smoke.py, which reaches the host checkout through
+# the MCP shell and reads a real commit back). Stage 3 writes a
+# multi-hundred-line C++ predictor from a spec, and the Flash tiers are the
+# wrong tool for that.
+#
+# `agy models` lists what the account can see. Seeing a model listed is not
+# the same as the project being entitled to it, so smoke-test after any
+# change here rather than forty minutes into a planning run.
+ANTIGRAVITY_MODEL = os.environ.get("P2P_ANTIGRAVITY_MODEL", "gemini-3.1-pro-high")
 OPENCODE_MODEL = os.environ.get("P2P_OPENCODE_MODEL", "google-vertex/gemini-3.1-pro-preview")
 CLAUDE_MODEL = os.environ.get("P2P_CLAUDE_MODEL", "claude-opus-4-6")
 OPENCODE_VERTEX_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
