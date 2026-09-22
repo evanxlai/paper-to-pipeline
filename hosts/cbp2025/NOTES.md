@@ -221,6 +221,15 @@ Across several traces these are arithmetic means, which matches `scripts/trace_e
 
 The paper's headline claim is about CycWpPKI. The checkout also holds `reference_results_training_set.csv`, the per-trace baseline numbers the contest published.
 
+One trap in how a test plan uses those numbers. An `existing_regression`
+entry whose `matches_clean_tree` pattern is a measurement row is a demand
+that the run reproduces the clean tree exactly. Give that entry
+`feature_state: "off"`. With `"on"` or `"both"` it demands that the feature
+changes nothing. The `performance` entry demands the opposite, and no port
+satisfies both. A regression meant to run feature-on needs a pass condition
+about whether the host still works. An exit code or a test-suite summary
+line does that. Its measurement row does not.
+
 ## Workloads
 
 Traces are not in the checkout. Two kinds are reachable.
