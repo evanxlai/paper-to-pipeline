@@ -259,7 +259,8 @@ def _checks(spec, port_plan, test_plan, work_dir, revision, baseline=None) -> li
     if port_plan is None or test_plan is None:
         return []
     findings = plan_checks.run_checks(
-        spec, port_plan, test_plan, host_root=work_dir, baseline=baseline)
+        spec, port_plan, test_plan, host_root=work_dir, baseline=baseline,
+        repo_root=C.REPO_ROOT)
     if revision is not None and port_plan.get("host_revision") != revision:
         findings.append(spec_checks.Finding(
             "/plan/host_revision", "revision_not_measured", "error",

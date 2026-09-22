@@ -487,3 +487,52 @@ def test_no_baseline_means_the_check_does_not_run():
     same way it is for host_root."""
     tests = _tests_with_pointer("/per_trace/nope")
     assert _check_baseline_pointers(tests, None) == []
+
+
+# ---------------------------------------------------- trace lists (G4, G5)
+# A trace set is frozen for stage 3, so a list that is not in the repository
+# is an entry the integration agent cannot correct. plan_runner reports it
+# rather than raising, which keeps the run alive, but the entry still fails
+# every attempt.
+
+
+from plan_checks import _check_trace_lists
+
+
+def test_a_trace_list_that_exists_is_accepted(tmp_path):
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "perf.list").write_text("# a comment\nint/a_trace.gz\n")
+    tests = {"performance": [{"trace_list": "experiments/perf.list"}]}
+    assert _check_trace_lists(tests, tmp_path) == []
+
+
+def test_a_trace_list_that_is_absent_is_an_error(tmp_path):
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "real.list").write_text("int/a_trace.gz\n")
+    tests = {"performance": [{"trace_list": "experiments/imagined.list"}]}
+    found = _check_trace_lists(tests, tmp_path)
+    assert [f.code for f in found] == ["trace_list_missing"]
+    # The planner cannot list the directory from its prompt, so name them.
+    assert "experiments/real.list" in found[0].message
+
+
+def test_a_trace_list_of_only_comments_is_an_error(tmp_path):
+    """The repository ships placeholder lists that are comments and nothing
+    else. An entry pointing at one measures nothing and passes nothing."""
+    (tmp_path / "experiments").mkdir()
+    (tmp_path / "experiments" / "todo.list").write_text("# TODO(week 1)\n\n")
+    tests = {"smoke": {"trace_list": "experiments/todo.list"}}
+    assert [f.code for f in _check_trace_lists(tests, tmp_path)] == ["trace_list_empty"]
+
+
+def test_inline_traces_need_no_list(tmp_path):
+    tests = {"smoke": {"traces": ["workloads/smoke.trace"],
+                       "trace_list": "experiments/ignored.list"}}
+    assert _check_trace_lists(tests, tmp_path) == []
+
+
+def test_the_smoke_section_is_checked_too(tmp_path):
+    (tmp_path / "experiments").mkdir()
+    tests = {"smoke": {"trace_list": "experiments/gone.list"}}
+    found = _check_trace_lists(tests, tmp_path)
+    assert [f.pointer for f in found] == ["/tests/smoke/trace_list"]

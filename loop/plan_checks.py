@@ -638,6 +638,56 @@ def _check_checkout(plan: dict, host_root) -> list[Finding]:
 # ------------------------------------------------------------------- driver
 
 
+def _check_trace_lists(tests: dict, repo_root) -> list[Finding]:
+    """Every `trace_list` a plan names has to exist and have traces in it.
+
+    Same reason as the baseline pointer above: a performance entry's trace
+    set is frozen for stage 3, so a list that is not in the repository is a
+    G5 the integration agent cannot fix. plan_runner now reports it rather
+    than raising, which stops it taking the run down, but the entry still
+    fails every attempt. The planner is the one who can still change it.
+
+    Only checks existence and emptiness. Whether the traces themselves are
+    on the worker nodes is not knowable from here, and the trace-run path
+    reports a missing file per trace."""
+    out: list[Finding] = []
+    root = Path(repo_root)
+    sections = [("smoke", tests.get("smoke") or {})]
+    sections += [(f"performance/{i}", e or {})
+                 for i, e in enumerate(tests.get("performance") or [])]
+    for label, entry in sections:
+        rel = entry.get("trace_list")
+        if not rel or entry.get("traces"):
+            continue
+        path = root / rel
+        if not path.exists():
+            available = sorted(
+                str(q.relative_to(root)) for q in (root / "experiments").glob("*.list")
+            )
+            out.append(Finding(
+                f"/tests/{label}/trace_list", "trace_list_missing", "error",
+                f"'{rel}' is not in this repository, so this entry measures nothing "
+                f"and the integration agent cannot correct it: a trace set is frozen. "
+                f"Available: {', '.join(available) or '(none)'}.",
+            ))
+            continue
+        try:
+            lines = [ln.strip() for ln in path.read_text().splitlines()]
+        except OSError as e:
+            out.append(Finding(
+                f"/tests/{label}/trace_list", "trace_list_missing", "error",
+                f"'{rel}' cannot be read: {e}",
+            ))
+            continue
+        if not [ln for ln in lines if ln and not ln.startswith("#")]:
+            out.append(Finding(
+                f"/tests/{label}/trace_list", "trace_list_empty", "error",
+                f"'{rel}' has no trace entries, only comments or blank lines. An "
+                f"entry with no workload is not a passing entry.",
+            ))
+    return out
+
+
 def _check_baseline_pointers(tests: dict, baseline: dict) -> list[Finding]:
     """Every `metrics_equal_baseline` pointer has to resolve in the recorded
     baseline, and has to land on metrics the plan's own `metric_keys` name.
@@ -691,14 +741,16 @@ def _check_baseline_pointers(tests: dict, baseline: dict) -> list[Finding]:
 
 
 def run_checks(
-    spec: dict, port_plan: dict, test_plan: dict, host_root=None, baseline=None
+    spec: dict, port_plan: dict, test_plan: dict, host_root=None, baseline=None,
+    repo_root=None,
 ) -> list[Finding]:
     """All deterministic plan checks, in a stable order.
 
-    `host_root` and `baseline` are optional for the same reason `budget_bits`
-    is optional in spec_checks.run_checks: the pure checks stay unit-testable
-    with no filesystem, and the ones that need the tree or the recorded
-    baseline only run when the caller passes them."""
+    `host_root`, `baseline` and `repo_root` are optional for the same reason
+    `budget_bits` is optional in spec_checks.run_checks: the pure checks stay
+    unit-testable with no filesystem, and the ones that need the host tree,
+    the recorded baseline or this repository only run when the caller passes
+    them."""
     findings: list[Finding] = []
     findings += _check_coverage(spec, port_plan, test_plan)
     findings += _check_references(port_plan, test_plan)
@@ -714,4 +766,6 @@ def run_checks(
         findings += _check_checkout(port_plan, host_root)
     if baseline is not None:
         findings += _check_baseline_pointers(test_plan, baseline)
+    if repo_root is not None:
+        findings += _check_trace_lists(test_plan, repo_root)
     return findings
