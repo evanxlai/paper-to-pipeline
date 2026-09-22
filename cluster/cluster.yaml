@@ -101,8 +101,23 @@ available_node_types:
             # chia/cluster/gcp_nodes.py has no service_account or scopes
             # option to change that. So a worker has no Google credentials of
             # any kind and cannot read the bucket, however open the project
-            # IAM is. Do not "optimize" this back to GCS without first giving
-            # the instances an identity.
+            # IAM is.
+            #
+            # This is a missing identity, not an impossibility. chia's
+            # config.py turns every unrecognised key in a node block into
+            # extra_args and deep-merges them onto the Instance proto, which
+            # has a service_accounts field. Adding this beside machine_type
+            # above should give the worker an identity without patching chia:
+            #
+            #   service_accounts:
+            #     - email: 489157157403-compute@developer.gserviceaccount.com
+            #       scopes: ["https://www.googleapis.com/auth/devstorage.read_only"]
+            #
+            # Untested: the code path and proto field were read, not booted.
+            # Both prerequisites do hold (the SA exists and is enabled, and
+            # the account running `chia up` has roles/editor, hence
+            # iam.serviceAccounts.actAs). Verify on one worker, then the GCS
+            # sync below can replace the Drive download. See docs/gcp-setup.md.
             #
             # The bucket is still the canonical verified copy (105 objects,
             # 14.0 GiB, checked against experiments/training-105.list; see
