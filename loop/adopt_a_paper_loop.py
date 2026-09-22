@@ -341,18 +341,18 @@ class HostAdapter:
     notes: str
     resources: dict
     baseline: Callable[[], Optional[dict]]
+    # (baseline, port_plan, test_plan) -> verdict. The plan pair is an
+    # argument rather than something the adapter closed over at construction
+    # because stage 3 can now revise it mid-run (plan_revision.py), and a gate
+    # still judging the superseded test plan would be judging a standard
+    # nobody holds.
+    run_gate: Callable[[dict, dict, dict], gate.GateResult]
     # Where plan_checks opens the files a hook point names, when that is not
     # `work_dir`. It is not `work_dir` for any host whose checkout lives on
     # another machine: this process runs on the head, and a plan revision
     # reviewed there would report every hook point's file missing. `None`
     # means the two are the same directory, which is the one-machine case.
     checks_root: Optional[str] = None
-    # (baseline, port_plan, test_plan) -> verdict. The plan pair is an
-    # argument rather than something the adapter closed over at construction
-    # because stage 3 can now revise it mid-run (plan_revision.py), and a gate
-    # still judging the superseded test plan would be judging a standard
-    # nobody holds.
-    run_gate: Callable[[dict, dict, dict], gate.GateResult] = None  # type: ignore[assignment]
 
 
 def default_adapter(host: str, baseline_key: str) -> HostAdapter:

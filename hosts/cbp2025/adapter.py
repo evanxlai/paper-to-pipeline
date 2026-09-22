@@ -219,14 +219,23 @@ class CBP2025Executor:
         self.rebuild_per_state = bool(rebuild_per_state)
         self._binaries: dict[bool, bytes] = {}
         self._build_logs: dict[bool, str] = {}
+        # Which state the ./cbp sitting in the checkout was built for, as
+        # opposed to which states we hold bytes for. A trace run gets its
+        # binary as bytes and does not care, but a shell command runs
+        # whatever is in the tree, so the two have to be tracked separately.
+        self._tree_state: Optional[bool] = None
 
     # --------------------------------------------------------------- build
     def _build_key(self, feature_on: bool) -> bool:
         return feature_on if self.rebuild_per_state else False
 
-    def build(self, *, feature_on: bool, timeout_s: int = C.BUILD_TIMEOUT_S):
+    def build(self, *, feature_on: bool, timeout_s: int = C.BUILD_TIMEOUT_S,
+              force: bool = False):
         key = self._build_key(feature_on)
-        if key in self._binaries:
+        # The cache is only good while the tree still holds that build. With
+        # a compile-time knob the tree swaps state under us, and then a
+        # cached "hit" would report success for a ./cbp built the other way.
+        if not force and key in self._binaries and self._tree_state == key:
             return plan_runner.BuildOutcome(
                 ok=True, log=self._build_logs[key], handle=self._binaries[key]
             )
@@ -236,10 +245,27 @@ class CBP2025Executor:
             .chia_remote(self.work_dir, None, timeout_s, env)
         )
         if not result.success:
+            self._tree_state = None
             return plan_runner.BuildOutcome(ok=False, log=result.log)
         self._binaries[key] = result.binary
         self._build_logs[key] = result.log
+        self._tree_state = key
         return plan_runner.BuildOutcome(ok=True, log=result.log, handle=result.binary)
+
+    def _ensure_tree_state(self, feature_on: bool) -> None:
+        """Make the ./cbp in the checkout be the one this state needs.
+
+        A no-op for the `runtime_env` binding this host recommends, where one
+        binary serves both states. It is not a no-op for a plan that binds
+        the enable knob at compile time: there, a correctness entry declaring
+        `feature_state: "on"` would otherwise run whichever binary the last
+        build happened to leave behind -- and the last build is the
+        feature-off one `run_test_plan` starts with. The entry would then
+        measure the baseline and pass, which is the worst kind of wrong."""
+        key = self._build_key(feature_on)
+        if not self.rebuild_per_state or self._tree_state == key:
+            return
+        self.build(feature_on=feature_on, force=True)
 
     def _binary_for(self, feature_on: bool) -> Optional[bytes]:
         """The binary a run in this state needs, building it if the plan's
@@ -257,6 +283,7 @@ class CBP2025Executor:
         # The knob is applied here, not by the runner, because only the host
         # knows how a value reaches it. On this host that is an environment
         # variable the predictor reads in beginCondDirPredictor().
+        self._ensure_tree_state(feature_on)
         merged = {**enable_env(self.feature_enable, feature_on), **(env or {})}
         out = get(
             host_shell.options(resources={C.CBP2025_HOST_RESOURCE: 1.0})
@@ -301,8 +328,12 @@ class CBP2025Executor:
         metrics = {k: v for k, v in agg.items() if k not in ("n", "failed")}
         tail = ""
         for r in results:
-            if not r.success:
-                tail = (r.log or "")[-2000:]
+            # `None` is what a Ray task that died leaves behind. aggregate()
+            # already counts it as a failure; this loop only wants its log,
+            # and a None here would take the gate down with an AttributeError
+            # instead of reporting the failure it was built to report.
+            if r is None or not r.success:
+                tail = (getattr(r, "log", "") or "")[-2000:]
         return plan_runner.TraceOutcome(
             ok=(not failed and agg.get("n") == len(traces)),
             metrics=metrics, failed=failed, log_tail=tail,
