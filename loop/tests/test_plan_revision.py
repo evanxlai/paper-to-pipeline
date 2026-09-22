@@ -510,3 +510,86 @@ def test_latest_ignores_a_half_written_revision(tmp_path, monkeypatch, port, tes
     plan_revision.revision_paths("toy", "tinysc", 1)[0].write_text(json.dumps(port))
 
     assert plan_revision.latest("toy", "tinysc")[2] == 0
+
+
+# --------------------------------------------------- escalations, and where
+# they go. An escalation is the only message that travels backwards through
+# this loop: the integrator may not lower a frozen value, so a value that is
+# genuinely wrong can only be fixed by the planning stage. That makes where
+# it is written a correctness question, not a logging one.
+
+
+def test_an_escalation_is_readable_by_the_next_planning_run(tmp_path, monkeypatch):
+    import constants as C
+    import plan_revision
+
+    monkeypatch.setattr(C, "PLAN_DIR", tmp_path)
+    entry = {"pointer": "/host_interfaces/4", "reason": "no threshold",
+             "gate_reasons": ["G5 [perf] the mechanism is not reaching the metric"]}
+    plan_revision.record_escalation("cbp2025", "sr", entry)
+
+    open_now = plan_revision.open_escalations("cbp2025", "sr")
+    assert [e["pointer"] for e in open_now] == ["/host_interfaces/4"]
+    assert open_now[0]["gate_reasons"]
+
+
+def test_two_escalations_accumulate(tmp_path, monkeypatch):
+    """Two runs can refuse two different frozen values, and the second one
+    does not make the first one answered."""
+    import constants as C
+    import plan_revision
+
+    monkeypatch.setattr(C, "PLAN_DIR", tmp_path)
+    plan_revision.record_escalation("cbp2025", "sr", {"pointer": "/a", "reason": "x"})
+    plan_revision.record_escalation("cbp2025", "sr", {"pointer": "/b", "reason": "y"})
+    assert [e["pointer"] for e in plan_revision.open_escalations("cbp2025", "sr")] == ["/a", "/b"]
+
+
+def test_a_written_plan_answers_the_open_escalations(tmp_path, monkeypatch):
+    """Marked, not deleted. Which frozen value stage 3 refused to meet, and
+    which re-plan answered it, is the record of why the second plan differs
+    from the first. Leaving them open would put them in front of every
+    future planner forever."""
+    import constants as C
+    import plan_revision
+
+    monkeypatch.setattr(C, "PLAN_DIR", tmp_path)
+    plan_revision.record_escalation("cbp2025", "sr", {"pointer": "/a", "reason": "x"})
+    assert plan_revision.clear_escalations("cbp2025", "sr", "20260922_120000_") == 1
+    assert plan_revision.open_escalations("cbp2025", "sr") == []
+
+    on_disk = json.loads(plan_revision.escalation_path("cbp2025", "sr").read_text())
+    assert on_disk[0]["pointer"] == "/a"
+    assert on_disk[0]["resolved"] == "20260922_120000_"
+    # A second escalation after the answer is open again.
+    plan_revision.record_escalation("cbp2025", "sr", {"pointer": "/b", "reason": "y"})
+    assert [e["pointer"] for e in plan_revision.open_escalations("cbp2025", "sr")] == ["/b"]
+
+
+def test_no_escalations_is_not_a_missing_file_error(tmp_path, monkeypatch):
+    import constants as C
+    import plan_revision
+
+    monkeypatch.setattr(C, "PLAN_DIR", tmp_path)
+    assert plan_revision.open_escalations("cbp2025", "sr") == []
+    assert plan_revision.clear_escalations("cbp2025", "sr", "stamp") == 0
+
+
+def test_retire_moves_revisions_aside_rather_than_deleting_them(tmp_path, monkeypatch):
+    """A re-planned host must not keep being judged against a correction
+    somebody made to a plan that no longer exists, and `latest` returns the
+    highest-numbered revision it can see."""
+    import constants as C
+    import plan_revision
+
+    monkeypatch.setattr(C, "PLAN_DIR", tmp_path)
+    for index in (1, 2):
+        for path in plan_revision.revision_paths("cbp2025", "sr", index):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"revision": index}))
+    assert plan_revision.count("cbp2025", "sr") == 2
+
+    moved = plan_revision.retire("cbp2025", "sr", "20260922_120000_")
+    assert len(moved) == 4
+    assert plan_revision.count("cbp2025", "sr") == 0
+    assert all(Path(m).exists() for m in moved)
