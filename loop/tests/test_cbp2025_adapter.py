@@ -294,3 +294,17 @@ def test_run_traces_without_a_binary_fails_every_trace(monkeypatch):
     assert out.ok is False
     assert out.failed == ["a.gz", "b.gz"]
     assert out.metrics == {}
+
+
+# --------------------------------------------------------- the reset guard
+
+
+def test_restoring_the_port_tree_is_refused():
+    """restore_checkout is `git reset --hard` plus `git clean -fdx`. Pointed
+    at the tree stage 3 edits, it deletes an integration run's entire work,
+    and there is no other copy of it."""
+    import constants as C
+
+    with pytest.raises(SystemExit) as caught:
+        adapter.restore_host_checkout(C.CBP2025_PORT_ROOT)
+    assert "refusing to reset" in str(caught.value)

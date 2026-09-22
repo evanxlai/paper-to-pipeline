@@ -401,7 +401,19 @@ class CBP2025Executor:
 
 
 def restore_host_checkout(root: str = C.CBP2025_ROOT) -> dict:
-    """Undo whatever the last agent left in the pristine checkout."""
+    """Undo whatever the last agent left in the pristine checkout.
+
+    Refuses the port tree outright. `restore_checkout` is `git reset --hard`
+    plus `git clean -fdx`, which on `CBP2025_PORT_ROOT` would delete an
+    integration run's entire work with no copy anywhere. Every call site
+    today passes the pristine root, and this is here so that a future one
+    that does not fails loudly instead of quietly."""
+    if Path(root).resolve() == Path(C.CBP2025_PORT_ROOT).resolve():
+        raise SystemExit(
+            f"refusing to reset {root}: that is the tree stage 3 edits, and "
+            f"restoring it would delete the port. Only {C.CBP2025_ROOT} is "
+            f"restorable."
+        )
     return get(restore_checkout.chia_remote(root))
 
 
