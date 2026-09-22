@@ -253,6 +253,19 @@ the pointer and reason recorded. It does not spend the remaining attempts. This 
 "serious issue" route back to stage 2, and it is what a frozen-but-wrong value gets
 instead of a rewrite.
 
+An escalation is the only message that travels backwards through this loop. Where it is
+written is therefore part of the contract, not a logging choice. Stage 3 appends it to
+`plan/<feature>.<host>.plan.escalations.json`, beside the plan it is about. The next stage-2
+run inlines every unresolved entry into the planner prompt and marks them answered by the
+plan it writes. Marked, not deleted: which frozen value stage 3 refused to meet, and which
+re-plan answered it, is the record of why the second plan differs from the first.
+
+Recording it only under `out/` is not enough. That directory is timestamped and untracked,
+so an escalation written there is evidence a reader can find and nothing a later stage can.
+The first real stage-3 run on the cbp2025 host escalated `/host_interfaces/4`, after the
+gate measured its port 43 percent worse on CycWPPKI. The re-plan that answered it moved the
+hook from a standalone override into the host's own statistical-corrector sum.
+
 Stage 2's own artifacts are never overwritten. A revision is written beside them, numbered,
 and the highest revision present is the pair in force, so the plan a port was originally
 judged against survives for diagnosis and a restarted run resumes from the revisions it
