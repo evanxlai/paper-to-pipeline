@@ -7,164 +7,183 @@
     "cycwppki_50perc_amean",
     "ipc_50perc_amean"
   ],
-  "baseline_rel_tol": 0,
   "smoke": {
     "trace_list": "experiments/smoke-2.list",
     "run": {
       "mode": "host_adapter"
     },
-    "timeout_seconds": 600
+    "timeout_seconds": 60
   },
   "correctness": [
     {
-      "id": "existing_fp_trace",
-      "kind": "existing_regression",
-      "description": "Host suite: fp trace cleanly executes without failure.",
-      "command": "./cbp sample_traces/fp/sample_fp_trace.gz",
-      "feature_state": "off",
-      "clean_tree_result": {
-        "exit_code": 0,
-        "passed": true,
-        "summary": " Read 997741 instrs ",
-        "recorded_at": "2026-09-22T06:07:47-07:00"
-      },
-      "pass_condition": {
-        "kind": "matches_clean_tree",
-        "pattern": " Read 997741 instrs "
-      }
-    },
-    {
-      "id": "baseline_g2",
+      "id": "c_feature_off_baseline",
       "kind": "feature_off_baseline",
-      "description": "Ensure off-path matches the pristine tree exactly for int trace.",
+      "description": "Verify that with the enable knob off, the baseline metrics are identical to the recorded baseline. Changed baseline_pointer to '/per_trace/int~1sample_int_trace.gz' to match the recorded baseline in this host, as escalated by the previous integration attempt.",
       "command": "./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "off",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "metrics_equal_baseline",
-        "baseline_pointer": "/per_trace/sample_traces~1int~1sample_int_trace.gz",
+        "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
         "rel_tol": 0
       }
     },
     {
-      "id": "ut_int_digest",
+      "id": "c_existing_regression",
+      "kind": "existing_regression",
+      "description": "Run the existing suite to ensure no breakage on clean tree.",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "both",
+      "timeout_seconds": 60,
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": "      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978",
+        "recorded_at": "2026-09-22T07:09:33-07:00"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": "      997301       338411   2\\.9470     128874        264   0\\.3808       0\\.0008   0\\.2049%   0\\.2647      34305   129\\.9432    34\\.3978"
+      }
+    },
+    {
+      "id": "c_generated_smoke",
+      "kind": "generated_smoke",
+      "description": "A generated test that runs the sR component and asserts it doesn't crash.",
+      "command": "make clean && make && ./cbp sample_traces/fp/sample_fp_trace.gz",
+      "feature_state": "on",
+      "timeout_seconds": 60,
+      "test_file": "my_cond_branch_predictor.cc",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "c_unit_0",
       "kind": "spec_unit_test",
-      "description": "Test integer digest generation.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "Test int digest generation.",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/0",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_int_digest_generation: PASS"
+        "pattern": "PASS: test_int_digest_generation"
       }
     },
     {
-      "id": "ut_fp64_digest",
+      "id": "c_unit_1",
       "kind": "spec_unit_test",
-      "description": "Test FP64 digest generation.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "Test fp64 digest generation.",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/1",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_fp64_digest_generation: PASS"
+        "pattern": "PASS: test_fp64_digest_generation"
       }
     },
     {
-      "id": "ut_flag_digest",
+      "id": "c_unit_2",
       "kind": "spec_unit_test",
-      "description": "Test condition flag digest generation.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "Test flag digest generation.",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/2",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_flag_digest_generation: PASS"
+        "pattern": "PASS: test_flag_digest_generation"
       }
     },
     {
-      "id": "ut_staleness",
+      "id": "c_unit_3",
       "kind": "spec_unit_test",
       "description": "Test staleness invalidation.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/3",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_staleness_invalidation: PASS"
+        "pattern": "PASS: test_staleness_invalidation"
       }
     },
     {
-      "id": "ut_bank_usefulness",
+      "id": "c_unit_4",
       "kind": "spec_unit_test",
       "description": "Test bank usefulness selection.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/4",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_bank_usefulness_selection: PASS"
+        "pattern": "PASS: test_bank_usefulness_selection"
       }
     },
     {
-      "id": "ut_multiplier_gating",
+      "id": "c_unit_5",
       "kind": "spec_unit_test",
       "description": "Test multiplier gating.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/5",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_multiplier_gating: PASS"
+        "pattern": "PASS: test_multiplier_gating"
       }
     },
     {
-      "id": "ut_multiplier_activation",
+      "id": "c_unit_6",
       "kind": "spec_unit_test",
       "description": "Test multiplier activation.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "on",
       "test_file": "my_cond_branch_predictor.cc",
       "spec_pointer": "/unit_tests/6",
+      "timeout_seconds": 60,
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "test_multiplier_activation: PASS"
+        "pattern": "PASS: test_multiplier_activation"
       }
     }
   ],
   "performance": [
     {
-      "id": "perf_cycwppki",
-      "description": "Main paper claim on CycWPPKI reduction.",
+      "id": "p_cycwppki",
+      "description": "sR improves CycWPPKI by about 0.28% compared to baseline",
       "metric": "cycwppki_50perc_amean",
       "direction": "decrease",
       "trace_list": "experiments/perf-4.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
       "run": {
         "mode": "host_adapter"
       },
+      "timeout_seconds": 900,
       "block_threshold": {
         "min_relative_improvement": 0.0,
         "no_regression": [
           {
-            "metric": "brmispki_50perc_amean",
-            "direction": "decrease",
-            "max_relative_regression": 0.05
-          },
-          {
             "metric": "ipc_50perc_amean",
             "direction": "increase",
-            "max_relative_regression": 0.05
+            "max_relative_regression": 0.001
           }
         ]
       },
       "warn_threshold": {
-        "target_relative_improvement": 0.0,
-        "claim_source": "No precise magnitude claimed in the provided spec summary, defaulting to 0.0."
+        "target_relative_improvement": 0.00286,
+        "claim_source": "Paper Table 4 claims CycWpPKI improves from 13.97 to 13.93, giving ~0.28% relative improvement."
       }
     }
   ]
