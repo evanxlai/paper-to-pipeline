@@ -213,11 +213,23 @@ def record_cbp_baseline(
         path.relative_to(C.REPO_ROOT) if path.is_absolute()
         and path.is_relative_to(C.REPO_ROOT) else path
     )
+    agg["host_revision"] = cbp2025_adapter.checkout_revision()
     agg["per_trace"] = {
         rel: cbp2025_adapter.parse_metrics(result.log)
         for rel, result in zip(traces, results)
         if result is not None and result.success
     }
+    # Carry forward per-trace numbers from an earlier recording of the same
+    # tree. A run over experiments/perf-4.list would otherwise drop the
+    # sample-trace entry that G2's single-command comparison points at, and
+    # the two lists cannot be measured in one go: G2 needs a trace a shell
+    # command finishes inside the agent's cap, and G5 needs traces that
+    # carry signal. Same revision only -- numbers from another tree are
+    # hearsay, and the top-level aggregate always describes `trace_list`
+    # alone.
+    previous = helpers.load_baseline("cbp2025", budget) or {}
+    if previous.get("host_revision") == agg["host_revision"]:
+        agg["per_trace"] = {**previous.get("per_trace", {}), **agg["per_trace"]}
     # The run's evidence lands either way, under out/. What does not land
     # either way is hosts/cbp2025/baselines/<budget>.json, because that file
     # is what G2 measures a port against and every later stage reads it
@@ -590,10 +602,17 @@ def integrate(
             escalated = plan_revision.escalation(resp.result)
             if escalated is not None:
                 status = "needs_replan"
-                dump.json(f"plan_escalation_{host}.json", {
+                record = {
                     **escalated, "attempt": attempts_used,
                     "plan_revision": revision, "gate_reasons": g.reasons,
-                })
+                    "raised_in": "debug turn",
+                }
+                dump.json(f"plan_escalation_{host}.json", record)
+                # And beside the plan, where the next stage-2 run reads it.
+                # out/ is timestamped and untracked, so an escalation that
+                # only lands there is evidence nobody acts on.
+                plan_revision.record_escalation(
+                    host, spec.get("feature_name"), record)
                 break
 
             port_plan, test_plan, revision, escalated = _consider_revision(
@@ -604,11 +623,14 @@ def integrate(
                 # Same rule as an escalation in the debug turn itself: a turn
                 # that says it cannot decide this has ended the attempt.
                 status = "needs_replan"
-                dump.json(f"plan_escalation_{host}.json", {
+                record = {
                     **escalated, "attempt": attempts_used,
                     "plan_revision": revision, "gate_reasons": g.reasons,
                     "raised_in": "plan revision repair turn",
-                })
+                }
+                dump.json(f"plan_escalation_{host}.json", record)
+                plan_revision.record_escalation(
+                    host, spec.get("feature_name"), record)
                 break
     finally:
         bash.stop()

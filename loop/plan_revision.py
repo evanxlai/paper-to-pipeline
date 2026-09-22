@@ -80,6 +80,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 import helpers
 import plan_checks
@@ -609,6 +610,59 @@ def count(host: str, feature: str | None) -> int:
         if not (plan_path.exists() and tests_path.exists()):
             return index
         index += 1
+
+
+def escalation_path(host: str, feature: str | None) -> Path:
+    """Where stage 3's escalations accumulate for stage 2 to read.
+
+    Beside the plan and not under out/, for one reason: out/ is timestamped
+    and untracked, so an escalation written there is evidence a human can
+    read and nothing a later stage can find. An escalation is the one
+    stage-3 output that is addressed to stage 2."""
+    plan_path, _ = helpers.plan_paths(host, feature)
+    return plan_path.with_suffix(".escalations.json")
+
+
+def record_escalation(host: str, feature: str | None, entry: dict) -> Path:
+    """Append one escalation. Appended rather than replaced: two runs can
+    hit two different frozen values, and the second one does not make the
+    first one wrong."""
+    path = escalation_path(host, feature)
+    existing = json.loads(path.read_text()) if path.exists() else []
+    existing.append(entry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(existing, indent=2))
+    return path
+
+
+def open_escalations(host: str, feature: str | None) -> list:
+    """Every escalation recorded against this host that no later plan has
+    answered. `resolved` is set by `clear_escalations` once stage 2 has
+    written a plan that had them in front of it."""
+    path = escalation_path(host, feature)
+    if not path.exists():
+        return []
+    return [e for e in json.loads(path.read_text()) if not e.get("resolved")]
+
+
+def clear_escalations(host: str, feature: str | None, plan_stamp: str) -> int:
+    """Mark the open escalations as answered by the plan just written.
+
+    Marked, not deleted. Which frozen value stage 3 refused to meet, and
+    which re-plan answered it, is the record of why the second plan differs
+    from the first."""
+    path = escalation_path(host, feature)
+    if not path.exists():
+        return 0
+    entries = json.loads(path.read_text())
+    n = 0
+    for entry in entries:
+        if not entry.get("resolved"):
+            entry["resolved"] = plan_stamp
+            n += 1
+    if n:
+        path.write_text(json.dumps(entries, indent=2))
+    return n
 
 
 def retire(host: str, feature: str | None, stamp: str) -> list:

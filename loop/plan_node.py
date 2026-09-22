@@ -133,13 +133,40 @@ def make_plan(
     tools = [] if tools is None else tools
     turns = C.PLAN_REPAIR_TURNS if repair_turns is None else repair_turns
 
+    # Anything stage 3 refused to decide on a previous run. These are the
+    # only messages that travel backwards through the loop, and they are the
+    # whole point of the escalation move: the integrator is forbidden to
+    # lower a frozen value, so a genuinely wrong one can only be fixed here.
+    import plan_revision as _plan_revision
+
+    escalations = _plan_revision.open_escalations(host, spec.get("feature_name"))
+    escalation_section = ""
+    if escalations:
+        escalation_section = (
+            "\n\n## Escalations from integration\n\n"
+            "A previous run of this plan reached the integration stage and "
+            "stopped. Each item below names a value the integration agent is "
+            "not allowed to change and says why it could not port against it. "
+            "These are not optional. A plan that leaves one of them as it was "
+            "sends the next run into the same wall, and it will escalate "
+            "again. Resolve each one, and say in the entry's own text what "
+            "changed and why.\n\n"
+            + "\n".join(
+                f"- `{e.get('pointer')}`: {e.get('reason')}"
+                + (f"\n  The gate had just reported: "
+                   + "; ".join(r.splitlines()[0] for r in e.get("gate_reasons") or [])
+                   if e.get("gate_reasons") else "")
+                for e in escalations
+            )
+        )
+
     prompt = load_prompt(
         "planner.md",
         spec_path=str(C.SPEC_OUT_PATH),
         host_path=work_dir,
         host_name=host,
         bash_timeout=str(C.BASH_TOOL_TIMEOUT_S),
-    ) + (
+    ) + escalation_section + (
         f"\n\n## The port plan schema\n\n```json\n{C.PORT_PLAN_SCHEMA_PATH.read_text()}\n```"
         f"\n\n## The test plan schema\n\n```json\n{C.TEST_PLAN_SCHEMA_PATH.read_text()}\n```"
         f"\n\n## Feature spec\n\n```json\n{json.dumps(spec, indent=2)}\n```"
@@ -204,6 +231,15 @@ def make_plan(
     retired = plan_revision.retire(host, feature, dump.prefix)
     if retired:
         dump.json(f"plan_{host}_retired_revisions.json", retired)
+    # This plan was written with the open escalations in front of it, so
+    # they are answered whether or not the answer is a good one. Leaving
+    # them open would put them in front of every future planner forever.
+    answered = plan_revision.clear_escalations(host, feature, dump.prefix)
+    if answered:
+        dump.json(f"plan_{host}_escalations_answered.json", {
+            "count": answered,
+            "path": str(plan_revision.escalation_path(host, feature)),
+        })
     return port_plan, test_plan
 
 

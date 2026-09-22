@@ -11,7 +11,7 @@ This is the host the RUNLTS paper itself was written against. The interfaces sR 
 | `my_cond_branch_predictor.h` | Yours. Holds `SampleCondPredictor`, the contestant predictor class, and the single `static SampleCondPredictor cond_predictor_impl;` at the bottom. |
 | `my_cond_branch_predictor.cc` | Yours. Ships empty at 0 bytes. The build compiles it. Put out-of-line definitions here for a header that grows too large. |
 | `cond_branch_predictor_interface.cc` | Yours to edit, inside fixed signatures. Holds the bodies of the nine entry points. |
-| `cbp2016_tage_sc_l.h` | The contest rules allow edits. Do not edit it. It is the baseline this port is measured against. |
+| `cbp2016_tage_sc_l.h` | Yours, behind the enable knob only. The contest rules allow edits, and this is where the paper's sR belongs. See "Where sR joins the statistical corrector". |
 | `cbp.h`, `lib/**` | Fixed. These are the nine entry-point signatures and the simulator. An edit here makes the result meaningless. |
 | `sr_params.h` | Does not exist yet. The port creates it. See "Parameters" below. |
 
@@ -33,7 +33,60 @@ This is the host the RUNLTS paper itself was written against. The interfaces sR 
 
 The three empty ones are where sR lives. `notify_instr_decode` and `notify_instr_execute_resolve` fire for every instruction, not only for branches. `uarchsim_t::eval_decode` and `uarchsim_t::eval_exec` walk the whole window. So sR sees every register write without any change to a fixed signature.
 
-## The natural hook for a statistical corrector
+## Where sR joins the statistical corrector
+
+Read this before you choose a structure. An earlier run of this loop did not have
+it. That run treated `cbp2016_tage_sc_l.h` as untouchable and ported sR as a
+standalone predictor. Its sR overrode the TAGE-SC-L answer on every
+disagreement. The port built, matched the baseline with the knob off, and
+passed every unit test. It also made CycWPPKI 43 percent worse. The
+integration agent escalated, correctly: nothing told it how confident its
+own sum had to be before it overrode a strong predictor.
+
+The answer is that sR is not an override. In the paper it is one term in the
+statistical corrector's sum, and this host has that sum.
+
+`cbp2016_tage_sc_l.h` around line 1044 builds `LSUM` out of one contribution
+per component:
+
+```cpp
+LSUM = 0;
+LSUM += (2 * ctr + 1);                       // the three bias tables
+LSUM += Gpredict(..., GGEHL, ...);           // sG
+LSUM += Gpredict(..., PGEHL, ...);           // sP
+LSUM += Gpredict(..., LGEHL, ...);           // sL
+LSUM += Gpredict(..., SGEHL, ...);           // sS
+LSUM += Gpredict(..., TGEHL, ...);           // sT
+LSUM += Gpredict(..., IMGEHL, ...);          // sIM
+LSUM += Gpredict(..., IGEHL, ...);           // sI
+bool SCPRED = (LSUM >= 0);
+```
+
+sR is one more `LSUM += ...` line, added before `SCPRED` is computed. That
+is the whole hook.
+
+Three things follow, and each one answers a question the spec leaves open.
+
+- **The confidence threshold already exists.** The lines just below compute
+  `THRES` from `updatethreshold`, `Pupdatethreshold[INDUPD]` and the
+  per-component weight signs. The chooser then compares `abs(LSUM)` against
+  `THRES / 4` and `THRES / 2` to decide whether the SC overrides TAGE at
+  all. Feed sR into `LSUM` and sR inherits that machinery. Do not invent a
+  second threshold.
+- **The update site is the matching one.** Around line 1288 the SC updates
+  only under its own conditions, and each component's `Gupdate` call sits
+  there. sR's weight update belongs in that same block, under the same
+  conditions, so it learns on the branches the SC learns on.
+- **`THRES` adapts.** `updatethreshold` moves as the SC is right or wrong, so
+  an sR term that adds noise is throttled rather than trusted.
+
+Every one of those edits sits behind the enable knob. With the knob off,
+`LSUM` must be built from today's components, in today's order. `THRES` must
+come out the same. G2 measures that claim against the recorded baseline at
+`rel_tol` 0. A stray `+= 0` that changes nothing is therefore fine, and a
+reordered sum is not.
+
+## The other hook: the contestant predictor class
 
 `SampleCondPredictor::predict` already takes the TAGE-SC-L prediction and returns the final direction:
 
@@ -48,7 +101,9 @@ bool predict(uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
 
 `predict_using_given_hist` returns `hist_to_use.tage_pred` unchanged. That one line is the whole contestant predictor today. It is a pass-through.
 
-An sR term computes a partial sum, then keeps or flips the TAGE answer. It replaces exactly that return. The feature-off path is then the line that is already there. That is what makes the G2 claim true rather than merely plausible. G2 says the knob-off path is bit-identical to the recorded baseline.
+This class is the right home for sR's own state: the register status table, the digest generator, the usefulness tables and the weight tables. It is also where the register-tracking hooks land, because it is the object the interface file already talks to. What it is not is the place to decide the final direction. Leave that to the statistical corrector, for the reason the section above gives.
+
+The feature-off path is then the line that is already there. That is what makes the G2 claim true rather than merely plausible. G2 says the knob-off path is bit-identical to the recorded baseline.
 
 `SampleCondPredictor::update(...)` is the resolve-time hook and `history_update(...)` is the history hook. Both are wired already and both do no real work.
 
@@ -106,7 +161,7 @@ The gate sets three aliases to the same value on every build and every run. Any 
 Two consequences belong in the plan.
 
 - Off must be the default. A binary that runs with none of those three variables set must behave exactly like the baseline. A `getenv` result of `nullptr` gives `false`, and that is what delivers the default. It is also why the test above reads `== '1'` and not `!= '0'`.
-- A `compile_time_define` binding costs more than it looks. The gate does pass the same three variables into `make`, but this Makefile does not forward them. It sets `CPPFLAGS` and then never uses it, and it compiles with `$(CC) $(FLAGS)`, where `FLAGS` is a plain `=` assignment that make gives priority over the environment. So a compile-time knob needs a Makefile edit as well, and that edit is a hook point the plan must name. It also costs a full rebuild on every knob flip, about 20 seconds each. Prefer `runtime_env`.
+- A `compile_time_define` binding costs more than it looks. The gate does pass the same three variables into `make`, but this Makefile does not forward them. It sets `CPPFLAGS` and then never uses it. It compiles with `$(CC) $(FLAGS)`, and `FLAGS` is a plain `=` assignment that make gives priority over the environment. So a compile-time knob needs a Makefile edit as well, and that edit is a hook point the plan must name. It also costs a full rebuild on every knob flip, about 20 seconds each. Prefer `runtime_env`.
 
 ## Parameters live in `sr_params.h`
 
@@ -129,7 +184,7 @@ The build is `g++ -std=c++17 -O3`. It links `lib/libcbp.a` and `-lz`. Three fact
 
 - The `DEPS` line names `cbp.h cond_branch_predictor_interface.h my_cond_branch_predictor.h`. `cond_branch_predictor_interface.h` does not exist, and make does not mind.
 - A new header of your own is not in that list. A plain `make` can therefore miss an edit to it. Always run `make clean && make`. That is what the gate does.
-- Neither `CPPFLAGS` nor `FLAGS` picks anything up from the environment. `CPPFLAGS` is assigned and then never used, and the compile rule reads `$(CC) $(FLAGS)` where `FLAGS` is a plain `=` assignment. An extra `-D` therefore has to be written into the Makefile.
+- Neither `CPPFLAGS` nor `FLAGS` picks anything up from the environment. `CPPFLAGS` is assigned and then never used. The compile rule reads `$(CC) $(FLAGS)`, and `FLAGS` is a plain `=` assignment. An extra `-D` therefore has to be written into the Makefile.
 
 ## Run and metrics
 
@@ -174,11 +229,11 @@ Repository trace lists, for a `trace_list` field. Paths are relative to the repo
 | `experiments/training-105.list` | 105 | stage 4 validation, not the gate |
 
 Use `perf-4.list` unless you have a reason not to. The gate runs a
-performance list twice per attempt, feature-on and feature-off, and the loop
-allows six attempts, so every trace on it is paid for twelve times. Four
-traces is one wave across this cluster's four `cbp2025` slots. Eight traces
-measured at about 16 minutes of simulator per attempt on the first full gate
-run, which is an hour and a half across six attempts.
+performance list twice per attempt, feature-on and feature-off. The loop
+allows six attempts, so every trace on the list is paid for twelve times.
+Four traces is one wave across this cluster's four `cbp2025` slots. The
+first full gate run measured eight traces at about 16 minutes of simulator
+per attempt. Across six attempts that is an hour and a half.
 
 ## The recorded baseline, and what G2 compares against
 
