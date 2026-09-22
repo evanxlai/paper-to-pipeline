@@ -1,0 +1,24 @@
+{
+  "stage": "dse",
+  "budget": "iso-192KiB",
+  "dse": [
+    {
+      "host": "cbp2025",
+      "budget": "iso-192KiB",
+      "budget_bits": 1572864,
+      "search_root": "/home/laievan/cbp2025_dse",
+      "screening_traces": 2,
+      "best_program": "// generated from feature spec; DSE mutates values only\n#pragma once\n#define SR_DIGEST_LIFETIME 256  // range: [1, 1024]\n#define SR_DIGEST_WIDTH 12  // range: [4, 16]\n",
+      "best_metrics": {
+        "combined_score": 581.4967726929116,
+        "n": 2,
+        "brmispki_50perc_amean": 0.7197,
+        "cycwppki_50perc_amean": 47.989149999999995,
+        "ipc_50perc_amean": 4.05115
+      },
+      "iterations": 1,
+      "status": "completed",
+      "error": null
+    }
+  ]
+}

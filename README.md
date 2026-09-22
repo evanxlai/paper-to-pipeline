@@ -70,9 +70,22 @@ where the escalation sent it.
   `spec_checks`, whose `budget_fit` check compares the spec's accounted
   storage against an allowance. Per the rule above that comparison belongs
   to stage 4 alone.
-- Storage accounting inside the DSE evaluator. Nothing rejects an
-  over-budget candidate yet, so the iso-budget claim rests on the search
-  prompt alone.
+- **The tuning stage cannot change the feature's size.** This is the
+  largest gap and it was found by running the stage. sR's 53,863 bits sit
+  80 percent in weight tables and 17 percent in usefulness tables. A bank
+  count and a set of entry counts size both, and the spec records those as
+  prose in `state[].organization`. Only `parameters[]` becomes a knob, so
+  the first real search had two: a decay interval worth no bits, and a
+  digest width reaching at most the 1,495-bit register table. That is
+  under half a percent of the storage, and the iso-budget comparison at
+  192 KiB and 64 KiB has never been made. Three things are missing.
+  Nothing requires distill to expose a sizing dimension as a parameter.
+  Nothing checks that the search can move the accounted storage. The
+  evaluator has no storage accounting, so it cannot reject an over-budget
+  candidate, and the iso-budget claim rests on the search prompt alone.
+- No knob for the budget donors either. `resource_accounting` names the
+  base TAGE predictor as the donor. The proposal's question is how to split
+  storage between it and sR. Nothing in the pipeline can move that split.
 - G5 compares the port against its own feature-off run. G2 proves that run
   is the baseline on one sample trace, not on the performance traces. That
   leaves a narrow gap: a port that leaks only on the larger traces sets its
