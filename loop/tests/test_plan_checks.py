@@ -382,3 +382,108 @@ def test_plan_findings_work_with_the_stage_one_severity_helpers(spec, plan, test
     found = run_checks(spec, plan, tests)
     assert spec_checks.severity_counts(found)["error"] > 0
     assert spec_checks.is_worse([], found)
+
+
+from plan_checks import _check_baseline_pointers
+
+
+# ------------------------------------------------- baseline pointers (G2)
+# A pass_condition is frozen for stage 3. A metrics_equal_baseline pointer
+# that resolves to nothing is therefore a G2 the integration agent cannot
+# fix and can only escalate, after spending a whole gate attempt finding
+# it. These checks move that to the stage that can still repair it.
+
+
+RECORDED_BASELINE = {
+    "n": 2,
+    "host_revision": "deadbeef",
+    "brmispki_50perc_amean": 0.7,
+    "per_trace": {
+        "int/sample_int_trace.gz": {
+            "brmispki_50perc_amean": 0.2647,
+            "cycwppki_50perc_amean": 34.3978,
+            "ipc_50perc_amean": 2.947,
+        },
+        "fp/sample_fp_trace.gz": {
+            "brmispki_50perc_amean": 1.1476,
+            "cycwppki_50perc_amean": 61.544,
+            "ipc_50perc_amean": 5.1779,
+        },
+    },
+}
+
+
+def _tests_with_pointer(pointer, metrics=None):
+    return {
+        "metric_keys": ["brmispki_50perc_amean", "cycwppki_50perc_amean"],
+        "correctness": [{
+            "id": "baseline_int",
+            "kind": "feature_off_baseline",
+            "command": "./cbp sample_traces/int/sample_int_trace.gz",
+            "feature_state": "off",
+            "pass_condition": {
+                "kind": "metrics_equal_baseline",
+                "baseline_pointer": pointer,
+                **({"metrics": metrics} if metrics else {}),
+            },
+        }],
+    }
+
+
+def codes(findings):
+    return [f.code for f in findings]
+
+
+def test_a_pointer_that_resolves_is_accepted():
+    found = _check_baseline_pointers(
+        _tests_with_pointer("/per_trace/int~1sample_int_trace.gz"), RECORDED_BASELINE)
+    assert found == []
+
+
+def test_a_pointer_in_the_wrong_path_convention_is_an_error():
+    """The real one. A plan wrote the path the way its own shell command
+    spells it, `sample_traces/int/...`, while the baseline keys traces the
+    way the trace list spells them."""
+    found = _check_baseline_pointers(
+        _tests_with_pointer("/per_trace/sample_traces~1int~1sample_int_trace.gz"),
+        RECORDED_BASELINE)
+    assert codes(found) == ["baseline_pointer_unresolved"]
+    # The planner cannot see the baseline, so the finding has to show it.
+    assert "int/sample_int_trace.gz" in found[0].message
+    assert "~1" in found[0].message
+
+
+def test_an_unescaped_slash_is_an_error_too():
+    found = _check_baseline_pointers(
+        _tests_with_pointer("/per_trace/int/sample_int_trace.gz"), RECORDED_BASELINE)
+    assert codes(found) == ["baseline_pointer_unresolved"]
+
+
+def test_a_pointer_at_the_top_level_is_accepted_when_the_metrics_are_there():
+    tests = _tests_with_pointer("", metrics=["brmispki_50perc_amean"])
+    assert _check_baseline_pointers(tests, RECORDED_BASELINE) == []
+
+
+def test_a_pointer_that_resolves_but_lacks_a_declared_metric_is_an_error():
+    """G2 reports a missing metric as a difference, so an entry pointing at
+    a document without one fails every port, including a correct one."""
+    found = _check_baseline_pointers(
+        _tests_with_pointer(""), RECORDED_BASELINE)
+    assert codes(found) == ["baseline_pointer_metrics_missing"]
+    assert "cycwppki_50perc_amean" in found[0].message
+
+
+def test_entries_that_are_not_metrics_equal_baseline_are_ignored():
+    tests = {
+        "metric_keys": ["brmispki_50perc_amean"],
+        "correctness": [{"id": "t", "kind": "existing_regression",
+                         "pass_condition": {"kind": "exit_zero"}}],
+    }
+    assert _check_baseline_pointers(tests, RECORDED_BASELINE) == []
+
+
+def test_no_baseline_means_the_check_does_not_run():
+    """run_checks stays usable with no filesystem and no recorded run, the
+    same way it is for host_root."""
+    tests = _tests_with_pointer("/per_trace/nope")
+    assert _check_baseline_pointers(tests, None) == []

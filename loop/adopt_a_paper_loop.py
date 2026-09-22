@@ -287,7 +287,8 @@ def checks_root(host: str) -> str | None:
     return None
 
 
-def plan(dump: helpers.Dumper, spec: dict, host: str) -> tuple[dict, dict]:
+def plan(dump: helpers.Dumper, spec: dict, host: str,
+         baseline_key: str = "iso-192KiB") -> tuple[dict, dict]:
     """Planning node: an agent reads the host checkout, runs the suite that
     checkout already ships, and emits a port plan and a test plan. Code
     decides whether they cover the spec; see plan_node."""
@@ -329,6 +330,10 @@ def plan(dump: helpers.Dumper, spec: dict, host: str) -> tuple[dict, dict]:
         return plan_node.make_plan(
             dump, spec, host, work_dir, notes, tools=[bash],
             revision=revision, checks_root=mirror,
+            # So a metrics_equal_baseline pointer that resolves to nothing
+            # is a repair turn here rather than a frozen G2 that stage 3 can
+            # only escalate.
+            baseline=helpers.load_baseline(host, baseline_key),
         )
     finally:
         bash.stop()
@@ -694,7 +699,7 @@ def main() -> None:
     if args.stage in ("plan", "all"):
         summary["plan"] = []
         for h in hosts:
-            plans[h] = plan(dump, spec, h)
+            plans[h] = plan(dump, spec, h, args.budget)
             summary["plan"].append({
                 "host": h,
                 "hook_points": len(plans[h][0]["hook_points"]),

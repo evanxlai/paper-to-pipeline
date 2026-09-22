@@ -113,6 +113,7 @@ def make_plan(
     revision: str | None = None,
     repair_turns: int | None = None,
     checks_root: str | None = None,
+    baseline: dict | None = None,
 ) -> tuple[dict, dict]:
     """Plan the port of `spec` into `host`, or refuse to.
 
@@ -178,7 +179,7 @@ def make_plan(
     dump.llm(f"plan_{host}_0", resp)
 
     port_plan, test_plan, errors = parse_reply(resp.result)
-    findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision)
+    findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision, baseline)
     rounds = [{"turn": 0, "schema_errors": errors, "findings": [f.as_dict() for f in findings]}]
 
     for turn in range(turns):
@@ -187,7 +188,7 @@ def make_plan(
         resp = run_llm(llm, _repair_prompt(errors, findings, bool(errors)), tools)
         dump.llm(f"plan_{host}_repair_{turn}", resp)
         port_plan, test_plan, errors = parse_reply(resp.result)
-        findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision)
+        findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision, baseline)
         rounds.append({
             "turn": turn + 1, "schema_errors": errors,
             "findings": [f.as_dict() for f in findings],
@@ -247,11 +248,18 @@ def _blocking(findings) -> list:
     return [f for f in findings if f.severity == "error"]
 
 
-def _checks(spec, port_plan, test_plan, work_dir, revision) -> list:
-    """Plan checks, plus the one fact only the caller can know."""
+def _checks(spec, port_plan, test_plan, work_dir, revision, baseline=None) -> list:
+    """Plan checks, plus the two facts only the caller can know.
+
+    `baseline` is the recorded baseline G2 will compare against. Resolving
+    every `metrics_equal_baseline` pointer here is the only place it can be
+    done cheaply: a pass_condition is frozen for stage 3, so a pointer that
+    resolves to nothing costs a whole gate attempt there and can only be
+    escalated."""
     if port_plan is None or test_plan is None:
         return []
-    findings = plan_checks.run_checks(spec, port_plan, test_plan, host_root=work_dir)
+    findings = plan_checks.run_checks(
+        spec, port_plan, test_plan, host_root=work_dir, baseline=baseline)
     if revision is not None and port_plan.get("host_revision") != revision:
         findings.append(spec_checks.Finding(
             "/plan/host_revision", "revision_not_measured", "error",

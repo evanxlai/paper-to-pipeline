@@ -638,15 +638,67 @@ def _check_checkout(plan: dict, host_root) -> list[Finding]:
 # ------------------------------------------------------------------- driver
 
 
+def _check_baseline_pointers(tests: dict, baseline: dict) -> list[Finding]:
+    """Every `metrics_equal_baseline` pointer has to resolve in the recorded
+    baseline, and has to land on metrics the plan's own `metric_keys` name.
+
+    This is here because the alternative is a dead end. `pass_condition` is
+    frozen for stage 3, so a pointer that resolves to nothing is a G2 the
+    integration agent cannot fix and can only escalate, after spending a
+    full gate attempt to discover it. A real one: a plan wrote
+    `/per_trace/sample_traces~1int~1sample_int_trace.gz`, the path as its
+    own shell command spells it, while the baseline keys traces the way the
+    trace list spells them, `int/sample_int_trace.gz`.
+
+    The finding lists the keys that do exist, because the planner cannot see
+    the baseline document and guessing again is not better than the first
+    guess."""
+    out: list[Finding] = []
+    if not isinstance(baseline, dict):
+        return out
+    declared = [k for k in (tests.get("metric_keys") or [])]
+    for i, entry in enumerate(tests.get("correctness") or []):
+        pc = (entry or {}).get("pass_condition") or {}
+        if pc.get("kind") != "metrics_equal_baseline":
+            continue
+        pointer = pc.get("baseline_pointer", "")
+        node = ptr_get(baseline, pointer, None) if pointer else baseline
+        pointer_text = pointer or "(the top level)"
+        if not isinstance(node, dict):
+            available = sorted((baseline.get("per_trace") or {}))
+            out.append(Finding(
+                f"/tests/correctness/{i}/pass_condition/baseline_pointer",
+                "baseline_pointer_unresolved", "error",
+                f"{pointer_text} resolves to nothing in the recorded baseline, so G2 "
+                f"has no numbers to compare against and the integration agent cannot "
+                f"fix it: a pass_condition is frozen. The baseline records these "
+                f"traces under /per_trace, keyed the way the trace list spells them: "
+                f"{', '.join(available) or '(none)'}. Remember that '/' inside a "
+                f"pointer token is written '~1'.",
+            ))
+            continue
+        missing = [k for k in (pc.get("metrics") or declared) if k not in node]
+        if missing:
+            out.append(Finding(
+                f"/tests/correctness/{i}/pass_condition/baseline_pointer",
+                "baseline_pointer_metrics_missing", "error",
+                f"{pointer_text} resolves, but holds no "
+                f"{', '.join(repr(m) for m in missing)}. G2 reports a missing metric "
+                f"as a difference, so this entry fails every port. It holds: "
+                f"{', '.join(sorted(node)) or '(nothing)'}.",
+            ))
+    return out
+
+
 def run_checks(
-    spec: dict, port_plan: dict, test_plan: dict, host_root=None
+    spec: dict, port_plan: dict, test_plan: dict, host_root=None, baseline=None
 ) -> list[Finding]:
     """All deterministic plan checks, in a stable order.
 
-    `host_root` is optional for the same reason `budget_bits` is optional in
-    spec_checks.run_checks: the pure checks stay unit-testable with no
-    filesystem, and the two checkout-dependent ones only run when the caller
-    passes the tree the plan was actually written against."""
+    `host_root` and `baseline` are optional for the same reason `budget_bits`
+    is optional in spec_checks.run_checks: the pure checks stay unit-testable
+    with no filesystem, and the ones that need the tree or the recorded
+    baseline only run when the caller passes them."""
     findings: list[Finding] = []
     findings += _check_coverage(spec, port_plan, test_plan)
     findings += _check_references(port_plan, test_plan)
@@ -660,4 +712,6 @@ def run_checks(
     findings += _check_risks(port_plan)
     if host_root is not None:
         findings += _check_checkout(port_plan, host_root)
+    if baseline is not None:
+        findings += _check_baseline_pointers(test_plan, baseline)
     return findings
