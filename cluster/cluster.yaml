@@ -16,10 +16,11 @@
 #   Compute Engine API enabled; conda env "chia_env" with ray + chia on every machine.
 #
 # NOTE (draft): worker_setup_commands below sketch the simulator/trace
-# provisioning. Traces now come from an in-region GCS bucket rather than
-# Google Drive (see the cbp2025_worker block). The simulator and host
-# checkouts are still built from source on every fresh node; bake those into
-# a custom image before real DSE runs.
+# provisioning. Traces download from Google Drive because chia gives GCP
+# instances no service account, so they cannot read the project's GCS bucket
+# (see the cbp2025_worker block). The simulator and host checkouts are also
+# built from source on every fresh node. Bake all of it into a custom image
+# before real DSE runs; re-downloading 14 GiB per node wastes time and credit.
 
 cluster_name: paper2pipeline
 
@@ -89,34 +90,45 @@ available_node_types:
             # traces). ~11.7 GiB compressed; each sim_worker needs its own
             # full local copy since any node can draw any trace.
             #
-            # Source is the GCS bucket, not the original Google Drive folder.
-            # The bucket sits in us-central1, the same region as these VMs, so
-            # the pull is in-region (no egress charge), runs many objects in
-            # parallel, needs no gdown/pip step, and does not rate-limit when
-            # several workers come up at once. The traces are already .gz
-            # inside, so nothing is decompressed here.
+            # This downloads from Google Drive, NOT from the project's GCS
+            # bucket, and that is deliberate. An in-region
+            # `gcloud storage rsync` from gs://a3-chia-hack26ath-7728-cbp2025
+            # was tried and reverted: it fails on a fresh worker with
+            # "You do not currently have an active account selected". chia
+            # provisions GCP instances with NO service account attached --
+            # the metadata server 404s on
+            # instance/service-accounts/default/email -- and
+            # chia/cluster/gcp_nodes.py has no service_account or scopes
+            # option to change that. So a worker has no Google credentials of
+            # any kind and cannot read the bucket, however open the project
+            # IAM is. Do not "optimize" this back to GCS without first giving
+            # the instances an identity.
             #
-            # The bucket is populated once from the Drive folder; see
-            # docs/gcp-setup.md for the bucket name and how it was filled.
-            # Reads use the VM's default compute service account, which holds
-            # roles/editor on the project.
+            # The bucket is still the canonical verified copy (105 objects,
+            # 14.0 GiB, checked against experiments/training-105.list; see
+            # docs/gcp-setup.md) and is what a custom image should be built
+            # from. Baking the traces into an image is the real fix for the
+            # ~10min re-download, per the NOTE at the top of this file.
             #
             # Guard checks a real training-set file, not just the directory:
             # the sample-trace symlinks above already create ~/traces/cbp2025/int.
             - >
               test -f ~/traces/cbp2025/int/int_0_trace.gz || (
-              set -e;
-              if ! command -v gcloud >/dev/null; then sudo snap install google-cloud-cli --classic; fi;
-              mkdir -p ~/traces/cbp2025;
-              gcloud storage rsync -r gs://a3-chia-hack26ath-7728-cbp2025/cbp2025 ~/traces/cbp2025
+              source ~/.bashrc && conda activate chia_env &&
+              pip install -q gdown &&
+              mkdir -p ~/traces/_dl_cbp2025 ~/traces/cbp2025 &&
+              cd ~/traces/_dl_cbp2025 &&
+              gdown https://drive.google.com/drive/folders/10CL13RGDW3zn-Dx7L0ineRvl7EpRsZDW --continue --retries 3 &&
+              for f in traces/*.tar.xz; do tar -xJf "$f" -C ~/traces/cbp2025/; done &&
+              rm -rf ~/traces/_dl_cbp2025
               )
             # Fail loudly here rather than letting every ./cbp invocation open
             # a missing trace: aggregate() turns a failed run into n=0, which
-            # _map_results turns into combined_score 0.0, so a broken sync
+            # _map_results turns into combined_score 0.0, so a broken download
             # looks like a healthy search that learns nothing.
             - >
               test -f ~/traces/cbp2025/int/int_0_trace.gz ||
-              { echo "trace sync failed -- ~/traces/cbp2025 is not populated"; exit 1; }
+              { echo "trace download failed -- ~/traces/cbp2025 is not populated"; exit 1; }
 
     # ChampSim + gem5 checkouts for the integration agents and gate runs.
     host_worker:
