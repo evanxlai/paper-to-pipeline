@@ -1,41 +1,79 @@
 # paper-to-pipeline
 
-An "adopt-a-paper" CHIA loop. Give it a target design, a feature described by a paper, and success criteria. The loop plans the port, integrates the feature into the design behind a deterministic gate, and then tunes the feature and the host budget split under a storage constraint. Only the tuned configuration counts as the verdict.
+An "adopt-a-paper" CHIA loop. Give it a target design, a feature described by a paper, and success criteria. The loop plans the port. It integrates the feature into the design behind a deterministic gate. It then tunes the feature and the host budget split under a storage constraint. Only the tuned configuration counts as the verdict.
 
 What each stage consumes, emits, and is judged by is specified in [docs/stages.md](docs/stages.md). One rule shapes the whole pipeline: only the DSE stage knows about resource constraints, so every stage before it is about implementing the feature correctly and nothing else.
 
 Team: Evan Lai, Jan Strzeszynski. Accepted project for the Agentic Approaches to Architecture CHIA Hackathon. The accepted proposal text is in [docs/proposal.md](docs/proposal.md).
 
-Demonstration: port sR, the register-value statistical-corrector component of RUNLTS (winner of CBP2025), into ChampSim and into gem5's TAGE-SC-L. Tune each port at 192 KiB and at 64 KiB of total predictor storage. The proposal calls this component "RBias". The paper names it sR, and this repository uses `sr` everywhere.
+Demonstration: port sR, the register-value statistical-corrector component of RUNLTS (winner of CBP2025), into the CBP2025 kit's TAGE-SC-L. Tune the port at 192 KiB and at 64 KiB of total predictor storage. ChampSim and gem5 are the next two hosts, and the loop holds no per-host branches, so adding one is writing an adapter. The proposal calls this component "RBias". The paper names it sR, and this repository uses `sr` everywhere.
 
-## Status: rough first draft
+## Status: running end to end on a real cluster
 
-Done:
+The loop runs against a real host, on a real CHIA cluster, through
+`chia job submit`. The host is the CBP2025 kit. That is the simulator the
+RUNLTS paper itself was written against, so sR hooks into interfaces that
+exist rather than into approximations of them.
+[docs/cbp2025-runbook.md](docs/cbp2025-runbook.md) has the commands and the
+measured timings.
 
-- The stage contracts, including the plan / integrate / debug split ([docs/stages.md](docs/stages.md)).
-- The loop driver, the LLM backend factory, and the prompts (`loop/`).
-- Stage 2 end to end: the port-plan and test-plan schemas (`plan/*.schema.json`), the planner prompt and plan node (`loop/plan_node.py`), and the coverage checks that make an unmapped spec item a planning failure rather than an integration surprise (`loop/plan_checks.py`).
-- The deterministic verify gate (`loop/gate.py`) and the test-plan runner behind it (`loop/plan_runner.py`). Every condition and threshold comes from the plan; the gate has no defaults of its own and no storage condition.
-- The CBP2025 CHIA node, written for upstreaming (`chia_nodes/cbp2025/`).
-- The feature-spec JSON schema (`spec/feature_spec.schema.json`).
-- Cluster configuration YAML for a local head plus GCP spot workers over Tailscale (`cluster/cluster.yaml`).
-- Host integration notes with the exact hook points in ChampSim and gem5 (`hosts/*/NOTES.md`).
-- Docs: GCP setup, week-by-week plan, ablation matrix, budget tracks.
+What has run, with artifacts in the repository:
 
-Not done (marked TODO in the code):
+- **Stage 2 (plan).** `plan/sr.cbp2025.{plan,tests}.json`, written by an
+  agent with an MCP shell on the checkout node and accepted by
+  `loop/plan_checks.py`. It recorded the clean-tree summary as
+  `" Read 997301 instrs "`, trailing space included, so it ran the command
+  rather than guessing at it.
+- **Baseline.** `hosts/cbp2025/baselines/iso-192KiB.json`, built from the
+  pristine kit and fanned out over the cluster.
+- **Stage 3 (integrate).** The agent ported sR and the port built. It
+  matched the recorded baseline exactly with the knob off. It passed all
+  seven spec unit tests and both existing regressions, and ran the smoke
+  traces clean. G5 then failed: CycWPPKI moved from 388.07 to 554.61,
+  which is 43 percent worse. The agent escalated `/host_interfaces/4` rather than
+  weakening a test, and the escalation was right. See below.
+- **The escalation loop.** Stage 3's escalation reached stage 2, which
+  re-planned `/host_interfaces/4` from `fallback` to `exact` and moved the
+  hook into the statistical corrector's own sum.
 
-- The debug node (stage 3b in [docs/stages.md](docs/stages.md)). The debug turn resumes the integration session rather than being an independent diagnosis-only node, so there is not yet a single writer on the tree the way the contract describes.
-- Retiring the last budget from the pre-DSE stages. The gate's storage condition is gone and `integrate` now takes a baseline key rather than a budget, but `distill` still takes a real one: it reaches `spec_checks`, whose `budget_fit` check compares the spec's accounted storage against an allowance and fails the stage closed. Per the rule above that comparison belongs to stage 4 alone.
-- A performance trace list sized between the 5-trace smoke set and the 60-trace screening set. Until one exists the `performance[]` thresholds have no signal on a real host.
-- Host build/run adapters (`hosts/__init__.py`). The gate fails closed until these exist.
-- DSE evaluator wiring against `evolve-flows` (its `ChiaEvaluator` internals are unverified).
-- Trace lists (`experiments/*.list`) wait on the trace download.
-- Nothing was executed yet against a real simulator. No cluster was brought up,
-  and neither ChampSim nor gem5 has been built. Stage 3's machinery *has* been
-  run end to end -- LLM call, agent edits, compile, test suite, gate, debug turn
-  -- against the fixture host in `loop/tests/fixtures/toyhost`, via
-  `python loop/tests/integrate_smoke.py`. That says the stage works; it says
-  nothing yet about porting sR into a real model.
+### What the first failed port taught
+
+This is the part worth reading. The port was correct by every check except
+the one that matters, and the cause was a wrong fact in
+`hosts/cbp2025/NOTES.md`: it said `cbp2016_tage_sc_l.h` was off limits.
+
+In the paper, sR is not a predictor that overrides TAGE-SC-L. It is one term
+in the statistical corrector's sum. The host has that sum. It also has the
+adaptive threshold that gates the corrector against TAGE. Kept out of that
+file, the agent built the only other thing available: a standalone
+predictor that flipped the TAGE answer on disagreement. Overriding a strong
+predictor with an untrained one costs 43 percent. The agent then escalated exactly the right question: nothing
+told it how confident its own sum had to be.
+
+Three things about that are the point of the whole design. The gate caught
+it, in plain code, with no model in the loop. The agent did not weaken a
+test to get past it. And the fix belonged to the planning stage, which is
+where the escalation sent it.
+
+### Still open
+
+- Host adapters for champsim and gem5 (`hosts/__init__.py`). Their gate
+  fails closed, which is the safe direction.
+- The debug node (stage 3b in [docs/stages.md](docs/stages.md)). The debug
+  turn resumes the integration session instead of running as an
+  independent diagnosis-only node. So there is not yet a single writer on
+  the tree, the way the contract describes.
+- Retiring the last budget from the pre-DSE stages. `distill` still reaches
+  `spec_checks`, whose `budget_fit` check compares the spec's accounted
+  storage against an allowance. Per the rule above that comparison belongs
+  to stage 4 alone.
+- Storage accounting inside the DSE evaluator. Nothing rejects an
+  over-budget candidate yet, so the iso-budget claim rests on the search
+  prompt alone.
+- G5 compares the port against its own feature-off run. G2 proves that run
+  is the baseline on one sample trace, not on the performance traces. That
+  leaves a narrow gap: a port that leaks only on the larger traces sets its
+  own bar.
 
 ## Fact-check corrections to the proposal
 
@@ -107,17 +145,23 @@ loop/                    the CHIA loop (head driver + nodes + prompts)
   tests/fixtures/toyhost/   that fixture: a 300-line C++ predictor sim
   tests/fixtures/tinysc_reference/  a correct port of it, so the gate is shown
                             passing a good port and failing a bad one
+  tests/cbp2025_cluster_smoke.py  build + trace fan-out on the real cluster
+  tests/llm_cluster_smoke.py      one prompt, one MCP shell, one real command
+  tests/cbp2025_gate_smoke.py     the real gate against a tree with no port
 chia_nodes/cbp2025/      new CHIA node wrapping the CBP2025 kit (upstream target)
 hosts/                   per-host adapters + integration NOTES + recorded baselines
+  cbp2025/adapter.py     the working one: executor, gate, port-tree lifecycle
+  cbp2025/NOTES.md       what the planning and integration agents read
 spec/                    feature-spec JSON schema (+ distilled specs land here)
 plan/                    port-plan + test-plan schemas (plans land here too)
 cluster/cluster.yaml     head + GCP spot workers, fully managed tailnet
 experiments/             budgets, ablation matrix, DSE config, trace lists
 scripts/                 setup_gcp.sh, fetch_artifacts.sh, install_llm_gateway.sh
 docs/                    stage contracts, proposal, plan, GCP guide, gateway, research
+  cbp2025-runbook.md     how to run every stage, with measured timings
 ```
 
-## Quickstart (when the TODOs close)
+## Quickstart
 
 1. Follow [docs/gcp-setup.md](docs/gcp-setup.md): Free Trial credit, `scripts/setup_gcp.sh <project>`.
 2. Run `scripts/fetch_artifacts.sh`. Then download the 105 training traces to a bucket.
@@ -126,7 +170,11 @@ docs/                    stage contracts, proposal, plan, GCP guide, gateway, re
 5. Start the LLM gateway once: `./scripts/install_llm_gateway.sh`, then `sudo loginctl enable-linger "$USER"` so it survives logout. The DSE stage reaches Gemini through it, because a raw Vertex token expires an hour into a ~37-hour search. See [docs/llm-gateway.md](docs/llm-gateway.md).
 6. `chia up cluster/cluster.yaml`
 7. `chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" --stage all`
-8. `chia down cluster/cluster.yaml` after each session. Spot workers cost credit while idle.
+8. `chia down cluster/cluster.yaml` after each session. Idle workers cost credit.
+
+Run the stages one at a time the first time, and run the three harness
+checks before the long ones. Both are in
+[docs/cbp2025-runbook.md](docs/cbp2025-runbook.md), with measured timings.
 
 ## References
 
