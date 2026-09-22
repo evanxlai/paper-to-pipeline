@@ -308,3 +308,86 @@ def test_restoring_the_port_tree_is_refused():
     with pytest.raises(SystemExit) as caught:
         adapter.restore_host_checkout(C.CBP2025_PORT_ROOT)
     assert "refusing to reset" in str(caught.value)
+
+
+# ------------------------------------------------- the port tree lifecycle
+# materialize_port_tree decides whether an integration run starts from a
+# clean checkout or from the port a previous run left. Getting that wrong
+# in either direction is expensive: reset when it should not, and a run's
+# work is gone with no other copy; skip the reset when it should not, and
+# stage 2's leftovers satisfy stage 3's tests.
+
+
+import subprocess
+
+
+def _git_repo(path):
+    path.mkdir(parents=True, exist_ok=True)
+    run = lambda *a: subprocess.run(a, cwd=path, capture_output=True, check=True)
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "t@t")
+    run("git", "config", "user.name", "t")
+    (path / "predictor.h").write_text("// pristine\n")
+    (path / "lib").mkdir(exist_ok=True)
+    run("git", "add", "-A")
+    run("git", "commit", "-qm", "initial")
+    return path
+
+
+def test_a_fresh_port_tree_is_the_commit_and_nothing_else(tmp_path):
+    """Stage 2's planner has a shell on the source tree and leaves things
+    behind. A copy that trusts whatever is there carried a test_sr.cc
+    printing "Test passed" into the port and satisfied all seven unit
+    tests."""
+    src = _git_repo(tmp_path / "src")
+    (src / "test_sr.cc").write_text('int main(){puts("Test passed");}\n')
+    (src / "cbp").write_text("stale binary")
+    (src / "predictor.h").write_text("// planner scribbled here\n")
+
+    out = adapter.materialize_port_tree(str(src), str(tmp_path / "port"))
+    port = tmp_path / "port"
+    assert out["ok"] and out["reused"] is False
+    assert not (port / "test_sr.cc").exists()
+    assert not (port / "cbp").exists()
+    assert (port / "predictor.h").read_text() == "// pristine\n"
+
+
+def test_reset_false_keeps_the_port_and_drops_only_the_build(tmp_path):
+    """What stage 4 needs: a copy of the ported tree to search in, with the
+    port intact. Resetting here would delete the thing being tuned."""
+    src = _git_repo(tmp_path / "src")
+    (src / "predictor.h").write_text("// the port\n")
+    (src / "sr_params.h").write_text("#define SR_NUM_BANKS 8\n")
+    (src / "cbp").write_text("stale binary")
+    (src / "predictor.o").write_text("stale object")
+
+    out = adapter.materialize_port_tree(
+        str(src), str(tmp_path / "dse"), True, False)
+    dse = tmp_path / "dse"
+    assert out["ok"]
+    assert (dse / "predictor.h").read_text() == "// the port\n"
+    assert (dse / "sr_params.h").exists()
+    assert not (dse / "cbp").exists()
+    assert not (dse / "predictor.o").exists()
+
+
+def test_fresh_false_reuses_an_existing_tree_untouched(tmp_path):
+    """P2P_CBP2025_PORT_FRESH=0 is for resuming a run that died partway. It
+    has to return the tree as the dead run left it. A Vertex 429 has
+    already taken one run down with the port most of the way written."""
+    src = _git_repo(tmp_path / "src")
+    port = tmp_path / "port"
+    adapter.materialize_port_tree(str(src), str(port))
+    (port / "predictor.h").write_text("// half a port\n")
+    (port / "sr_params.h").write_text("#define SR_NUM_BANKS 8\n")
+
+    out = adapter.materialize_port_tree(str(src), str(port), False)
+    assert out["reused"] is True
+    assert (port / "predictor.h").read_text() == "// half a port\n"
+    assert (port / "sr_params.h").exists()
+
+
+def test_a_missing_source_is_reported_not_raised(tmp_path):
+    out = adapter.materialize_port_tree(
+        str(tmp_path / "nope"), str(tmp_path / "port"))
+    assert out["ok"] is False and "does not exist" in out["error"]
