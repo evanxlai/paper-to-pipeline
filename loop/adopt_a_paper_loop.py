@@ -19,9 +19,10 @@ Run (after `chia up cluster/cluster.yaml`):
 Env knobs are P2P_* (constants.py), forwarded via
   chia job submit --runtime-env-json '{"env_vars": {"P2P_DISTILL_MODE": "paper_plus_reference"}}' -- ...
 
-Status: stages 1, 1.5, 2 and the gate are complete and exercised against a
-fixture host; the champsim/gem5 host adapters and the stage-4 evaluator
-wiring carry TODOs (see docs/plan.md).
+Status: stages 1 through 3 run end to end against the cbp2025 host on a real
+cluster (hosts/cbp2025/). The champsim and gem5 adapters are still TODO and
+their gate fails closed; the stage-4 evaluator wiring carries its own TODOs
+(see docs/plan.md).
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ import spec_review
 from llm import load_prompt, make_llm, run_llm
 
 from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
+from hosts.cbp2025 import adapter as cbp2025_adapter
 
 
 # ------------------------------------------------------------ stage 1
@@ -160,33 +162,93 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
 
 
 # ------------------------------------------------------------ baselines
-def record_cbp_baseline(dump: helpers.Dumper, trace_list: Path) -> dict:
+def record_cbp_baseline(
+    dump: helpers.Dumper, trace_list: Path, budget: str = "iso-192KiB"
+) -> dict:
     """Build the unmodified kit (TAGE-SC-L 64KB wired to the 192KB budget
-    rules) and fan the trace list out one run per trace."""
-    build = get(CBP2025Node.build.chia_remote(C.CBP2025_ROOT, None, C.BUILD_TIMEOUT_S))
+    rules) and fan the trace list out one run per trace.
+
+    The build is pinned to the node that owns the checkout, and it is the
+    *pristine* checkout: stage 3 edits a copy (`C.CBP2025_PORT_ROOT`), so a
+    baseline recorded after an integration run still describes the host and
+    not the port. G2 compares the port's knob-off metrics against this
+    document, and a baseline measured on the ported tree could not tell the
+    two apart.
+
+    What lands on disk is the suite aggregate plus a `per_trace` map keyed by
+    the trace path as the list writes it. The aggregate alone is not enough:
+    a `feature_off_baseline` entry runs one shell command, so it needs a
+    comparison point for one trace, and pointing it at a mean over six is a
+    comparison between two different things that the gate would report as a
+    regression.
+    """
+    build = get(
+        CBP2025Node.build.options(resources={C.CBP2025_HOST_RESOURCE: 1.0})
+        .chia_remote(C.CBP2025_ROOT, None, C.BUILD_TIMEOUT_S, None)
+    )
     if not build.success:
         raise SystemExit("baseline cbp2025 build failed:\n" + build.log[-4000:])
     traces = helpers.load_trace_list(trace_list)
-    # TEMP: only run the first trace for faster testing. (Was a hardcoded
-    # "media" substring filter, which silently ran zero traces whenever the
-    # list didn't happen to name a media-workload trace -- e.g. the sample
-    # traces shipped in the cbp2025 kit, which are fp/int only.)
-    traces = traces[:1]
     refs = [
-        CBP2025Node.run.chia_remote(build.binary, f"{C.TRACE_DIR}/{t}", (), C.RUN_TIMEOUT_S)
+        CBP2025Node.run.options(resources={C.CBP2025_RESOURCE: 1.0})
+        .chia_remote(build.binary, f"{C.TRACE_DIR}/{t}", (), C.RUN_TIMEOUT_S, None)
         for t in traces
     ]
-    agg = get(CBP2025Node.aggregate.chia_remote([get(r) for r in refs]))
+    results = [get(r) for r in refs]
+    agg = get(CBP2025Node.aggregate.chia_remote(results))
+    agg["trace_list"] = str(Path(trace_list).relative_to(C.REPO_ROOT))
+    agg["per_trace"] = {
+        rel: cbp2025_adapter.parse_metrics(result.log)
+        for rel, result in zip(traces, results)
+        if result.success
+    }
     dump.json("cbp2025_baseline.json", agg)
-    helpers.record_baseline("cbp2025", "iso-192KiB", agg)
+    helpers.record_baseline("cbp2025", budget, agg)
+    if agg.get("n") != len(traces):
+        raise SystemExit(
+            f"baseline ran {agg.get('n')} of {len(traces)} traces; failed: "
+            f"{agg.get('failed')}. A baseline over a different trace set than "
+            f"the plan will name is not a baseline."
+        )
     return agg
 
 
 # ------------------------------------------------------------ stage 2
 def host_paths(host: str) -> tuple[str, str]:
-    """The checkout and the recorded hook points for one production host."""
-    work_dir = {"champsim": C.CHAMPSIM_ROOT, "gem5": C.GEM5_ROOT}[host]
+    """The checkout stage 2 reads, and the recorded hook points, for one
+    production host. This is the pristine tree in every case: stage 2 records
+    `host_revision` and every clean-tree result against it, so it must be the
+    tree nobody has ported into."""
+    work_dir = {
+        "cbp2025": C.CBP2025_ROOT,
+        "champsim": C.CHAMPSIM_ROOT,
+        "gem5": C.GEM5_ROOT,
+    }[host]
     return work_dir, (C.REPO_ROOT / "hosts" / host / "NOTES.md").read_text()
+
+
+# Ray resource token per host, for the shell the agents reach the checkout
+# through. cbp2025 has its own because its checkout lives on exactly one node
+# (see hosts/cbp2025/adapter.py); champsim and gem5 name their own token.
+HOST_SHELL_RESOURCE = {"cbp2025": C.CBP2025_HOST_RESOURCE}
+
+
+def shell_resources(host: str) -> dict:
+    return {HOST_SHELL_RESOURCE.get(host, host): 0.1}
+
+
+def checks_root(host: str) -> str | None:
+    """Where the deterministic plan checks open the files a hook point names.
+
+    `None` means "the work_dir", which is right for any host whose checkout
+    is on this machine. cbp2025's is not: it is on a worker, and this process
+    is the head, so plan_checks would report every hook point's file missing.
+    The head keeps a mirror of the same upstream repository under
+    third_party/ (scripts/fetch_artifacts.sh), and `plan` below refuses to
+    use it unless it is at the same commit as the worker's."""
+    if host == "cbp2025":
+        return str(C.REPO_ROOT / "third_party" / "cbp2025")
+    return None
 
 
 def plan(dump: helpers.Dumper, spec: dict, host: str) -> tuple[dict, dict]:
@@ -194,16 +256,50 @@ def plan(dump: helpers.Dumper, spec: dict, host: str) -> tuple[dict, dict]:
     checkout already ships, and emits a port plan and a test plan. Code
     decides whether they cover the spec; see plan_node."""
     work_dir, notes = host_paths(host)
+    mirror = checks_root(host)
+    revision = None
+    if host == "cbp2025":
+        # Read the commit off the worker that actually holds the checkout,
+        # and refuse to run the file checks against a mirror at some other
+        # commit. Without this, `hook_file_missing` would be a statement
+        # about the head's copy and the planner would be sent to fix a file
+        # that is present on the machine it is looking at.
+        revision = cbp2025_adapter.checkout_revision()
+        mirror_rev = _mirror_revision(mirror)
+        if mirror_rev != revision:
+            raise SystemExit(
+                f"the head's mirror of the cbp2025 checkout ({mirror}) is at "
+                f"{mirror_rev}, and the worker's ({work_dir}) is at {revision}. "
+                f"The deterministic plan checks read the mirror, so they would "
+                f"be about a different tree than the planner. Re-run "
+                f"scripts/fetch_artifacts.sh, or `git -C {mirror} fetch && git "
+                f"-C {mirror} checkout {revision}`."
+            )
     bash = BashTool(
         name=f"{host}_bash",
         work_dir=work_dir,
         timeout_seconds=C.BASH_TOOL_TIMEOUT_S,
-        task_options={"resources": {host: 0.1}},
+        task_options={"resources": shell_resources(host)},
     )
     try:
-        return plan_node.make_plan(dump, spec, host, work_dir, notes, tools=[bash])
+        return plan_node.make_plan(
+            dump, spec, host, work_dir, notes, tools=[bash],
+            revision=revision, checks_root=mirror,
+        )
     finally:
         bash.stop()
+
+
+def _mirror_revision(mirror: str | None) -> str:
+    """The commit of the head-local mirror, or a reason it has none."""
+    import subprocess
+
+    if not mirror or not Path(mirror).exists():
+        return f"(absent: {mirror})"
+    proc = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=mirror, capture_output=True, text=True
+    )
+    return proc.stdout.strip() or "(not a git checkout)"
 
 
 def load_plans(host: str, spec: dict) -> tuple[dict, dict]:
@@ -245,32 +341,55 @@ class HostAdapter:
     notes: str
     resources: dict
     baseline: Callable[[], Optional[dict]]
+    # Where plan_checks opens the files a hook point names, when that is not
+    # `work_dir`. It is not `work_dir` for any host whose checkout lives on
+    # another machine: this process runs on the head, and a plan revision
+    # reviewed there would report every hook point's file missing. `None`
+    # means the two are the same directory, which is the one-machine case.
+    checks_root: Optional[str] = None
     # (baseline, port_plan, test_plan) -> verdict. The plan pair is an
     # argument rather than something the adapter closed over at construction
     # because stage 3 can now revise it mid-run (plan_revision.py), and a gate
     # still judging the superseded test plan would be judging a standard
     # nobody holds.
-    run_gate: Callable[[dict, dict, dict], gate.GateResult]
+    run_gate: Callable[[dict, dict, dict], gate.GateResult] = None  # type: ignore[assignment]
 
 
 def default_adapter(host: str, baseline_key: str) -> HostAdapter:
     """The production hosts.
 
-    TODO(week 2): the gate. Per hosts/<host>/NOTES.md:
+    cbp2025 is implemented (hosts/cbp2025/adapter.py). champsim and gem5 are
+    not, and their gate fails closed, which is the safe direction: an
+    unimplemented check must never read as a pass.
+
+    TODO(week 2): the other two. Per hosts/<host>/NOTES.md:
       champsim: one module dir composing a base TAGE-SC-L + the sR term
                 (multi-module lists keep only the LAST return value).
       gem5:     subclass StatisticalCorrector on TAGE_SC_L_64KB
                 (cleanest verified hook; see NOTES.md option 1).
-    Until those exist the gate fails closed, which is the safe direction: an
-    unimplemented check must never read as a pass.
     """
+    if host == "cbp2025":
+        # Lay down a pristine copy for the agent to edit before anything
+        # else happens, so the bash tool the caller is about to start has a
+        # tree to open and every attempt begins from the same place.
+        cbp2025_adapter.clean_port_tree()
+        return HostAdapter(
+            name=host,
+            work_dir=C.CBP2025_PORT_ROOT,
+            notes=cbp2025_adapter.notes(),
+            resources={C.CBP2025_HOST_RESOURCE: 0.1},
+            baseline=lambda: helpers.load_baseline(host, baseline_key),
+            checks_root=checks_root(host),
+            run_gate=cbp2025_adapter.run_gate,
+        )
     work_dir, notes = host_paths(host)
     return HostAdapter(
         name=host,
         work_dir=work_dir,
         notes=notes,
-        resources={host: 0.1},
+        resources=shell_resources(host),
         baseline=lambda: helpers.load_baseline(host, baseline_key),
+        checks_root=checks_root(host),
         run_gate=lambda baseline, port_plan, test_plan: gate.GateResult(
             False, ["gate adapters not implemented yet (hosts/ TODO)"]
         ),
@@ -320,7 +439,8 @@ def _consider_revision(
     index = revision + 1
     for turn in range(C.PLAN_REPAIR_TURNS + 1):
         new_port, new_tests, errors, findings = plan_revision.review(
-            spec, adapter.work_dir, port_plan, test_plan, reply)
+            spec, adapter.work_dir, port_plan, test_plan, reply,
+            checks_root=adapter.checks_root)
         # Evidence before verdict, like plan_node: a refused revision that
         # writes nothing is one nobody can diagnose without re-running stage 3.
         dump.json(f"plan_revision_{adapter.name}_{index}_review_{turn}.json", {
@@ -451,6 +571,14 @@ def main() -> None:
                     choices=["distill", "baseline", "plan", "integrate", "dse", "all"])
     ap.add_argument("--host", default=None, help="limit plan/integrate/dse to one host")
     ap.add_argument("--budget", default="iso-192KiB", choices=list(C.BUDGET_TRACKS_BITS))
+    # Which traces --stage baseline measures. The default is the two traces
+    # the CBP2025 kit ships, because the only gate condition that reads the
+    # recorded baseline is G2, and G2's command is one ./cbp run inside the
+    # agent's 300-second shell. A real training trace does not fit there, so
+    # recording one would produce a per_trace entry no correctness entry can
+    # compare against. Point this at experiments/perf-8.list to record the
+    # bigger set for the write-up.
+    ap.add_argument("--baseline-list", default=str(C.REPO_ROOT / "experiments" / "smoke-2.list"))
     args = ap.parse_args()
 
     ray.init(address="auto", runtime_env=C.RUNTIME_ENV)
@@ -465,7 +593,9 @@ def main() -> None:
         spec = json.loads(Path(C.SPEC_OUT_PATH).read_text())
 
     if args.stage in ("baseline", "all"):
-        summary["cbp2025_baseline"] = record_cbp_baseline(dump, C.SMOKE_LIST)
+        summary["cbp2025_baseline"] = record_cbp_baseline(
+            dump, Path(args.baseline_list), args.budget
+        )
 
     hosts = [args.host] if args.host else list(C.HOSTS)
     plans: dict = {}
@@ -494,6 +624,12 @@ def main() -> None:
                 integrate(dump, spec, h, args.budget,
                           port_plan=port_plan, test_plan=test_plan)
             )
+            if h == "cbp2025":
+                # The patch is the run's primary evidence and it lives on a
+                # worker, so it has to be pulled back before the job ends.
+                # Written whether the gate passed or failed: a refused port
+                # is the one a reader most needs to see.
+                dump.text(f"integrate_{h}_diff.patch", cbp2025_adapter.port_diff())
 
     if args.stage in ("dse", "all"):
         summary["dse"] = [dse.run_dse(h, spec, args.budget, C.DSE_CONFIG) for h in hosts]

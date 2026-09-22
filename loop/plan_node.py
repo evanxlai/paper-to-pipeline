@@ -112,11 +112,20 @@ def make_plan(
     tools=None,
     revision: str | None = None,
     repair_turns: int | None = None,
+    checks_root: str | None = None,
 ) -> tuple[dict, dict]:
     """Plan the port of `spec` into `host`, or refuse to.
 
     `tools` is injectable so the node can be driven in a test without a
-    cluster; in production it is one BashTool rooted at the host checkout."""
+    cluster; in production it is one BashTool rooted at the host checkout.
+
+    `checks_root` is the tree `plan_checks` opens to settle whether a hook
+    point's file exists, and it defaults to `work_dir`. The two differ on a
+    cluster host: `work_dir` is a path on the worker the agent's shell runs
+    on, and this node runs on the head, where that path holds nothing. Such
+    a host passes a head-local mirror at the same revision, and `revision`
+    then carries the worker checkout's real commit so a mirror that has
+    drifted is a planning error rather than a silent one."""
     # Lazy, like spec_review: this module stays importable, and testable,
     # without chia installed.
     from llm import load_prompt, make_llm, run_llm
@@ -142,7 +151,7 @@ def make_plan(
     dump.llm(f"plan_{host}_0", resp)
 
     port_plan, test_plan, errors = parse_reply(resp.result)
-    findings = _checks(spec, port_plan, test_plan, work_dir, revision)
+    findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision)
     rounds = [{"turn": 0, "schema_errors": errors, "findings": [f.as_dict() for f in findings]}]
 
     for turn in range(turns):
@@ -151,7 +160,7 @@ def make_plan(
         resp = run_llm(llm, _repair_prompt(errors, findings, bool(errors)), tools)
         dump.llm(f"plan_{host}_repair_{turn}", resp)
         port_plan, test_plan, errors = parse_reply(resp.result)
-        findings = _checks(spec, port_plan, test_plan, work_dir, revision)
+        findings = _checks(spec, port_plan, test_plan, checks_root or work_dir, revision)
         rounds.append({
             "turn": turn + 1, "schema_errors": errors,
             "findings": [f.as_dict() for f in findings],

@@ -1,0 +1,29 @@
+# The verify gate's performance list for the cbp2025 host: 8 traces.
+#
+# It sits between smoke-5.list ("does it run") and screening-60.list ("what
+# is the score"), because the gate's G5 asks a third question: does the
+# mechanism reach the metric at all. That needs real signal and it needs to
+# finish, twice (feature-on and feature-off), inside every one of the six
+# integration attempts.
+#
+# Measured on this cluster: one ./cbp process handles roughly 65k
+# instructions per second, and a trace carries about 115k instructions per
+# compressed MiB. The 4 cbp2025 slots therefore turn this list into about
+# 4 waves of ~60-120s per gate attempt, or ~6 minutes per attempt for both
+# feature states. Doubling the list doubles that, and six attempts of it is
+# the difference between an hour and two.
+#
+# These are the smallest traces in four of the six workload families. media
+# and compress are absent on purpose: their smallest members are 94 MiB and
+# 109 MiB, three times the cost of everything here, and this list is not a
+# score -- it is a direction check. The representative sets are
+# screening-60.list (stage 4 screening) and training-105.list (stage 4
+# validation), and both keep all six families.
+int/int_13_trace.gz
+int/int_21_trace.gz
+web/web_21_trace.gz
+web/web_11_trace.gz
+fp/fp_1_trace.gz
+fp/fp_12_trace.gz
+infra/infra_8_trace.gz
+infra/infra_5_trace.gz

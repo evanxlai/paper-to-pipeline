@@ -1,0 +1,14 @@
+# G4's list for the cbp2025 host: the two traces the kit ships, symlinked
+# into P2P_TRACE_DIR by cluster.yaml's worker setup.
+#
+# G4 asks one question: with the feature ON, does the host complete cleanly?
+# It is not a score and it is not a direction check, so the right list is the
+# cheapest pair that still exercises both integer and floating-point code.
+# Each of these is about 1M instructions and finishes in a few seconds, so a
+# broken port fails G4 in under a minute instead of after six.
+#
+# smoke-5.list is the older list and is five real training traces behind one
+# sample trace. Six minutes of simulator per attempt is a slow way to learn
+# that the binary segfaults.
+int/sample_int_trace.gz
+fp/sample_fp_trace.gz

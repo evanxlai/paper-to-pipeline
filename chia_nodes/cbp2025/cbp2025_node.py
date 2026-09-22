@@ -17,6 +17,7 @@ Simulator facts this wraps (verified against the kit's sources):
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import tempfile
@@ -93,21 +94,32 @@ class CBP2025Node:
         cbp_root: str,
         predictor_sources: dict[str, bytes] | None = None,
         timeout_s: int = 1800,
+        env: dict | None = None,
     ) -> CBP2025BuildResult:
         """Overlay predictor_sources ({relpath: content}) onto the checkout,
         `make clean && make`, and return the cbp binary as bytes.
         Passing predictor_sources=None builds the checkout as-is
-        (baseline TAGE-SC-L)."""
+        (baseline TAGE-SC-L).
+
+        `env` is merged over the worker's environment for both make
+        invocations. It exists for a predictor whose knobs are compile-time:
+        the kit's Makefile passes CPPFLAGS through, so a port can write
+        `CPPFLAGS += -DSR_ENABLE=$(SR_ENABLE)` and have one value per build.
+        A predictor whose knobs are read with getenv() at run time wants the
+        same dict on `run` instead, and does not need this."""
         root = Path(cbp_root)
         for rel, content in (predictor_sources or {}).items():
             target = root / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
+        run_env = {**os.environ, **{k: str(v) for k, v in (env or {}).items()}}
         proc = subprocess.run(
-            ["make", "clean"], cwd=root, capture_output=True, text=True, timeout=timeout_s
+            ["make", "clean"], cwd=root, capture_output=True, text=True,
+            timeout=timeout_s, env=run_env,
         )
         proc = subprocess.run(
-            ["make", "-j"], cwd=root, capture_output=True, text=True, timeout=timeout_s
+            ["make", "-j"], cwd=root, capture_output=True, text=True,
+            timeout=timeout_s, env=run_env,
         )
         log = proc.stdout + proc.stderr
         binary = root / "cbp"
@@ -122,11 +134,19 @@ class CBP2025Node:
         trace_path: str,
         extra_args: tuple = (),
         timeout_s: int = 3600,
+        env: dict | None = None,
     ) -> CBP2025RunResult:
         """Run one trace through a cbp binary shipped as bytes.
         Fractional-resource note: each run is single-threaded, so the
         cluster yaml advertises {"cbp2025": <ncores>} per worker and the
-        loop dispatches with resources={"cbp2025": 1.0} per trace."""
+        loop dispatches with resources={"cbp2025": 1.0} per trace.
+
+        `env` is merged over the worker's environment. The kit gives a
+        predictor no command line of its own -- argv belongs to the
+        simulator -- so an environment variable read in
+        beginCondDirPredictor() is the only way to change a predictor's
+        behaviour without rebuilding, which is what a verify gate flipping
+        a feature on and off needs."""
         with tempfile.TemporaryDirectory(prefix="cbp_run_") as td:
             exe = Path(td) / "cbp"
             exe.write_bytes(binary)
@@ -137,6 +157,7 @@ class CBP2025Node:
                     capture_output=True,
                     text=True,
                     timeout=timeout_s,
+                    env={**os.environ, **{k: str(v) for k, v in (env or {}).items()}},
                 )
             except subprocess.TimeoutExpired as e:
                 return CBP2025RunResult(

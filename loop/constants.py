@@ -67,7 +67,30 @@ _WORKER_HOME = Path(os.environ.get("P2P_WORKER_HOME", str(Path.home())))
 CBP2025_ROOT = os.environ.get("P2P_CBP2025_ROOT", str(_WORKER_HOME / "cbp2025"))
 CHAMPSIM_ROOT = os.environ.get("P2P_CHAMPSIM_ROOT", str(_WORKER_HOME / "ChampSim"))
 GEM5_ROOT = os.environ.get("P2P_GEM5_ROOT", str(_WORKER_HOME / "gem5"))
-HOSTS = tuple(os.environ.get("P2P_HOSTS", "champsim,gem5").split(","))
+HOSTS = tuple(os.environ.get("P2P_HOSTS", "cbp2025").split(","))
+
+# Where stage 3 puts the port. NOT CBP2025_ROOT: stage 2 reads that checkout
+# to record `host_revision` and every clean-tree result in the test plan, and
+# --stage baseline builds it to produce the numbers G2 compares against. An
+# integration agent editing it in place would leave both of those describing
+# a tree that no longer exists, and the next baseline run would measure the
+# port instead of the host. The adapter copies CBP2025_ROOT here at the start
+# of stage 3, so every attempt also starts from a clean tree.
+CBP2025_PORT_ROOT = os.environ.get(
+    "P2P_CBP2025_PORT_ROOT", str(_WORKER_HOME / "cbp2025_port")
+)
+
+# Ray resource tokens, matching cluster/cluster.yaml available_node_types.
+#
+# Two, not one, and the split is load-bearing. CBP2025_RESOURCE is held by
+# every node that has the traces on disk, and a trace run asks for it: a run
+# receives the binary as bytes, so it never needs the checkout.
+# CBP2025_HOST_RESOURCE is held by exactly one node -- the one that has the
+# checkout -- and the agent's shell, the build, and any test command ask for
+# that one instead. With a single token Ray could put the shell on one node
+# and the build on another, and the build would compile a tree nobody edited.
+CBP2025_RESOURCE = os.environ.get("P2P_CBP2025_RESOURCE", "cbp2025")
+CBP2025_HOST_RESOURCE = os.environ.get("P2P_CBP2025_HOST_RESOURCE", "cbp2025_host")
 
 # ---------------------------------------------------------------- traces
 # CBP2025: 105 training traces (Google Drive; see scripts/fetch_artifacts.sh).
@@ -79,6 +102,10 @@ TRACE_DIR = os.environ.get("P2P_TRACE_DIR", str(_WORKER_HOME / "traces" / "cbp20
 SCREENING_LIST = REPO_ROOT / "experiments" / "screening-60.list"
 FULL_LIST = REPO_ROOT / "experiments" / "training-105.list"
 SMOKE_LIST = REPO_ROOT / "experiments" / "smoke-5.list"
+# The list the verify gate's performance entries are meant to use: big enough
+# to carry signal, small enough that six integration attempts do not spend an
+# hour in the simulator. See its header for how the traces were chosen.
+PERF_LIST = REPO_ROOT / "experiments" / "perf-8.list"
 # ChampSim uses its own trace format; separate suite (DPC-3 SPEC or self-traced).
 CHAMPSIM_TRACE_DIR = os.environ.get(
     "P2P_CHAMPSIM_TRACE_DIR", str(_WORKER_HOME / "traces" / "champsim")

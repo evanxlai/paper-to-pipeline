@@ -504,6 +504,7 @@ def review(
     old_port: dict,
     old_tests: dict,
     reply: str,
+    checks_root: str | None = None,
 ) -> tuple[dict | None, dict | None, list[str], list]:
     """Judge a proposed revision. Writes nothing.
 
@@ -511,11 +512,20 @@ def review(
     record either way: `errors` from the schema, `findings` from the plan
     checks and from `guard`. Both are returned even when the pair is rejected,
     for `plan_node`'s reason -- failing closed must cost the run its
-    promotion, never its evidence."""
+    promotion, never its evidence.
+
+    `checks_root` is where `plan_checks` looks for the files a hook point
+    names, and it defaults to `work_dir` because on a one-machine host they
+    are the same directory. They are not the same on a cluster host: the
+    checkout lives on a worker and this function runs on the head, where
+    that path does not exist and every hook point would be reported
+    missing. Such a host passes a head-local mirror of the tree at the same
+    revision. The agent still edits `work_dir` and nothing else."""
     new_port, new_tests, errors = plan_node.parse_reply(reply)
     if new_port is None or new_tests is None:
         return new_port, new_tests, errors, []
-    findings = plan_checks.run_checks(spec, new_port, new_tests, host_root=work_dir)
+    findings = plan_checks.run_checks(
+        spec, new_port, new_tests, host_root=(checks_root or work_dir))
     findings += guard(old_port, old_tests, new_port, new_tests)
     return new_port, new_tests, errors, findings
 
