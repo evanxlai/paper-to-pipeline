@@ -135,8 +135,9 @@ iterations instead of 250, and `--screening-list experiments/perf-4.list`
 scores each candidate on 4 traces instead of 60. Report both numbers with any result. A winner screened on four traces is
 a winner on four traces.
 
-Do not run this while stage 3 is running. Both write `sr_params.h` in the
-same tree.
+The search runs in `~/cbp2025_dse`, a copy of the ported tree taken when
+the stage starts. The evolver overwrites `sr_params.h` on every iteration,
+and the port the gate promoted has to stay on disk as the gate saw it.
 
 ### All of it
 

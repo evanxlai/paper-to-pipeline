@@ -87,6 +87,16 @@ CBP2025_PORT_ROOT = os.environ.get(
 # left and the next gate attempt judges it the same way.
 CBP2025_PORT_FRESH = os.environ.get("P2P_CBP2025_PORT_FRESH", "1") == "1"
 
+# Where stage 4 searches. A copy of the ported tree, not the ported tree.
+# The evolver overlays a candidate sr_params.h on every iteration, so
+# searching in place would leave the integration's own header holding
+# whichever candidate happened to be last -- and the port the gate
+# promoted would no longer be the port on disk. A copy also lets a stage-3
+# re-run and a stage-4 search coexist without fighting over one checkout.
+CBP2025_DSE_ROOT = os.environ.get(
+    "P2P_CBP2025_DSE_ROOT", str(_WORKER_HOME / "cbp2025_dse")
+)
+
 # Ray resource tokens, matching cluster/cluster.yaml available_node_types.
 #
 # Two, not one, and the split is load-bearing. CBP2025_RESOURCE is held by

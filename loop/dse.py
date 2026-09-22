@@ -164,13 +164,18 @@ def run_dse(
     output_dir = str(C.OUT_DIR / "dse" / host)
     os.makedirs(output_dir, exist_ok=True)
 
-    # The ported tree, not the pristine checkout. sr_params.h is the only
-    # file the evolver mutates, and it means nothing until stage 3 has
-    # written a predictor that includes it. Screening the pristine kit would
-    # build the baseline 250 times and report that none of the parameters
-    # matter.
+    # A copy of the ported tree. Not the pristine checkout, because
+    # sr_params.h means nothing until stage 3 has written a predictor that
+    # includes it, and screening the pristine kit would build the baseline
+    # once per candidate and report that no parameter matters. Not the
+    # ported tree itself either, because the evolver overwrites that header
+    # on every iteration and the port the gate promoted has to stay on disk
+    # as the gate saw it.
+    from hosts.cbp2025 import adapter as cbp2025_adapter
+
+    search_root = cbp2025_adapter.dse_tree()
     evaluator = SRParamsEvaluator(
-        C.CBP2025_PORT_ROOT, screening, output_dir,
+        search_root, screening, output_dir,
         C.BUILD_TIMEOUT_S, C.RUN_TIMEOUT_S,
         feature_env=_feature_env(host, spec),
     )
@@ -208,6 +213,8 @@ def run_dse(
         "host": host,
         "budget": budget_name,
         "budget_bits": budget_bits,
+        "search_root": search_root,
+        "screening_traces": len(screening),
         "best_program": result.best_program,
         "best_metrics": result.best_metrics,
         "iterations": result.iteration_count,

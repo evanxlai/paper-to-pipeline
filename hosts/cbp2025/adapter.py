@@ -143,7 +143,9 @@ def restore_checkout(root: str) -> dict:
 
 
 @ChiaFunction(resources={C.CBP2025_HOST_RESOURCE: 1.0})
-def materialize_port_tree(src: str, dst: str, fresh: bool = True) -> dict:
+def materialize_port_tree(
+    src: str, dst: str, fresh: bool = True, reset: bool = True
+) -> dict:
     """Lay down the tree stage 3 is allowed to edit, as a copy of the
     pristine checkout, reset to the commit the plan was written against.
 
@@ -175,9 +177,16 @@ def materialize_port_tree(src: str, dst: str, fresh: bool = True) -> dict:
     # that flag exists so a run which died partway can pick up the tree it
     # left.
     removed = ""
-    if created:
+    if created and reset:
         _git(target, "reset", "--hard", "HEAD")
         removed = _git(target, "clean", "-fdx").stdout
+    elif created:
+        # Copying a tree that already holds a port: keep the source, drop
+        # only the build output so the first build is this tree's own.
+        for stale in (*target.glob("*.o"), *target.glob("lib/*.o"),
+                      target / "cbp", target / "lib" / "libcbp.a"):
+            if stale.exists():
+                stale.unlink()
     return {
         "ok": True,
         "path": str(target),
@@ -415,6 +424,26 @@ def restore_host_checkout(root: str = C.CBP2025_ROOT) -> dict:
             f"restorable."
         )
     return get(restore_checkout.chia_remote(root))
+
+
+def dse_tree(fresh: bool = True) -> str:
+    """A copy of the ported tree for stage 4 to search in.
+
+    Copied without a reset, because the port is the thing being tuned.
+    Stage 4 overlays a candidate `sr_params.h` on every iteration, so
+    searching in the ported tree itself would leave the integration's own
+    header holding whichever candidate ran last."""
+    result = get(materialize_port_tree.chia_remote(
+        C.CBP2025_PORT_ROOT, C.CBP2025_DSE_ROOT, fresh, False
+    ))
+    if not result.get("ok"):
+        raise SystemExit(
+            f"could not copy the ported tree for the search: "
+            f"{result.get('error')}. Run --stage integrate first; "
+            f"{C.CBP2025_PORT_ROOT} has to exist on the "
+            f"{C.CBP2025_HOST_RESOURCE} node."
+        )
+    return result["path"]
 
 
 def clean_port_tree(fresh: bool = True) -> dict:
