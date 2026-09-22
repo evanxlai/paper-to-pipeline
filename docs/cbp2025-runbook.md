@@ -128,9 +128,15 @@ chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
 ```
 
 Needs the LLM gateway and `evolve-flows` (see `docs/dse-setup.md`). The
-search mutates `sr_params.h` in the ported tree, so stage 3 has to have run
-first. `P2P_DSE_CONFIG=experiments/config_adaevolve_smoke_vertex.yaml` runs
-3 iterations instead of 250.
+search mutates `sr_params.h` in the ported tree, so stage 3 has to run
+first. Two knobs make a demonstration fit in a session:
+`P2P_DSE_CONFIG=experiments/config_adaevolve_smoke_vertex.yaml` runs 3
+iterations instead of 250, and `--screening-list experiments/perf-4.list`
+scores each candidate on 4 traces instead of 60. Report both numbers with any result. A winner screened on four traces is
+a winner on four traces.
+
+Do not run this while stage 3 is running. Both write `sr_params.h` in the
+same tree.
 
 ### All of it
 
@@ -169,6 +175,31 @@ printing "Test passed" in the checkout while it worked out a compile
 command. The port tree was a copy of that checkout. All seven unit tests
 then passed against a tree nobody had ported into.
 
+## When stage 3 escalates
+
+The agent sometimes refuses a value it is not allowed to change. Stage 3
+then returns `needs_replan`. That is not a failure of the run. It is the one message
+that travels backwards through the loop, and the answer is to run stage 2
+again:
+
+```bash
+cat plan/sr.cbp2025.plan.escalations.json      # what it refused, and why
+chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
+  --stage plan --host cbp2025                  # reads them, answers them
+chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
+  --stage integrate --host cbp2025
+```
+
+Stage 2 inlines every unresolved escalation into the planner prompt and
+marks it answered by the plan it writes. This loop raised two escalations so far. Both
+were correct, and both traced back to a wrong fact in
+`hosts/cbp2025/NOTES.md` rather than to the agent. Read the escalation
+first. Correct the notes where that is the real fault.
+
+Add `P2P_CBP2025_PORT_FRESH=0` to the integrate step to carry the port
+forward instead of starting over. Carry it forward for a re-plan that
+changed the measurement. Start over for one that changed the design.
+
 ## Knobs worth knowing
 
 | variable | default | what it changes |
@@ -180,6 +211,9 @@ then passed against a tree nobody had ported into.
 | `P2P_CBP2025_PORT_FRESH` | 1 | 0 resumes a stage 3 run on the tree it left |
 | `P2P_SPEC_REVIEW` | 1 | 0 skips stage 1.5, which is most of distill's cost |
 | `P2P_DSE_CONFIG` | the 250-iteration config | the smoke config runs 3 |
+
+`--screening-list` and `--baseline-list` are command-line flags rather than
+environment variables, so they go after the script name.
 
 Pass them through `chia job submit --runtime-env-json '{"env_vars": {...}}'`.
 Exporting them in the submitting shell does not reach the job.
