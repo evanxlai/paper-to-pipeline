@@ -1,0 +1,11 @@
+{
+  "schema_errors": [],
+  "findings": [
+    {
+      "pointer": "/plan/open_questions/0/assumption",
+      "code": "budget_language",
+      "severity": "warn",
+      "message": "this field talks about a resource budget ('budget'). Only stage 4 knows about constraints; the integrator never shrinks a host structure to make room, so a budget written here is an instruction no stage is allowed to follow."
+    }
+  ]
+}

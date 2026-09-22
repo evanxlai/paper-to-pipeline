@@ -27,7 +27,7 @@
       "symbol": "SampleCondPredictor",
       "action": "modify",
       "observed": "A skeleton predictor class that delegates to TAGE-SC-L. Includes a setup() method and a pass-through predict().",
-      "change": "Include sr_params.h. Add SR state: logical_register_table, sR_usefulness_weight_tables, sR_prediction_weight_tables. In setup(), read SR_SR_ENABLE from getenv. Add notify_decode() and notify_execute() for register tracking. Add predict_sr() to compute the LSUM contribution. Add update_sr() to update usefulness and weight tables."
+      "change": "Include sr_params.h. Add SR state: logical_register_table, sR_usefulness_weight_tables, sR_prediction_weight_tables, and a sr_checkpoints map for prediction-time state. In setup(), read SR_SR_ENABLE from getenv. Add notify_decode() and notify_execute() for register tracking. Add predict_sr() to compute the LSUM contribution and checkpoint choices. Add update_sr() to update usefulness and weight tables."
     },
     {
       "id": "interface_cc_decode",
@@ -67,7 +67,7 @@
       "symbol": "update (inner overload)",
       "action": "modify",
       "observed": "Conditionally updates SC components via Gupdate under (SCPRED != resolveDir) || (abs(LSUM) < THRES).",
-      "change": "If cond_predictor_impl.sr_enabled, call cond_predictor_impl.update_sr(seq_no, piece, PC, resolveDir) alongside the Gupdate calls in this conditional block."
+      "change": "If cond_predictor_impl.sr_enabled, call cond_predictor_impl.update_sr(seq_no, piece, PC, resolveDir, SCPRED == resolveDir) alongside the Gupdate calls in this conditional block."
     }
   ],
   "spec_map": [
@@ -139,7 +139,7 @@
         "tage_update_signature",
         "tage_update_sr"
       ],
-      "realization": "In update_sr(), randomly select one available register per bank and update its corresponding UT and WT entries with the branch outcome. Called from the SC update block."
+      "realization": "In predict_sr(), randomly select an available register per bank and save it in a prediction-time checkpoint. In update_sr(), use the checkpointed choice and update its UT with prediction correctness and WT with branch outcome. Called from the SC update block."
     }
   ],
   "interface_resolutions": [
@@ -221,7 +221,7 @@
     },
     {
       "title": "Hook prediction and update into SC",
-      "detail": "Implement predict_sr and update_sr in SampleCondPredictor. Thread seq_no and piece through the update overloads in cbp2016_tage_sc_l.h. Add the predict and update calls to the SC logic.",
+      "detail": "Implement predict_sr and update_sr in SampleCondPredictor with a checkpoint map for prediction-time register availability. Thread seq_no and piece through the update overloads in cbp2016_tage_sc_l.h. Add the predict and update calls to the SC logic.",
       "hook_ids": [
         "tage_predict",
         "tage_update_signature",

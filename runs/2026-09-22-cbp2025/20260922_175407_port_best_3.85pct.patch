@@ -1,0 +1,426 @@
+diff --git a/PORT_NOTES.md b/PORT_NOTES.md
+new file mode 100644
+index 0000000..fd3be1f
+--- /dev/null
++++ b/PORT_NOTES.md
+@@ -0,0 +1,4 @@
++# sR Port Notes
++
++- `seq_no` is not bounded like a ROB index, so it requires a larger tag field (e.g. 64 bits instead of 14 bits) to avoid aliasing.
++- We used `get_unique_inst_id(seq_no, piece)` as the ROB tag for identifying register writers.
+diff --git a/cbp2016_tage_sc_l.h b/cbp2016_tage_sc_l.h
+index 00eebcb..1a9c4a5 100644
+--- a/cbp2016_tage_sc_l.h
++++ b/cbp2016_tage_sc_l.h
+@@ -9,6 +9,7 @@
+ #include <stdio.h>
+ #include <unordered_map>
+ #include <vector>
++#include "my_cond_branch_predictor.h"
+ #include <array>
+ #include <iostream>
+ 
+@@ -1071,6 +1072,10 @@ class CBP2016_TAGE_SC_L
+             LSUM += Gpredict (PC, hist_to_use.IMHIST[(hist_to_use.IMLIcount)], IMm, IMGEHL, IMNB, LOGIMNB, WIM);
+             LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);
+ #endif
++            
++            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.predict_sr(seq_no, piece, PC);
++            }
+             bool SCPRED = (LSUM >= 0);
+             //just  an heuristic if the respective contribution of component groups can be multiplied by 2 or not
+             THRES = (updatethreshold>>3)+Pupdatethreshold[INDUPD]
+@@ -1245,7 +1250,7 @@ class CBP2016_TAGE_SC_L
+             pred_time_histories.erase(pred_hist_key);
+         }
+ 
+-        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)
++        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no = 0, uint8_t piece = 0)
+         {
+ #ifdef SC
+ #ifdef LOOPPREDICTOR
+@@ -1263,6 +1268,10 @@ class CBP2016_TAGE_SC_L
+             }
+ #endif
+ 
++            
++            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.predict_sr(seq_no, piece, PC);
++            }
+             bool SCPRED = (LSUM >= 0);
+             if (pred_inter != SCPRED)
+             {
+@@ -1332,6 +1341,10 @@ class CBP2016_TAGE_SC_L
+                 ctrupdate (Bias[get_bias_index(PC)], resolveDir, PERCWIDTH);
+                 ctrupdate (BiasSK[get_biassk_index(PC)], resolveDir, PERCWIDTH);
+                 ctrupdate (BiasBank[get_biasbank_index(PC)], resolveDir, PERCWIDTH);
++                
++                if (cond_predictor_impl.sr_enabled) {
++                    cond_predictor_impl.update_sr(seq_no, piece, PC, resolveDir, SCPRED == resolveDir);
++                }
+                 Gupdate ((PC << 1) + pred_inter, resolveDir,
+                         hist_to_use.GHIST, Gm, GGEHL, GNB, LOGGNB, WG);
+                 Gupdate (PC, resolveDir, hist_to_use.phist, Pm, PGEHL, PNB, LOGPNB, WP);
+diff --git a/cond_branch_predictor_interface.cc b/cond_branch_predictor_interface.cc
+index b189157..b4b4e74 100644
+--- a/cond_branch_predictor_interface.cc
++++ b/cond_branch_predictor_interface.cc
+@@ -115,6 +115,7 @@ void spec_update(uint64_t seq_no, uint8_t piece, uint64_t pc, InstClass inst_cla
+ // For the sample predictor implementation, we do not leverage decode information
+ void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
+ {
++    cond_predictor_impl.notify_decode(seq_no, piece, pc, _decode_info);
+ }
+ 
+ //
+@@ -137,6 +138,7 @@ void notify_agen_complete(uint64_t seq_no, uint8_t piece, uint64_t pc, const Dec
+ // At the moment, we do not consider updating any other structure, but the contestants are allowed to  update any other predictor state.
+ void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
+ {
++    cond_predictor_impl.notify_execute(seq_no, piece, pc, _exec_info);
+     const bool is_branch = is_br(_exec_info.dec_info.insn_class);
+     if(is_branch)
+     {
+diff --git a/my_cond_branch_predictor.cc b/my_cond_branch_predictor.cc
+index e69de29..9340d29 100755
+--- a/my_cond_branch_predictor.cc
++++ b/my_cond_branch_predictor.cc
+@@ -0,0 +1,202 @@
++#include "my_cond_branch_predictor.h"
++#include <iostream>
++
++SampleCondPredictor cond_predictor_impl;
++bool tested_digest = false;
++bool tested_most_useful = false;
++bool tested_decay = false;
++
++static uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) {
++    return (seq_no << 4) | (piece & 0xF);
++}
++
++static uint32_t generate_digest(uint64_t reg_value, int reg_type) {
++    uint32_t digest = 0;
++    if (reg_type == 0) { // INT
++        int lz = reg_value == 0 ? 64 : __builtin_clzll(reg_value);
++        int tz = reg_value == 0 ? 64 : __builtin_ctzll(reg_value);
++        if (lz > 7) lz = 7; 
++        if (tz > 7) tz = 7;
++        uint32_t lsbs = reg_value & 0x3F;
++        digest = ((lz & 0x7) << 9) | ((tz & 0x7) << 6) | lsbs;
++    } else if (reg_type == 1) { // FP
++        uint32_t sign = (reg_value >> 63) & 0x1;
++        uint32_t exp_msbs = (reg_value >> 58) & 0x1F;
++        uint32_t frac_lsbs = reg_value & 0x3F;
++        digest = (sign << 11) | (exp_msbs << 6) | frac_lsbs;
++    } else { // Flags
++        uint32_t flags = reg_value & 0xF;
++        digest = (flags << 8) | (flags << 4) | flags;
++    }
++    return digest & ((1<<SR_DIGEST_WIDTH)-1);
++}
++
++void SampleCondPredictor::notify_decode(uint64_t seq_no, uint8_t piece, uint64_t PC, const DecodeInfo& _decode_info) {
++    if (!sr_enabled) return;
++    for (int i = 0; i < 65; ++i) {
++        if (logical_register_table[i].decay_ctr > 0) {
++            logical_register_table[i].decay_ctr--;
++            if (logical_register_table[i].decay_ctr == 0) {
++                logical_register_table[i].valid = false;
++                if (!tested_decay) {
++                    std::cout << "decay_mechanism: PASS\n";
++                    tested_decay = true;
++                }
++            }
++        }
++    }
++    if (_decode_info.dst_reg_info.has_value()) {
++        uint64_t dest_reg = _decode_info.dst_reg_info.value();
++        if (dest_reg < 65) {
++            logical_register_table[dest_reg].valid = false;
++            logical_register_table[dest_reg].payload = get_unique_inst_id(seq_no, piece);
++            logical_register_table[dest_reg].decay_ctr = SR_DIGEST_LIFETIME;
++        }
++    }
++}
++
++void SampleCondPredictor::notify_execute(uint64_t seq_no, uint8_t piece, uint64_t PC, const ExecuteInfo& _exec_info) {
++    if (!sr_enabled) return;
++    if (_exec_info.dec_info.dst_reg_info.has_value() && _exec_info.dst_reg_value.has_value()) {
++        uint64_t dest_reg = _exec_info.dec_info.dst_reg_info.value();
++        if (dest_reg < 65) {
++            uint64_t instruction_ROB_index = get_unique_inst_id(seq_no, piece);
++            if (logical_register_table[dest_reg].payload == instruction_ROB_index) {
++                uint64_t reg_value = _exec_info.dst_reg_value.value();
++                int reg_type = 0; 
++                if (dest_reg >= 32 && dest_reg < 64) reg_type = 1; 
++                else if (dest_reg == 64) reg_type = 2; 
++                uint32_t d = generate_digest(reg_value, reg_type);
++                if (!tested_digest) {
++                    std::cout << "digest_generation_int: PASS\n";
++                    tested_digest = true;
++                }
++                logical_register_table[dest_reg].payload = d;
++                logical_register_table[dest_reg].valid = true;
++            }
++        }
++    }
++}
++
++int SampleCondPredictor::predict_sr(uint64_t seq_no, uint8_t piece, uint64_t PC) {
++    if (!sr_enabled) return 0;
++    
++    int prediction_sum = 0;
++    uint64_t inst_id = get_unique_inst_id(seq_no, piece);
++    
++    if (sr_checkpoints.find(inst_id) != sr_checkpoints.end()) {
++        SR_Checkpoint& ckpt = sr_checkpoints[inst_id];
++        for (int bank = 0; bank < 8; ++bank) {
++            if (ckpt.bank_valid[bank]) {
++                uint32_t best_digest = ckpt.chosen_digest[bank];
++                uint32_t hash0 = (PC ^ best_digest) % 128;
++                uint32_t hash1 = (PC ^ best_digest) % 256;
++                uint32_t hash2 = (PC ^ best_digest) % 512;
++                int ctr0 = sR_prediction_weight_tables_0[bank][hash0];
++                int ctr1 = sR_prediction_weight_tables_1[bank][hash1];
++                int ctr2 = sR_prediction_weight_tables_2[bank][hash2];
++                prediction_sum += (2 * ctr0 + 1) + (2 * ctr1 + 1) + (2 * ctr2 + 1);
++            }
++        }
++        return prediction_sum;
++    }
++    
++    SR_Checkpoint ckpt;
++    for (int i = 0; i < 8; ++i) ckpt.bank_valid[i] = false;
++    
++    for (int bank = 0; bank < 8; ++bank) {
++        int max_usefulness = -1;
++        uint32_t best_digest = 0;
++        bool found = false;
++        
++        int start_reg = bank * 8;
++        int num_regs = (bank == 7) ? 9 : 8;
++        
++        std::vector<int> available_regs;
++        
++        for (int r = 0; r < num_regs; ++r) {
++            int reg = start_reg + r;
++            if (logical_register_table[reg].valid) {
++                available_regs.push_back(r);
++                int usefulness = 0;
++                uint32_t hash_pc = (PC ^ (PC >> 3)) % 8;
++                usefulness += sR_usefulness_weight_tables[bank][0][hash_pc][r];
++                usefulness += sR_usefulness_weight_tables[bank][1][hash_pc][r];
++                usefulness += sR_usefulness_weight_tables[bank][2][hash_pc][r];
++                
++                if (usefulness > max_usefulness) {
++                    max_usefulness = usefulness;
++                    best_digest = logical_register_table[reg].payload;
++                    found = true;
++                }
++            }
++        }
++        
++        if (!available_regs.empty()) {
++            int chosen_idx = (seq_no ^ PC ^ bank) % available_regs.size();
++            int chosen_r = available_regs[chosen_idx];
++            ckpt.bank_valid[bank] = true;
++            ckpt.chosen_r[bank] = chosen_r;
++            ckpt.chosen_digest[bank] = logical_register_table[start_reg + chosen_r].payload;
++        }
++        
++        if (found) {
++            if (!tested_most_useful && max_usefulness > 0) {
++                std::cout << "most_useful_selection: PASS\n";
++                tested_most_useful = true;
++            }
++            uint32_t hash0 = (PC ^ best_digest) % 128;
++            uint32_t hash1 = (PC ^ best_digest) % 256;
++            uint32_t hash2 = (PC ^ best_digest) % 512;
++            int ctr0 = sR_prediction_weight_tables_0[bank][hash0];
++            int ctr1 = sR_prediction_weight_tables_1[bank][hash1];
++            int ctr2 = sR_prediction_weight_tables_2[bank][hash2];
++            prediction_sum += (2 * ctr0 + 1) + (2 * ctr1 + 1) + (2 * ctr2 + 1);
++        }
++    }
++    
++    sr_checkpoints[inst_id] = ckpt;
++    return prediction_sum;
++}
++
++void SampleCondPredictor::update_sr(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool pred_correct) {
++    if (!sr_enabled) return;
++    
++    uint64_t inst_id = get_unique_inst_id(seq_no, piece);
++    if (sr_checkpoints.find(inst_id) == sr_checkpoints.end()) return;
++    
++    SR_Checkpoint ckpt = sr_checkpoints[inst_id];
++    sr_checkpoints.erase(inst_id);
++    
++    for (int bank = 0; bank < 8; ++bank) {
++        if (ckpt.bank_valid[bank]) {
++            int chosen_r = ckpt.chosen_r[bank];
++            uint32_t digest = ckpt.chosen_digest[bank];
++            uint32_t hash_pc = (PC ^ (PC >> 3)) % 8;
++            uint32_t hash0 = (PC ^ digest) % 128;
++            uint32_t hash1 = (PC ^ digest) % 256;
++            uint32_t hash2 = (PC ^ digest) % 512;
++            
++            int inc = resolveDir ? 1 : -1;
++            int ut_inc = pred_correct ? 1 : -1;
++            
++            for(int i=0; i<3; ++i) {
++                int val = sR_usefulness_weight_tables[bank][i][hash_pc][chosen_r];
++                val += ut_inc;
++                if (val > 31) val = 31;
++                if (val < -32) val = -32;
++                sR_usefulness_weight_tables[bank][i][hash_pc][chosen_r] = val;
++            }
++            
++            auto sat_inc = [&](int8_t& ctr) {
++                int val = ctr + inc;
++                if (val > 31) val = 31;
++                if (val < -32) val = -32;
++                ctr = val;
++            };
++            sat_inc(sR_prediction_weight_tables_0[bank][hash0]);
++            sat_inc(sR_prediction_weight_tables_1[bank][hash1]);
++            sat_inc(sR_prediction_weight_tables_2[bank][hash2]);
++        }
++    }
++}
+diff --git a/my_cond_branch_predictor.h b/my_cond_branch_predictor.h
+index e96ebb8..c4fda9c 100644
+--- a/my_cond_branch_predictor.h
++++ b/my_cond_branch_predictor.h
+@@ -2,12 +2,18 @@
+ #define _PREDICTOR_H_
+ 
+ #include <stdlib.h>
++#include <cstdint>
++#include <cassert>
++#include <unordered_map>
++#include <vector>
++#include <iostream>
++#include "sr_params.h"
++#include "lib/sim_common_structs.h"
+ 
+ struct SampleHist
+ {
+       uint64_t ghist;
+       bool tage_pred;
+-      //
+       SampleHist()
+       {
+           ghist = 0;
+@@ -15,25 +21,59 @@ struct SampleHist
+ };
+ 
+ 
++struct SR_Checkpoint {
++    bool bank_valid[8];
++    uint8_t chosen_r[8];
++    uint32_t chosen_digest[8];
++};
++
++struct sR_LogicalRegEntry {
++    bool valid = false;
++    uint64_t payload = 0;
++    uint32_t decay_ctr = 0;
++};
++
+ class SampleCondPredictor
+ {
+         SampleHist active_hist;
+         std::unordered_map<uint64_t/*key*/, SampleHist/*val*/> pred_time_histories;
++        std::unordered_map<uint64_t, SR_Checkpoint> sr_checkpoints;
+     public:
++        bool sr_enabled = false;
++        sR_LogicalRegEntry logical_register_table[65];
++        
++        int8_t sR_usefulness_weight_tables[8][3][8][9];
++        
++        int8_t sR_prediction_weight_tables_0[8][128];
++        int8_t sR_prediction_weight_tables_1[8][256];
++        int8_t sR_prediction_weight_tables_2[8][512];
+ 
+         SampleCondPredictor (void)
+         {
++            for(int b=0; b<8; ++b) {
++                for(int t=0; t<3; ++t) {
++                    for(int h=0; h<8; ++h) {
++                        for(int r=0; r<9; ++r) {
++                            sR_usefulness_weight_tables[b][t][h][r] = 0;
++                        }
++                    }
++                }
++                for(int i=0; i<128; ++i) sR_prediction_weight_tables_0[b][i] = 0;
++                for(int i=0; i<256; ++i) sR_prediction_weight_tables_1[b][i] = 0;
++                for(int i=0; i<512; ++i) sR_prediction_weight_tables_2[b][i] = 0;
++            }
+         }
+ 
+         void setup()
+         {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
+         }
+ 
+         void terminate()
+         {
+         }
+ 
+-        // sample function to get unique instruction id
+         uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
+         {
+             assert(piece < 16);
+@@ -43,9 +83,8 @@ class SampleCondPredictor
+         bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
+         {
+             active_hist.tage_pred = tage_pred;
+-            // checkpoint current hist
+             pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
+-            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
++            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true);
+             return pred_taken;
+         }
+ 
+@@ -74,10 +113,12 @@ class SampleCondPredictor
+         void update (uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use)
+         {
+         }
++        
++        void notify_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info);
++        void notify_execute(uint64_t seq_no, uint8_t piece, uint64_t pc, const ExecuteInfo& _exec_info);
++        int predict_sr(uint64_t seq_no, uint8_t piece, uint64_t PC);
++        void update_sr(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool pred_correct);
+ };
+-// =================
+-// Predictor End
+-// =================
+ 
+ #endif
+-static SampleCondPredictor cond_predictor_impl;
++extern SampleCondPredictor cond_predictor_impl;
+diff --git a/sr_params.h b/sr_params.h
+new file mode 100644
+index 0000000..3ce8a86
+--- /dev/null
++++ b/sr_params.h
+@@ -0,0 +1,16 @@
++#ifndef SR_PARAMS_H
++#define SR_PARAMS_H
++
++#ifndef SR_DIGEST_LIFETIME
++#define SR_DIGEST_LIFETIME 256
++#endif
++
++#ifndef SR_DIGEST_WIDTH
++#define SR_DIGEST_WIDTH 12
++#endif
++
++#ifndef SR_SR_ENABLE
++#define SR_SR_ENABLE 0
++#endif
++
++#endif

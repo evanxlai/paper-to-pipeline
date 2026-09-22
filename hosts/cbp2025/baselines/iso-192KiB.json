@@ -5,6 +5,7 @@
   "cycwppki_50perc_amean": 47.9709,
   "ipc_50perc_amean": 4.06245,
   "trace_list": "experiments/smoke-2.list",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
   "per_trace": {
     "int/sample_int_trace.gz": {
       "brmispki_50perc_amean": 0.2647,
