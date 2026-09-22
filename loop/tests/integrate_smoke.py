@@ -23,9 +23,15 @@ the loop.
 
 Run it:
 
-    python loop/tests/integrate_smoke.py                 # ~2-4 minutes, calls the LLM
+    python loop/tests/integrate_smoke.py                 # ~5-10 minutes, calls the LLM
     python loop/tests/integrate_smoke.py --no-force-first-fail
-    python loop/tests/integrate_smoke.py --attempts 5 --model claude-opus-5
+    python loop/tests/integrate_smoke.py --attempts 5 --model gemini-3.1-pro-high
+
+The backend is whatever `P2P_LLM_BACKEND` says, which defaults to antigravity
+like the rest of the loop -- deliberately, because that is the backend whose
+spend lands on the project's GCP budget. `--backend claude` works and needs no
+credential setup, but it bills the machine's signed-in Anthropic account
+instead, so it is not the default even though it is the easiest to reach.
 
 It is deliberately not named test_*.py: pytest must not collect it, because it
 spends real tokens and needs a working LLM backend.
@@ -52,8 +58,11 @@ for _path in (str(TESTS_DIR), str(LOOP_DIR), str(REPO_ROOT)):
 # The loop reads its knobs at import time, so the fixture's values have to be
 # in the environment before `constants` is imported. setdefault, not
 # assignment: an explicit P2P_* from the caller still wins.
+#
+# P2P_LLM_BACKEND is deliberately absent: the smoke test uses whatever backend
+# the loop itself is configured for, so what it exercises is the path that will
+# actually run, on the budget that will actually pay for it.
 os.environ.setdefault("P2P_FEATURE_NAME", "tinysc")
-os.environ.setdefault("P2P_LLM_BACKEND", "claude")
 os.environ.setdefault("P2P_INTEGRATION_ATTEMPTS", "3")
 
 HOST = "toy"
@@ -83,7 +92,9 @@ def apply_overrides(args: argparse.Namespace) -> None:
     if args.backend:
         os.environ["P2P_LLM_BACKEND"] = args.backend
     if args.model:
-        backend = os.environ.get("P2P_LLM_BACKEND", "claude")
+        # Mirrors constants.LLM_BACKEND's own default. It cannot be read from
+        # there: constants must not be imported until the env is settled.
+        backend = os.environ.get("P2P_LLM_BACKEND", "antigravity")
         os.environ[{
             "claude": "P2P_CLAUDE_MODEL",
             "antigravity": "P2P_ANTIGRAVITY_MODEL",
@@ -162,10 +173,17 @@ def main() -> int:
     # The agent must not see the pristine build: it has to compile its own.
     shutil.rmtree(work_dir / "build", ignore_errors=True)
 
-    # A local single-node Ray with the resource tokens cluster.yaml would
-    # otherwise provide: `llm` for the model call, `toy` for the bash tool.
-    ray.init(resources={"llm": 1, HOST: 1}, ignore_reinit_error=True,
-             log_to_driver=False)
+    # A local single-node Ray carrying the resource tokens cluster.yaml would
+    # otherwise provide. Every backend's credential token is advertised rather
+    # than just the selected one's: `llm.llm_resources` picks the token from the
+    # LLM object, which does not exist yet here, and a token nothing requests
+    # costs nothing. Getting this wrong does not raise -- the prompt task would
+    # sit in Ray's pending queue forever waiting for a resource no node offers.
+    ray.init(
+        resources={"llm": 1, "antigravity_creds": 1, "opencode_creds": 1, HOST: 1},
+        ignore_reinit_error=True,
+        log_to_driver=False,
+    )
 
     adapter = HostAdapter(
         name=HOST,
