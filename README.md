@@ -172,7 +172,7 @@ docs/                    stage contracts, proposal, plan, GCP guide, gateway, re
 7. `chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" --stage all`
 8. `chia down cluster/cluster.yaml` after each session. Idle workers cost credit.
 
-Run the stages one at a time the first time, and run the three harness
+Run the stages one at a time the first time, and run the three cheap
 checks before the long ones. Both are in
 [docs/cbp2025-runbook.md](docs/cbp2025-runbook.md), with measured timings.
 
