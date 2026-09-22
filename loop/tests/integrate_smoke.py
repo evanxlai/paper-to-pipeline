@@ -43,6 +43,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -113,32 +114,45 @@ def tree_diff(work_dir: Path, fixture: Path) -> str:
     return proc.stdout or "(no changes)"
 
 
-# FastMCP registers a BashTool's command under "<tool>_run_command" and the
-# server itself under "<tool>", so the id the CLI logs is doubly prefixed:
-# mcp__toy_bash__toy_bash_run_command.
-MCP_PREFIX = f"mcp__{HOST}_bash__"
+# Every backend logs tool calls in its own vocabulary, and two shapes have
+# shown up so far:
+#   claude: one entry per MCP tool, "mcp__<server>__<server>_run_command"
+#           (doubly prefixed -- FastMCP registers the command as
+#           "<tool>_run_command" and the server itself as "<tool>")
+#   agy:    a single generic "call_mcp_tool", with the server in its Args as
+#           {"ServerName": "toy_bash", "ToolName": "toy_bash_run_command"}
+# Rather than enumerate each backend's *native* tools -- a list that drifts
+# every time a CLI adds one -- only the MCP shapes are named, and everything
+# else is counted as "not through the MCP server".
+MCP_SERVER = f"{HOST}_bash"
+_TOOL_CALL = re.compile(
+    r"\[Tool Call: ([A-Za-z0-9_]+)\]\n(?:Args: (.*))?"
+)
 
-# The backends' own file and shell tools. On the cluster these reach the LLM's
-# container, not the simulator's; here the two are the same machine.
-NATIVE_TOOLS = ("Bash", "Edit", "Write", "NotebookEdit")
 
-
-def tool_census(dump) -> dict:
-    """Count every tool call in the run's transcripts, by tool name.
+def tool_census(dump) -> tuple[dict, int, int]:
+    """Count tool calls by name; return (census, mcp_calls, total_calls).
 
     Stage 3's premise is that the agent reaches the host only through tools the
     loop handed it: on the cluster the host checkout lives in a different
-    container from the LLM, so an edit made with the backend's own Edit tool
+    container from the LLM, so an edit made with the backend's own file tool
     lands nowhere. The fixture run has both on one machine, so those edits do
-    land and the gate passes anyway -- which is exactly why the census is
-    printed rather than inferred from the verdict."""
-    import re
-
-    counts: dict[str, int] = {}
+    land and the gate passes anyway -- which is exactly why this is counted
+    rather than inferred from the verdict."""
+    census: dict[str, int] = {}
+    mcp = total = 0
     for path in sorted(dump.dir.glob(f"{dump.prefix}integrate_{HOST}_*.md")):
-        for name in re.findall(r"\[Tool Call: ([A-Za-z0-9_]+)\]", path.read_text()):
-            counts[name] = counts.get(name, 0) + 1
-    return counts
+        for name, args in _TOOL_CALL.findall(path.read_text()):
+            # agy routes every MCP tool through one generic call; the server it
+            # reached is only visible in the arguments.
+            through_mcp = name.startswith(f"mcp__{MCP_SERVER}") or (
+                name == "call_mcp_tool" and f'"ServerName": "{MCP_SERVER}"' in args
+            )
+            label = f"{name} -> {MCP_SERVER}" if through_mcp and args else name
+            census[label] = census.get(label, 0) + 1
+            total += 1
+            mcp += through_mcp
+    return census, mcp, total
 
 
 def main() -> int:
@@ -203,9 +217,8 @@ def main() -> int:
 
     diff = tree_diff(work_dir, Path(__file__).resolve().parent / "fixtures" / "toyhost")
     dump.text(f"integrate_{HOST}_diff.patch", diff)
-    census = tool_census(dump)
-    mcp_calls = sum(n for tool, n in census.items() if tool.startswith(MCP_PREFIX))
-    native_calls = sum(census.get(tool, 0) for tool in NATIVE_TOOLS)
+    census, mcp_calls, total_calls = tool_census(dump)
+    native_calls = total_calls - mcp_calls
 
     summary = {
         "status": result["status"],
@@ -249,12 +262,14 @@ def main() -> int:
         # Not a failure of this run: on one machine those edits are correct,
         # and the gate confirms it. It is a warning about the cluster, where
         # the same call would edit the wrong container's filesystem.
-        print(f"\n[smoke] warning: {native_calls} edits went through the backend's "
-              f"own tools rather than {MCP_PREFIX}*.\n"
-              f"  On the cluster the host checkout is in another container, so "
-              f"those would be lost.\n"
+        print(f"\n[smoke] warning: {native_calls} of {total_calls} tool calls did "
+              f"not go through the {MCP_SERVER} MCP server.\n"
+              f"  Here that is harmless: the host checkout is on this machine. "
+              f"On the cluster it is\n"
+              f"  in another container, so any of those that wrote files would "
+              f"have written nothing.\n"
               f"  llm.make_llm denies the built-in tools for the opencode "
-              f"backend but not for claude.")
+              f"backend but not for the others.")
     print(f"\n[smoke] artifacts: {dump.dir}")
     print(f"[smoke] host copy: {work_dir}")
 
