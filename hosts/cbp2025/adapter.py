@@ -455,13 +455,32 @@ def run_gate(baseline: dict, port_plan: dict, test_plan: dict) -> gate.GateResul
     return gate.check_gate(results)
 
 
+# Build output and the agent's own scratch files, which `git add -AN .`
+# would otherwise pull into the recorded patch. The first real run produced
+# a 21-file diff that was mostly object files.
+_DIFF_EXCLUDES = " ".join(
+    f"':(exclude){pattern}'"
+    for pattern in ("*.o", "*.a", "cbp", "test_sr", "*.patch", "*_out.txt")
+)
+
+
 def port_diff() -> str:
-    """What the agent changed, as a patch. `git diff` in the port tree:
-    materialize_port_tree copies `.git` precisely so this works."""
+    """What the agent changed, as a patch.
+
+    `git diff` in the port tree: materialize_port_tree copies `.git`
+    precisely so this works. `add -AN` is what makes a file the agent
+    created show up at all, and the index is reset afterwards so the tree is
+    left exactly as it was found -- a run that resumes with
+    P2P_CBP2025_PORT_FRESH=0 must not inherit a staged index it did not
+    make."""
+    command = (
+        f"git add -AN -- . {_DIFF_EXCLUDES} >/dev/null 2>&1; "
+        f"echo '--- diffstat ---'; git diff --stat -- . {_DIFF_EXCLUDES}; "
+        f"echo '--- patch ---'; git diff -- . {_DIFF_EXCLUDES}; "
+        f"git reset -q >/dev/null 2>&1 || true"
+    )
     out = get(
         host_shell.options(resources={C.CBP2025_HOST_RESOURCE: 0.1})
-        .chia_remote(C.CBP2025_PORT_ROOT,
-                     "git add -AN . >/dev/null 2>&1; git diff --stat; git diff",
-                     {}, 120)
+        .chia_remote(C.CBP2025_PORT_ROOT, command, {}, 180)
     )
     return out["output"]
