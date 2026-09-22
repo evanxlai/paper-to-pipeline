@@ -153,6 +153,13 @@ LLM_BACKEND = os.environ.get("P2P_LLM_BACKEND", "antigravity")  # claude|antigra
 # `agy models` lists what the account can see. Seeing a model listed is not
 # the same as the project being entitled to it, so smoke-test after any
 # change here rather than forty minutes into a planning run.
+#
+# Pro also has the least quota headroom. A stage-3 run stopped an hour in
+# on RESOURCE_EXHAUSTED (429) from Vertex after seven retries. That is the
+# model's quota and not a fault in the loop: stage 3 records it as
+# `backend_error` and leaves the port tree alone, so
+# P2P_CBP2025_PORT_FRESH=0 resumes it. gemini-3.8-flash-high is the
+# fallback with far more headroom.
 ANTIGRAVITY_MODEL = os.environ.get("P2P_ANTIGRAVITY_MODEL", "gemini-3.1-pro-high")
 OPENCODE_MODEL = os.environ.get("P2P_OPENCODE_MODEL", "google-vertex/gemini-3.1-pro-preview")
 CLAUDE_MODEL = os.environ.get("P2P_CLAUDE_MODEL", "claude-opus-4-6")

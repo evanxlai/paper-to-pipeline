@@ -583,6 +583,7 @@ def integrate(
     attempts_used = 0
     started_at = revision
     escalated: Optional[dict] = None
+    backend_error: Optional[str] = None
     try:
         resp = run_llm(llm, prompt, [bash])
         dump.llm(f"integrate_{host}_0", resp)
@@ -637,6 +638,24 @@ def integrate(
                 plan_revision.record_escalation(
                     host, spec.get("feature_name"), record)
                 break
+    except Exception as e:  # noqa: BLE001
+        # The backend, not the port. A Vertex 429 took down a run an hour
+        # into it, and the traceback said nothing about the 400 lines of
+        # C++ sitting on the worker or about how to pick them up. What the
+        # agent wrote is still there, so record why the run stopped and say
+        # what to do about it, rather than losing the run to an exception
+        # that is not about the work.
+        status = "backend_error"
+        backend_error = f"{type(e).__name__}: {e}"
+        dump.json(f"integrate_{host}_backend_error.json", {
+            "error": backend_error,
+            "attempts": attempts_used,
+            "work_dir": adapter.work_dir,
+            "resume": "re-run --stage integrate with P2P_CBP2025_PORT_FRESH=0 "
+                      "to continue from the tree this run left, instead of "
+                      "starting the port over",
+        })
+        print(f"[integrate] {host}: the backend failed mid-run: {backend_error}")
     finally:
         bash.stop()
     return {
@@ -646,6 +665,7 @@ def integrate(
         # number reads the same whether or not an earlier run left some behind.
         "plan_revisions": revision - started_at,
         **({"escalation": escalated} if escalated else {}),
+        **({"backend_error": backend_error} if backend_error else {}),
     }
 
 

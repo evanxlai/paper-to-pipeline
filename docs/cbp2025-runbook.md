@@ -120,6 +120,14 @@ Artifacts: `out/*_gate_cbp2025_<n>.json` per attempt,
 To resume a run that died partway, set `P2P_CBP2025_PORT_FRESH=0` so the
 agent picks up the tree it left.
 
+That happens. One run stopped an hour in on
+`RESOURCE_EXHAUSTED (code 429)` from Vertex, after seven retries, with the
+port most of the way written. The 429 is a quota on the model, not a fault
+in the loop, and `gemini-3.1-pro-high` is the tier most likely to hit it.
+Stage 3 records the failure as `backend_error` with the resume instruction
+and leaves the tree alone. Resume it, or drop to
+`P2P_ANTIGRAVITY_MODEL=gemini-3.8-flash-high`, which has far more headroom.
+
 ### 5. Tune, hours to days
 
 ```bash
