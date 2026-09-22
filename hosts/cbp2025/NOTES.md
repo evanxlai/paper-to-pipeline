@@ -77,6 +77,16 @@ Three things follow, and each one answers a question the spec leaves open.
   only under its own conditions, and each component's `Gupdate` call sits
   there. sR's weight update belongs in that same block, under the same
   conditions, so it learns on the branches the SC learns on.
+- **That update function does not know which instruction it is.** There are
+  two overloads named `update`. The outer one takes `seq_no` and `piece`,
+  looks up the checkpointed history, and calls the inner one with the
+  history alone. The inner one is where the SC update block lives, and it
+  never sees the instruction id. The kit's own `pred_time_histories` keys
+  prediction-time state by `get_unique_inst_id(seq_no, piece)`. A port that
+  does the same has to thread both arguments through the outer call too. Adding a defaulted parameter to the inner overload and
+  forgetting the call site compiles, runs, and trains nothing: every lookup
+  misses, the weights stay at their initial values, and G5 reports the
+  metric moving by exactly 0.0000.
 - **`THRES` adapts.** `updatethreshold` moves as the SC is right or wrong, so
   an sR term that adds noise is throttled rather than trusted.
 
