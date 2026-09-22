@@ -15,9 +15,36 @@ mkdir -p "$TP/runlts"
 PDF="$TP/runlts/runlts.pdf"
 test -f "$PDF" || curl -fL -o "$PDF" \
   "https://ericrotenberg.wordpress.ncsu.edu/files/2025/06/cbp2025-final44-Koizumi.pdf"
-test -f "$TP/runlts/runlts.txt" || \
-  (command -v pdftotext >/dev/null && pdftotext -layout "$PDF" "$TP/runlts/runlts.txt") || \
-  echo "WARN: install poppler (pdftotext) to extract $PDF"
+if [ ! -f "$TP/runlts/runlts.txt" ]; then
+  if command -v pdftotext >/dev/null; then
+    pdftotext -layout "$PDF" "$TP/runlts/runlts.txt"
+  else
+    # poppler is not installed on the head. pypdf gets the text out, but it
+    # emits NUL and other C0 control bytes for some glyphs, and the
+    # Antigravity CLI rejects the whole prompt with "embedded null byte".
+    # That failure arrives three retries into --stage distill and says
+    # nothing about the paper, so strip them at extraction time.
+    python3 - "$PDF" "$TP/runlts/runlts.txt" <<'PY'
+import sys
+from pypdf import PdfReader
+
+pdf, out = sys.argv[1], sys.argv[2]
+text = "\n".join((page.extract_text() or "") for page in PdfReader(pdf).pages)
+with open(out, "w") as f:
+    f.write("".join(c for c in text if c >= " " or c in "\t\n\r"))
+PY
+  fi
+fi
+# Whatever produced it, the distiller reads this file verbatim into a prompt.
+python3 -c "
+import sys
+p = sys.argv[1]
+raw = open(p, 'rb').read()
+clean = bytes(b for b in raw if b >= 32 or b in (9, 10, 13))
+if clean != raw:
+    open(p, 'wb').write(clean)
+    print(f'stripped {len(raw) - len(clean)} control bytes from {p}')
+" "$TP/runlts/runlts.txt"
 
 # 3. RUNLTS reference artifact (Google Drive zip; paper_plus_reference arm).
 #    pip install gdown

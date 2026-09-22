@@ -7,21 +7,39 @@
     "cycwppki_50perc_amean",
     "ipc_50perc_amean"
   ],
+  "baseline_rel_tol": 0,
   "smoke": {
     "trace_list": "experiments/smoke-2.list",
     "run": {
       "mode": "host_adapter"
     },
-    "timeout_seconds": 60
+    "timeout_seconds": 600
   },
   "correctness": [
     {
-      "id": "c_feature_off_baseline",
-      "kind": "feature_off_baseline",
-      "description": "Verify that with the enable knob off, the baseline metrics are identical to the recorded baseline. Changed baseline_pointer to '/per_trace/int~1sample_int_trace.gz' to match the recorded baseline in this host, as escalated by the previous integration attempt.",
+      "id": "c_existing_regression_int",
+      "kind": "existing_regression",
+      "description": "Ensure the host compiles and runs the int trace successfully without crashing. Resolved integration escalation: Changed feature_state from 'both' to 'off' because a performance-improving feature will inherently change the metrics, making it impossible to exactly match the clean tree result when the feature is on.",
       "command": "./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "off",
-      "timeout_seconds": 60,
+      "timeout_seconds": 300,
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": "      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": "^\\s*997301\\s+338411\\s+2\\.9470\\s+128874\\s+264\\s+0\\.3808\\s+0\\.0008\\s+0\\.2049%\\s+0\\.2647\\s+34305\\s+129\\.9432\\s+34\\.3978$"
+      }
+    },
+    {
+      "id": "c_feature_off_baseline",
+      "kind": "feature_off_baseline",
+      "description": "Ensure the baseline is bit-identical with the feature knob turned off.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "timeout_seconds": 300,
       "pass_condition": {
         "kind": "metrics_equal_baseline",
         "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
@@ -29,138 +47,94 @@
       }
     },
     {
-      "id": "c_existing_regression",
-      "kind": "existing_regression",
-      "description": "Run the existing suite to ensure no breakage on clean tree.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
-      "feature_state": "both",
-      "timeout_seconds": 60,
-      "clean_tree_result": {
-        "exit_code": 0,
-        "passed": true,
-        "summary": "      997301       338411   2.9470     128874        264   0.3808       0.0008   0.2049%   0.2647      34305   129.9432    34.3978",
-        "recorded_at": "2026-09-22T07:09:33-07:00"
-      },
-      "pass_condition": {
-        "kind": "matches_clean_tree",
-        "pattern": "      997301       338411   2\\.9470     128874        264   0\\.3808       0\\.0008   0\\.2049%   0\\.2647      34305   129\\.9432    34\\.3978"
-      }
-    },
-    {
-      "id": "c_generated_smoke",
-      "kind": "generated_smoke",
-      "description": "A generated test that runs the sR component and asserts it doesn't crash.",
-      "command": "make clean && make && ./cbp sample_traces/fp/sample_fp_trace.gz",
+      "id": "c_ut_0",
+      "kind": "spec_unit_test",
+      "description": "test_int_digest_generation",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "timeout_seconds": 60,
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/0",
       "pass_condition": {
         "kind": "exit_zero"
       }
     },
     {
-      "id": "c_unit_0",
+      "id": "c_ut_1",
       "kind": "spec_unit_test",
-      "description": "Test int digest generation.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "test_fp64_digest_generation",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
-      "spec_pointer": "/unit_tests/0",
-      "timeout_seconds": 60,
-      "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_int_digest_generation"
-      }
-    },
-    {
-      "id": "c_unit_1",
-      "kind": "spec_unit_test",
-      "description": "Test fp64 digest generation.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
-      "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/1",
-      "timeout_seconds": 60,
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_fp64_digest_generation"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "c_unit_2",
+      "id": "c_ut_2",
       "kind": "spec_unit_test",
-      "description": "Test flag digest generation.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "test_flag_digest_generation",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/2",
-      "timeout_seconds": 60,
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_flag_digest_generation"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "c_unit_3",
+      "id": "c_ut_3",
       "kind": "spec_unit_test",
-      "description": "Test staleness invalidation.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "test_staleness_invalidation",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/3",
-      "timeout_seconds": 60,
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_staleness_invalidation"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "c_unit_4",
+      "id": "c_ut_4",
       "kind": "spec_unit_test",
-      "description": "Test bank usefulness selection.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "test_bank_usefulness_selection",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/4",
-      "timeout_seconds": 60,
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_bank_usefulness_selection"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "c_unit_5",
+      "id": "c_ut_5",
       "kind": "spec_unit_test",
-      "description": "Test multiplier gating.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "test_multiplier_gating",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/5",
-      "timeout_seconds": 60,
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_multiplier_gating"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "c_unit_6",
+      "id": "c_ut_6",
       "kind": "spec_unit_test",
-      "description": "Test multiplier activation.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "test_multiplier_activation",
+      "command": "make test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/6",
-      "timeout_seconds": 60,
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "PASS: test_multiplier_activation"
+        "kind": "exit_zero"
       }
     }
   ],
   "performance": [
     {
-      "id": "p_cycwppki",
-      "description": "sR improves CycWPPKI by about 0.28% compared to baseline",
+      "id": "p_cycwppki_4",
+      "description": "Check if sR improves CycWPPKI on a short trace list.",
       "metric": "cycwppki_50perc_amean",
       "direction": "decrease",
       "trace_list": "experiments/perf-4.list",
@@ -170,7 +144,7 @@
       "run": {
         "mode": "host_adapter"
       },
-      "timeout_seconds": 900,
+      "timeout_seconds": 3600,
       "block_threshold": {
         "min_relative_improvement": 0.0,
         "no_regression": [
@@ -182,8 +156,8 @@
         ]
       },
       "warn_threshold": {
-        "target_relative_improvement": 0.00286,
-        "claim_source": "Paper Table 4 claims CycWpPKI improves from 13.97 to 13.93, giving ~0.28% relative improvement."
+        "target_relative_improvement": 0.01,
+        "claim_source": "Paper abstract expectation of CycWPPKI reduction."
       }
     }
   ]

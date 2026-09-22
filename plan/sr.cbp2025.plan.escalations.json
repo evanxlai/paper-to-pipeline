@@ -32,6 +32,7 @@
       "G3 [c_existing_regression] feature-on: output does not match '      997301       338411   2\\\\.9470     128874        264   0\\\\.3808       0\\\\.0008   0\\\\.2049%   0\\\\.2647      34305   129\\\\.9432    34\\\\.3978', so there is nothing to compare",
       "G5 [p_cycwppki] cycwppki_50perc_amean moved -0.6330 relative (388.06515 -> 633.6960250000001, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric.; ipc_50perc_amean regressed +0.2895 relative (2.7057749999999996 -> 1.922525), beyond the 0.001 band. The feature is buying cycwppki_50perc_amean with ipc_50perc_amean."
     ],
-    "raised_in": "debug turn"
+    "raised_in": "debug turn",
+    "resolved": "20260922_163034_"
   }
 ]
