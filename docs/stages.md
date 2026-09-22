@@ -91,7 +91,10 @@ this feature go into *this* model, and how will we know it worked?
     is a verified fact rather than a guess;
   - `hosts/<host>/NOTES.md` (the recorded hook points);
   - the host checkout's git revision, which it records into both outputs.
-- **Out:** two schema-checked JSON artifacts per host.
+- **Out:** two schema-checked JSON artifacts per host, against
+  `plan/port_plan.schema.json` and `plan/test_plan.schema.json`. Those schemas are the
+  enforceable form of the two tables below; where this document is prose, they are the
+  contract, and `loop/tests/fixtures/tinysc.toy.{plan,tests}.json` is a worked pair.
 - **Decided by code:** schema validation plus coverage checks — every spec `state`
   element, `algorithms` entry, `parameters` entry, and `host_interfaces` need must map to
   something in the plan. An unmapped spec item is a planning failure, not an integration
@@ -103,11 +106,11 @@ this feature go into *this* model, and how will we know it worked?
 |---|---|
 | `host`, `host_revision` | which model, and the exact commit the plan was written against |
 | `structure` | the module or class shape chosen, and why the alternatives in NOTES.md were rejected |
-| `hook_points[]` | file, symbol, and what goes there |
+| `hook_points[]` | file, symbol, and what goes there; a site being *modified* also records what it does today, so a plan can only claim a hook point somebody read |
 | `spec_map[]` | spec JSON pointer -> code site; this is the coverage check's input |
-| `interface_resolutions[]` | each unmet `host_interfaces[].need` -> the chosen fallback and its rationale |
+| `interface_resolutions[]` | every `host_interfaces[].need` -> `exact`, `fallback` or `unavailable`, with a rationale, and for the last two what the port loses. The met needs are recorded too: that is what lets coverage demand a decision per need rather than only for the ones the planner found hard |
 | `knobs[]` | each spec parameter -> its host-native knob, named to the `SR_<NAME>` convention `dse.params_header_from_spec` emits, so stage 4 can mutate it |
-| `feature_enable` | the enable knob's name and its default-off mechanism |
+| `feature_enable` | the enable knob's name, its default-off mechanism, and what executes on the off path — G2 is a claim about this, so the plan states it before the integrator is held to it |
 | `steps[]` | ordered, individually buildable increments |
 | `risks[]`, `open_questions[]` | what could go wrong, and what the spec left unresolved |
 

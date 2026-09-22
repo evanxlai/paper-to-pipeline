@@ -20,7 +20,7 @@ reason about a storage budget; that is week 3's subject.
 - [ ] Write the feature-spec JSON schema.
 - [ ] Write the distiller prompt. Run it on the RUNLTS paper in paper-only mode.
 - [ ] Make sure that the distilled sR spec matches the observed behavior of the artifact.
-- [ ] Write the port-plan and test-plan JSON schemas (`plan/port_plan.schema.json`, `plan/test_plan.schema.json`).
+- [x] Write the port-plan and test-plan JSON schemas (`plan/port_plan.schema.json`, `plan/test_plan.schema.json`). A worked pair against the fixture host is in `loop/tests/fixtures/tinysc.toy.{plan,tests}.json`.
 - [ ] Write the planner prompt and the plan node. It reads the host checkout and runs the test suite that checkout already ships, so each existing regression in the test plan carries a verified clean-tree result.
 - [ ] Write the plan coverage checks: every spec state element, algorithm, parameter, and host-interface need must map to a code site, or the plan fails before integration starts.
 - [ ] Size a performance trace list between the 5-trace smoke set and the 60-trace screening set, so the performance thresholds have signal.

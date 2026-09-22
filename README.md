@@ -101,7 +101,7 @@ loop/                    the CHIA loop (head driver + nodes + prompts)
 chia_nodes/cbp2025/      new CHIA node wrapping the CBP2025 kit (upstream target)
 hosts/                   per-host adapters + integration NOTES + recorded baselines
 spec/                    feature-spec JSON schema (+ distilled specs land here)
-plan/                    port-plan + test-plan schemas (TODO; plans land here)
+plan/                    port-plan + test-plan schemas (plans land here too)
 cluster/cluster.yaml     head + GCP spot workers, fully managed tailnet
 experiments/             budgets, ablation matrix, DSE config, trace lists
 scripts/                 setup_gcp.sh, fetch_artifacts.sh, install_llm_gateway.sh

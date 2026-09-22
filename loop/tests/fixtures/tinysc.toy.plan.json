@@ -1,0 +1,221 @@
+{
+  "feature_name": "tinysc",
+  "host": "toy",
+  "host_revision": "f9aa46cc5352230b40aa63d63e46d2fedc56dbd7",
+  "spec_inputs_used": "paper_only",
+  "structure": {
+    "choice": "One new class, TinySC, in src/tinysc.{h,cpp}, held as a private member of ToyPredictor. NOTES.md offers exactly two shapes for feature state and this is the one that keeps the corrector testable on its own: the suite can drive TinySC directly without a ToyPredictor, and the feature-off path is one early return in each hook rather than a condition threaded through the bimodal code. src/tinysc.cpp needs no Makefile edit -- LIB_SRCS is a wildcard over src/*.cpp.",
+    "rejected_alternatives": [
+      {
+        "alternative": "Feature state as private members of ToyPredictor directly.",
+        "why_rejected": "Puts the corrector's table and the bimodal table in one object, so the bit-identity claim behind G2 has to be read out of interleaved code, and no unit test can exercise the corrector without also constructing the baseline predictor.",
+        "source": "loop/tests/fixtures/toyhost/NOTES.md, 'Hook points'"
+      },
+      {
+        "alternative": "Post-process predictions in src/sim.cpp, between predict() and the stats accumulation.",
+        "why_rejected": "NOTES.md says sim.cpp should not need touching, and it owns the determinism and the stats line that the feature-off equality check depends on. A feature that edits the measurement apparatus cannot be measured by it.",
+        "source": "loop/tests/fixtures/toyhost/NOTES.md, 'Layout' and 'Stats'"
+      }
+    ]
+  },
+  "hook_points": [
+    {
+      "id": "params_header",
+      "file": "src/sr_params.h",
+      "symbol": "SR_TINYSC_* defines",
+      "action": "create",
+      "change": "The generated params header, initially the exact output of dse.params_header_from_spec at the spec's defaults: SR_TINYSC_ENABLE 0, SR_TINYSC_ENTRIES 256, SR_TINYSC_HIST_BITS 8, SR_TINYSC_THRESHOLD 4. Stage 4 mutates this file and only this file, so it must exist and be the single origin of every default from the first integration attempt onward."
+    },
+    {
+      "id": "params_knobs",
+      "file": "src/params.h",
+      "symbol": "param() accessors",
+      "action": "modify",
+      "observed": "Declares param(name, fallback), which reads a long from the environment on every call, and one accessor, bimodal_entries(), returning param(\"BIMODAL_ENTRIES\", 1024).",
+      "change": "Include sr_params.h and add one accessor per knob next to bimodal_entries(): tinysc_enable(), tinysc_entries(), tinysc_hist_bits(), tinysc_threshold(), each returning param(\"<NAME>\", SR_<NAME>). The generated header supplies the compiled-in default; the environment override stays available so a unit test can configure itself without a rebuild."
+    },
+    {
+      "id": "tinysc_header",
+      "file": "src/tinysc.h",
+      "symbol": "TinySC",
+      "action": "create",
+      "change": "The corrector's state and interface: the counter table, the global history register, an index() helper, a predict-override entry point that takes the base prediction and returns the final one, and a train() entry point. Parameters are read once in the constructor through the params.h accessors, so one run has one configuration."
+    },
+    {
+      "id": "tinysc_impl",
+      "file": "src/tinysc.cpp",
+      "symbol": "TinySC",
+      "action": "create",
+      "change": "The bodies, implementing the spec's two algorithms exactly. Picked up by the Makefile's LIB_SRCS wildcard into both build/toysim and build/toytest with no Makefile edit."
+    },
+    {
+      "id": "predictor_header",
+      "file": "src/predictor.h",
+      "symbol": "ToyPredictor",
+      "action": "modify",
+      "observed": "Public predict(uint64_t) and update(uint64_t, bool), called once each per branch in that order; private bimodal_index() and bimodal_, a vector of two-bit counters.",
+      "change": "Include tinysc.h and add one private TinySC member. No change to the public interface: sim.cpp and the existing suite must keep compiling untouched."
+    },
+    {
+      "id": "predictor_predict",
+      "file": "src/predictor.cpp",
+      "symbol": "ToyPredictor::predict",
+      "action": "modify",
+      "observed": "Returns bimodal_[bimodal_index(pc)] >= 2, with no other state read or written.",
+      "change": "Compute the base prediction exactly as now, then return the corrector's override of it. With the knob off the corrector returns the base prediction unread, so this line's result is unchanged."
+    },
+    {
+      "id": "predictor_update",
+      "file": "src/predictor.cpp",
+      "symbol": "ToyPredictor::update",
+      "action": "modify",
+      "observed": "Saturating increment or decrement of bimodal_[bimodal_index(pc)] within 0..3. No other state.",
+      "change": "Keep the bimodal update first and unchanged, then call the corrector's train(). With the knob off train() returns immediately, leaving the table and the history register untouched."
+    },
+    {
+      "id": "suite_cases",
+      "file": "tests/test_tinysc.cpp",
+      "symbol": "main",
+      "action": "create",
+      "change": "The spec's three unit tests, as a new file the TEST_SRCS wildcard picks up. Each case sets the knobs it needs with setenv before constructing anything, which works because params.h reads the environment on every call; that is what lets all three coexist in one run of build/toytest. Each check prints the exact message the test plan's pass conditions key on. tests/test_predictor.cpp is not touched: its baseline cases must keep passing as written."
+    }
+  ],
+  "spec_map": [
+    {
+      "spec_pointer": "/state/0",
+      "spec_item": "sc_table",
+      "hook_ids": ["tinysc_header", "tinysc_impl"],
+      "realization": "std::vector<int8_t> sized tinysc_entries() in the TinySC constructor, zero-initialised. Six-bit range is enforced by clamping in train() rather than by a bitfield, since the host has no storage model to satisfy."
+    },
+    {
+      "spec_pointer": "/state/1",
+      "spec_item": "ghist",
+      "hook_ids": ["tinysc_header", "tinysc_impl"],
+      "realization": "One uint32_t member, masked to tinysc_hist_bits() bits after every shift. It lives in TinySC, not ToyPredictor, so the feature-off path cannot touch it."
+    },
+    {
+      "spec_pointer": "/algorithms/0",
+      "spec_item": "predict",
+      "hook_ids": ["tinysc_impl", "predictor_predict"],
+      "realization": "TinySC::apply(pc, base) returns base unchanged when the knob is off or when the selected counter is below the confidence threshold, and the counter's sign otherwise. ToyPredictor::predict calls it on the way out, after the bimodal lookup."
+    },
+    {
+      "spec_pointer": "/algorithms/1",
+      "spec_item": "update",
+      "hook_ids": ["tinysc_impl", "predictor_update"],
+      "realization": "TinySC::train(pc, taken) recomputes the same index from the unadvanced history, saturates the counter toward the outcome, and only then advances the history register. ToyPredictor::update calls it after the bimodal update."
+    }
+  ],
+  "interface_resolutions": [
+    {
+      "spec_pointer": "/host_interfaces/0",
+      "need": "The branch PC at prediction time",
+      "status": "exact",
+      "resolution": "ToyPredictor::predict already receives the PC as its only argument and forwards it to the corrector.",
+      "rationale": "Read from src/predictor.h at host_revision: predict(uint64_t pc) is the host's own prediction entry point.",
+      "hook_ids": ["predictor_predict"]
+    },
+    {
+      "spec_pointer": "/host_interfaces/1",
+      "need": "The resolved outcome of every conditional branch, in program order",
+      "status": "exact",
+      "resolution": "ToyPredictor::update(pc, taken) delivers the resolved outcome once per branch, immediately after predict() for that branch, and the corrector advances its history register there.",
+      "rationale": "NOTES.md records that this host has no squash path and no speculation, so program order is exact and the spec's checkpoint-and-restore fallback is not needed.",
+      "hook_ids": ["predictor_update"]
+    }
+  ],
+  "knobs": [
+    {
+      "spec_pointer": "/parameters/0",
+      "spec_parameter": "TINYSC_ENABLE",
+      "macro": "SR_TINYSC_ENABLE",
+      "host_knob": "tinysc_enable() in src/params.h, overridable at run time by the TINYSC_ENABLE environment variable",
+      "binding": "compile_time_define",
+      "default": 0,
+      "notes": "Also the feature enable knob; see feature_enable."
+    },
+    {
+      "spec_pointer": "/parameters/1",
+      "spec_parameter": "TINYSC_ENTRIES",
+      "macro": "SR_TINYSC_ENTRIES",
+      "host_knob": "tinysc_entries(), TINYSC_ENTRIES environment override",
+      "binding": "compile_time_define",
+      "default": 256,
+      "notes": "The index masks with entries - 1, so a non-power-of-two value silently aliases. The constructor rejects one rather than truncating."
+    },
+    {
+      "spec_pointer": "/parameters/2",
+      "spec_parameter": "TINYSC_HIST_BITS",
+      "macro": "SR_TINYSC_HIST_BITS",
+      "host_knob": "tinysc_hist_bits(), TINYSC_HIST_BITS environment override",
+      "binding": "compile_time_define",
+      "default": 8
+    },
+    {
+      "spec_pointer": "/parameters/3",
+      "spec_parameter": "TINYSC_THRESHOLD",
+      "macro": "SR_TINYSC_THRESHOLD",
+      "host_knob": "tinysc_threshold(), TINYSC_THRESHOLD environment override",
+      "binding": "compile_time_define",
+      "default": 4
+    }
+  ],
+  "feature_enable": {
+    "name": "TINYSC_ENABLE",
+    "macro": "SR_TINYSC_ENABLE",
+    "binding": "compile_time_define",
+    "default_off": "SR_TINYSC_ENABLE is 0 in the generated header, and tinysc_enable() falls back to it, so `make && ./build/toysim <workload>` with nothing set in the environment runs the baseline. Off is the value you get by doing nothing, not the value you get by remembering something.",
+    "off_path": "ToyPredictor::predict returns the bimodal result before the corrector reads anything, and ToyPredictor::update performs the same saturating bimodal update as today before train() returns immediately. No corrector state is read or written, so the sequence of bimodal counter values over a workload is identical to the unmodified host. src/sim.cpp is deterministic -- a fixed instruction count per branch and a fixed misprediction penalty -- so identical predictions give byte-identical stats, not merely close ones."
+  },
+  "steps": [
+    {
+      "title": "Land the generated params header and its accessors",
+      "detail": "Create src/sr_params.h at the spec defaults and add the four accessors to src/params.h. Nothing reads them yet.",
+      "hook_ids": ["params_header", "params_knobs"],
+      "verify": "make"
+    },
+    {
+      "title": "Add TinySC, owned but never consulted",
+      "detail": "Create src/tinysc.{h,cpp} with the table, the history register and both entry points implemented, and add the member to ToyPredictor. predict() and update() do not call it yet, so the host's behaviour cannot have changed.",
+      "hook_ids": ["tinysc_header", "tinysc_impl", "predictor_header"],
+      "verify": "off_matches_baseline"
+    },
+    {
+      "title": "Wire both hooks behind the knob",
+      "detail": "Call the corrector from ToyPredictor::predict and ToyPredictor::update, gated on tinysc_enable(). This is the first step that can change a prediction, and only with the knob on.",
+      "hook_ids": ["predictor_predict", "predictor_update"],
+      "verify": "off_matches_baseline"
+    },
+    {
+      "title": "Add the spec's unit tests to the host suite",
+      "detail": "Create tests/test_tinysc.cpp with the three cases, each setting its own knobs with setenv and printing the check messages the test plan keys on.",
+      "hook_ids": ["suite_cases"],
+      "verify": "host_suite"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "predict and update must select the same table entry for one branch. Advancing the history register before the counter write trains the neighbouring entry instead, which does not crash, does not fail a build, and leaves a mechanism that mostly works and never reaches its claimed gain.",
+      "mitigation": "train() advances the history register last, after the counter write, in the order the spec's pseudocode states. The index is recomputed there rather than carried from predict(), so the two call sites cannot drift apart.",
+      "detected_by": "spec_history_correlated_branch_is_learned"
+    },
+    {
+      "risk": "The existing suite constructs ToyPredictor directly. If the corrector were ever enabled by default, those three baseline cases would start measuring the feature while still reading as baseline coverage.",
+      "mitigation": "Default off in the generated header, and tests/test_predictor.cpp is left untouched so its cases keep running in the ambient configuration.",
+      "detected_by": "host_suite"
+    },
+    {
+      "risk": "bias.trace is a round-robin over five PCs, so global history is almost a position counter and an 8-bit register covers more than one full round. A directional pass here says the corrector is wired to history at all; it says very little about how the mechanism behaves on a real trace.",
+      "mitigation": "Treat this host's performance entry as a wiring check. The production hosts size their performance list between the five-trace smoke set and the sixty-trace screening set, where the claim is actually testable.",
+      "detected_by": "bias_mpki"
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "Whether the counter is trained on every branch or only on a misprediction.",
+      "spec_pointer": "/open_questions/0",
+      "assumption": "Train on every branch, which is what the spec's own pseudocode does. The spec records the ambiguity but not a second pseudocode.",
+      "cost_if_wrong": "One conditional in TinySC::train, no structural change. This is a re-run, not a re-plan, and it is a natural candidate for stage 4 to promote to a knob if the gain falls short."
+    }
+  ]
+}

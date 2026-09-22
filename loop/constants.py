@@ -31,6 +31,16 @@ DISTILL_MODE = os.environ.get("P2P_DISTILL_MODE", "paper_only")  # or paper_plus
 SPEC_SCHEMA_PATH = REPO_ROOT / "spec" / "feature_spec.schema.json"
 SPEC_OUT_PATH = REPO_ROOT / "spec" / f"{FEATURE_NAME}.{DISTILL_MODE}.json"
 
+# ---------------------------------------------------------------- plans
+# Stage 2 artifacts, one pair per host: plan/<feature>.<host>.plan.json (how
+# the feature goes into this model) and plan/<feature>.<host>.tests.json (how
+# the gate will know it worked). Schema-checked by code, like the feature
+# spec, and both record the host revision they were written against so a plan
+# cannot be applied to a tree whose hook points nobody read.
+PLAN_DIR = REPO_ROOT / "plan"
+PORT_PLAN_SCHEMA_PATH = PLAN_DIR / "port_plan.schema.json"
+TEST_PLAN_SCHEMA_PATH = PLAN_DIR / "test_plan.schema.json"
+
 # ---------------------------------------------------------------- hosts
 # Worker-side checkout paths (created by cluster worker_setup_commands under
 # the cluster.yaml ssh_user's home, which is whatever account the Ray worker

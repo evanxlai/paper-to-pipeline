@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/evanlai/paper-to-pipeline/plan/test_plan.schema.json",
+  "title": "TestPlan",
+  "description": "How the loop will know the port worked. Written by the plan node (stage 2) against the host checkout at `host_revision`, with every `existing_regression` result measured on the clean tree at that revision, and executed by the verify gate (gate.py) after each integration attempt. Agents never judge their own work, so every entry here has to be decidable by plain code: a command, and a pass condition with no prose in it.\n\nTwo buckets, because they answer different questions. `correctness[]` asks whether the implementation does what the spec says, and blocks promotion. `performance[]` asks whether the claimed benefit shows up, and blocks only on direction, never on magnitude -- at this point the port carries the spec's default parameters and has not been tuned, so a shortfall is the expected condition and gating on it would strand a correct port before the stage whose job is to fix it. A wrong direction means the mechanism is misbuilt and no tuning rescues it.\n\nNothing here may reference a storage budget: that is stage 4's subject alone (docs/stages.md), and the verify gate has no storage condition. `additionalProperties` is false throughout so a budget cannot enter under an invented field name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "feature_name",
+    "host",
+    "host_revision",
+    "metric_keys",
+    "correctness",
+    "performance"
+  ],
+  "properties": {
+    "feature_name": {
+      "type": "string",
+      "description": "Must equal the feature spec's `feature_name` and the port plan's."
+    },
+    "host": {
+      "type": "string",
+      "description": "Must equal the port plan's `host`."
+    },
+    "host_revision": {
+      "type": "string",
+      "description": "Must equal the port plan's `host_revision`. The clean-tree results below were measured on this tree; against any other tree they are hearsay."
+    },
+    "metric_keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "The host's own metric names, as its stats adapter reports them (cbp2025: 'brmispki_50perc_amean', 'ipc_50perc_amean'). G2 compares exactly these between the feature-off run and the recorded baseline; this is `gate.check_gate`'s `metric_keys`, declared by the plan instead of defaulted in code, because the names differ per host."
+    },
+    "baseline_rel_tol": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0,
+      "description": "G2's relative tolerance. 0 for a deterministic trace-driven simulator, which is every host here by default; a non-zero value is a claim that this host is not reproducible run to run, and `notes` must say why."
+    },
+    "correctness": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Does the implementation do what the spec says? Every entry blocks promotion (G3).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "description", "command", "feature_state", "pass_condition"],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/entry_id",
+            "description": "Unique within the plan. Referenced by the port plan's `steps[].verify` and `risks[].detected_by`."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "existing_regression",
+              "generated_smoke",
+              "spec_unit_test",
+              "feature_off_baseline"
+            ],
+            "description": "'existing_regression': a test the model already ships, with its clean-tree result recorded so a pre-existing failure is never read as one the port introduced. 'generated_smoke': written by the planner, for a model that ships no usable suite. 'spec_unit_test': one of the spec's own `unit_tests[]`, placed into the host's suite. 'feature_off_baseline': with the enable knob off, metrics equal the recorded baseline -- the strongest regression available, and exact for trace-driven simulators."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this test establishes. For a generated test, enough of what it must do that the integrator can write it."
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command, run from the host checkout root."
+          },
+          "feature_state": {
+            "type": "string",
+            "enum": ["off", "on", "both"],
+            "description": "Whether the enable knob is on for this run. 'both' runs the command twice and requires the pass condition of each. The knob's name comes from the port plan's `feature_enable`, so it is never repeated in `env` here -- one name, one place to get it wrong."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Extra environment for the run, such as a parameter override a test needs. The enable knob does not belong here; see `feature_state`."
+          },
+          "timeout_seconds": { "type": "integer", "minimum": 1 },
+          "test_file": {
+            "type": "string",
+            "description": "Path, relative to the host checkout root, of the test source. Required for 'generated_smoke' and 'spec_unit_test', which do not exist yet: the integrator needs to know where the host's build picks a new test up."
+          },
+          "spec_pointer": {
+            "type": "string",
+            "pattern": "^/unit_tests/[0-9]+$",
+            "description": "Which spec unit test this implements. Required for 'spec_unit_test'; it is the coverage link, so the plan checks can demand one entry per spec unit test."
+          },
+          "clean_tree_result": {
+            "$ref": "#/$defs/clean_tree_result",
+            "description": "Required for 'existing_regression'."
+          },
+          "pass_condition": { "$ref": "#/$defs/pass_condition" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "existing_regression" } }, "required": ["kind"] },
+            "then": { "required": ["clean_tree_result"] }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "spec_unit_test" } }, "required": ["kind"] },
+            "then": { "required": ["spec_pointer", "test_file"] }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "generated_smoke" } }, "required": ["kind"] },
+            "then": { "required": ["test_file"] }
+          },
+          {
+            "if": {
+              "properties": { "pass_condition": { "properties": { "kind": { "const": "matches_clean_tree" } }, "required": ["kind"] } },
+              "required": ["pass_condition"]
+            },
+            "then": { "required": ["clean_tree_result"] }
+          }
+        ]
+      }
+    },
+    "performance": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Does the feature's claimed benefit show up (G5)? Needs enough traces to carry signal: the five-trace smoke list answers 'does it run', not 'is it better', so a performance list sits between that and the 60-trace screening set.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "metric", "direction", "block_threshold", "warn_threshold"],
+        "anyOf": [
+          { "required": ["trace_list"] },
+          { "required": ["traces"] }
+        ],
+        "properties": {
+          "id": { "$ref": "#/$defs/entry_id" },
+          "description": { "type": "string" },
+          "metric": {
+            "type": "string",
+            "description": "One of the host's metric names -- the one the paper's claim is about."
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["decrease", "increase"],
+            "description": "Which way the paper says this metric moves. Fixes the sign of `relative_improvement` below: (baseline - measured) / |baseline| for 'decrease', (measured - baseline) / |baseline| for 'increase'."
+          },
+          "trace_list": {
+            "type": "string",
+            "description": "Path, relative to the repository root, of a trace list in `helpers.load_trace_list` format: one trace per line, '#' comments skipped."
+          },
+          "traces": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" },
+            "description": "Inline workload list, for a host whose workloads live in the checkout rather than in a trace bucket."
+          },
+          "baseline": {
+            "$ref": "#/$defs/perf_baseline",
+            "description": "Where the comparison point comes from. Defaults to measuring the feature-off run over the same traces, which G2 has already established is bit-identical to the baseline."
+          },
+          "run": { "$ref": "#/$defs/perf_run" },
+          "block_threshold": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min_relative_improvement"],
+            "description": "Directional and non-regression. THIS BLOCKS PROMOTION. Passes when relative_improvement > min_relative_improvement, strictly, and every `no_regression` metric holds.",
+            "properties": {
+              "min_relative_improvement": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Set at or above this host's run-to-run noise on this metric. 0.0 means 'strictly better than baseline by any margin', which is the right value only for a deterministic simulator, where any margin is real."
+              },
+              "no_regression": {
+                "type": "array",
+                "description": "Companion metrics that must not move the wrong way while the target metric improves -- the check that catches a feature that buys MPKI with IPC.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["metric", "direction", "max_relative_regression"],
+                  "properties": {
+                    "metric": { "type": "string" },
+                    "direction": {
+                      "type": "string",
+                      "enum": ["decrease", "increase"],
+                      "description": "Which way is better for this metric."
+                    },
+                    "max_relative_regression": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "How far it may move the wrong way, relative, before the gate blocks. This is a noise band, not an allowance to trade one metric for another."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "warn_threshold": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["target_relative_improvement", "claim_source"],
+            "description": "Magnitude, compared against the gain the paper claims. A shortfall is recorded and reported. THIS DOES NOT BLOCK: the port is untuned here, and tuning is stage 4's entire job.",
+            "properties": {
+              "target_relative_improvement": {
+                "type": "number",
+                "description": "The paper's claimed gain, as a fraction, in the direction above."
+              },
+              "claim_source": {
+                "type": "string",
+                "description": "Where the number comes from: a spec pointer, or a verbatim quote from the paper. A target with no source is a guess, and a guess reported as a shortfall misleads the write-up."
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "run": { "properties": { "mode": { "const": "command_per_trace" } }, "required": ["mode"] } },
+              "required": ["run"]
+            },
+            "then": { "properties": { "run": { "required": ["command_template"] } } }
+          }
+        ]
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Anything the gate cannot act on but a reader needs, such as why `baseline_rel_tol` is not zero."
+    }
+  },
+  "$defs": {
+    "entry_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "clean_tree_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exit_code", "passed", "summary"],
+      "description": "What this command did on the unmodified checkout at `host_revision`, measured by the plan node rather than assumed. A test that already fails here is recorded, not dropped: `matches_clean_tree` then requires the port to fail it the same way, which is the only way a pre-existing failure cannot be charged to the port.",
+      "properties": {
+        "exit_code": { "type": "integer" },
+        "passed": { "type": "boolean" },
+        "summary": {
+          "type": "string",
+          "description": "The one line of output that carries the result, e.g. '4 checks, 0 failures'."
+        },
+        "recorded_at": {
+          "type": "string",
+          "description": "ISO-8601 timestamp of the clean-tree run."
+        }
+      }
+    },
+    "pass_condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "Decidable by code, with no model in the loop. Each `kind` uses only its own fields.",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "exit_zero",
+            "stdout_matches",
+            "stdout_excludes",
+            "matches_clean_tree",
+            "metrics_equal_baseline",
+            "metric_threshold"
+          ],
+          "description": "'exit_zero': the command exits 0. 'stdout_matches' / 'stdout_excludes': `pattern` must / must not match the combined output. 'matches_clean_tree': exit code equals `clean_tree_result.exit_code`, and if `pattern` is given, the text it captures equals the one the clean tree produced. 'metrics_equal_baseline': G2, the feature-off metrics equal the recorded baseline within `rel_tol`. 'metric_threshold': one parsed metric against a fixed bound."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "ECMA-262 regular expression, matched against stdout and stderr combined."
+        },
+        "metrics": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Which of `metric_keys` to compare. Absent means all of them."
+        },
+        "rel_tol": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Overrides the plan's `baseline_rel_tol` for this entry."
+        },
+        "baseline_pointer": {
+          "type": "string",
+          "pattern": "^(/([^/~]|~[01])*)*$",
+          "description": "RFC 6901 pointer into the recorded baseline document, for a host that records more than one workload's metrics (e.g. '/bias'). Empty or absent means the top level."
+        },
+        "metric": { "type": "string" },
+        "comparison": {
+          "type": "string",
+          "enum": ["<", "<=", ">", ">=", "=="]
+        },
+        "value": { "type": "number" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "enum": ["stdout_matches", "stdout_excludes"] } }, "required": ["kind"] },
+          "then": { "required": ["pattern"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "metric_threshold" } }, "required": ["kind"] },
+          "then": { "required": ["metric", "comparison", "value"] }
+        }
+      ]
+    },
+    "perf_baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["measure_feature_off", "recorded"],
+          "description": "'measure_feature_off': run the same traces with the enable knob off and compare against that. Legitimate because G2 has already proved the knob-off path is the baseline, and it gives a per-list comparison point without a second recorded run. 'recorded': read it out of the baseline this host recorded at `pointer`, which is the only option when the feature-off run is too expensive to repeat."
+        },
+        "pointer": {
+          "type": "string",
+          "pattern": "^(/([^/~]|~[01])*)*$",
+          "description": "RFC 6901 pointer into the recorded baseline document. Used with 'recorded'."
+        }
+      }
+    },
+    "perf_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["host_adapter", "command_per_trace"],
+          "description": "'host_adapter': the host node's build/run/stats fan-out, one task per trace -- the only mode that scales to a cluster. 'command_per_trace': a shell command per trace, for a fixture host small enough to run locally."
+        },
+        "command_template": {
+          "type": "string",
+          "description": "Required for 'command_per_trace'. Must contain '{trace}', which is substituted per trace and nothing else is."
+        }
+      }
+    }
+  }
+}

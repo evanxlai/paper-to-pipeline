@@ -1,0 +1,120 @@
+{
+  "feature_name": "tinysc",
+  "host": "toy",
+  "host_revision": "f9aa46cc5352230b40aa63d63e46d2fedc56dbd7",
+  "metric_keys": ["mpki", "ipc"],
+  "baseline_rel_tol": 0,
+  "correctness": [
+    {
+      "id": "host_suite",
+      "kind": "existing_regression",
+      "description": "The host's own suite, tests/test_predictor.cpp: an always-taken branch is learned, a never-taken branch is learned, and two PCs in different bimodal entries do not train each other. The port adds a second test file rather than editing this one.",
+      "command": "make test",
+      "feature_state": "off",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": "4 checks, 0 failures",
+        "recorded_at": "2026-09-22T03:43:00"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree"
+      }
+    },
+    {
+      "id": "off_matches_baseline",
+      "kind": "feature_off_baseline",
+      "description": "G2 on the smoke workload: with the knob off, both metrics must equal the recorded baseline exactly. The host is deterministic, so this is an equality, not a comparison within noise.",
+      "command": "./build/toysim workloads/smoke.trace",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "metrics": ["mpki", "ipc"],
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "off_matches_baseline_bias",
+      "kind": "feature_off_baseline",
+      "description": "The same equality on the workload the performance entry uses. Worth its own entry: the feature is designed to move this one, so a knob-off leak would show up here first and would otherwise be indistinguishable from the gain.",
+      "command": "./build/toysim workloads/bias.trace",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "metrics": ["mpki", "ipc"],
+        "rel_tol": 0,
+        "baseline_pointer": "/bias"
+      }
+    },
+    {
+      "id": "spec_disabled_matches_base_predictor",
+      "kind": "spec_unit_test",
+      "spec_pointer": "/unit_tests/0",
+      "test_file": "tests/test_tinysc.cpp",
+      "description": "With TINYSC_ENABLE unset, every prediction over a driven stream equals the unmodified base predictor's for the same stream. The case sets its own environment before constructing anything, because params.h reads the environment on every call; on failure it must print exactly 'FAIL: disabled path matches the base predictor'.",
+      "command": "make test",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "stdout_excludes",
+        "pattern": "FAIL: disabled path matches the base predictor"
+      }
+    },
+    {
+      "id": "spec_history_correlated_branch_is_learned",
+      "kind": "spec_unit_test",
+      "spec_pointer": "/unit_tests/1",
+      "test_file": "tests/test_tinysc.cpp",
+      "description": "With TINYSC_ENABLE=1, one PC following the period-4 pattern taken, taken, not-taken, not-taken for 400 branches must mispredict at most 5 times over the last 100, where the base predictor alone misses about half. This is the case that distinguishes a corrector wired to global history from one that is not. On failure it must print exactly 'FAIL: history-correlated branch is learned'.",
+      "command": "make test",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "stdout_excludes",
+        "pattern": "FAIL: history-correlated branch is learned"
+      }
+    },
+    {
+      "id": "spec_untrained_entry_defers_to_base",
+      "kind": "spec_unit_test",
+      "spec_pointer": "/unit_tests/2",
+      "test_file": "tests/test_tinysc.cpp",
+      "description": "With TINYSC_ENABLE=1, a PC seen for the first time selects a counter still at zero, which is not confident at any threshold of 1 or more, so the base prediction must stand. On failure it must print exactly 'FAIL: untrained entry defers to the base predictor'.",
+      "command": "make test",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "stdout_excludes",
+        "pattern": "FAIL: untrained entry defers to the base predictor"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "bias_mpki",
+      "description": "The claimed benefit on the workload built to need it. bias.trace emits five PCs round-robin: two are history-correlated and account for most of the baseline's 2818 mispredictions out of 6000 branches, two are strongly biased and already predicted well, and one is random and helps nobody. A port that builds, stays baseline-identical with its knob off, and still does not move MPKI here has a mechanism that is wired wrong.",
+      "metric": "mpki",
+      "direction": "decrease",
+      "traces": ["workloads/bias.trace"],
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "run": {
+        "mode": "command_per_trace",
+        "command_template": "./build/toysim {trace}"
+      },
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": [
+          {
+            "metric": "ipc",
+            "direction": "increase",
+            "max_relative_regression": 0.0
+          }
+        ]
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.5,
+        "claim_source": "Derived, not quoted: the fixture spec makes no whole-workload claim. /unit_tests/1 claims at most 5 mispredictions per 100 on a history-correlated branch where the base predictor misses about half, and the two history-correlated PCs are two fifths of bias.trace and roughly 1800 of its 2818 baseline mispredictions, so recovering most of them is about a 0.5 relative reduction."
+      }
+    }
+  ],
+  "notes": "min_relative_improvement is 0.0 and max_relative_regression is 0.0 because this host is exactly reproducible: src/sim.cpp charges a fixed instruction count per branch and a fixed misprediction penalty, so there is no noise band to leave room for, and IPC is a strictly decreasing function of mispredictions. A real host sets both above its measured run-to-run spread."
+}

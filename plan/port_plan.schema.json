@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/evanlai/paper-to-pipeline/plan/port_plan.schema.json",
+  "title": "PortPlan",
+  "description": "How one feature spec goes into one host model. Written by the plan node (stage 2) after reading the host checkout at `host_revision`, and read by the integration node (stage 3), which treats it as authoritative on WHERE and HOW to hook. The feature spec stays authoritative on WHAT the mechanism is, so a plan never restates pseudocode.\n\nNothing here may mention a resource budget. Only the DSE stage knows about constraints (docs/stages.md), so this document has no storage split, no donor structure and no allowance. `additionalProperties` is false throughout for that reason as much as for typo-catching: a budget smuggled in under an invented field name fails validation instead of reaching the integrator as an instruction.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "feature_name",
+    "host",
+    "host_revision",
+    "structure",
+    "hook_points",
+    "spec_map",
+    "interface_resolutions",
+    "knobs",
+    "feature_enable",
+    "steps",
+    "risks",
+    "open_questions"
+  ],
+  "properties": {
+    "feature_name": {
+      "type": "string",
+      "description": "Must equal the feature spec's `feature_name`, e.g. 'sr'. The pair (feature_name, host) names this plan and its test plan."
+    },
+    "host": {
+      "type": "string",
+      "description": "Which performance model this plan is for: 'champsim', 'gem5', or a fixture host's name."
+    },
+    "host_revision": {
+      "type": "string",
+      "description": "The exact commit the plan was written against, so a plan can never be silently applied to a different tree than the one whose hook points were read. A checkout with no VCS records whatever identifier reproduces it (a release tarball name, a fixture path plus the repo commit that last touched it)."
+    },
+    "spec_inputs_used": {
+      "type": "string",
+      "enum": ["paper_only", "paper_plus_reference"],
+      "description": "Echo of the spec's `source.inputs_used`. Ablation 2 compares two ports of the same feature into the same host; without this the two plans are indistinguishable after the fact."
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["choice", "rejected_alternatives"],
+      "description": "The module or class shape the port takes in this host.",
+      "properties": {
+        "choice": {
+          "type": "string",
+          "description": "The shape chosen and why it fits this host, in terms of facts read from the checkout (e.g. 'one ChampSim module owning a base TAGE-SC-L member plus the sR term, because a branch_predictor list keeps only the last module's prediction')."
+        },
+        "rejected_alternatives": {
+          "type": "array",
+          "description": "The other options hosts/<host>/NOTES.md records, each with the reason it lost. May be empty only when the host genuinely offers one hook shape. Stage 3 is forbidden from re-litigating these; an alternative that turns out to be necessary is a plan revision, not an integrator decision.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["alternative", "why_rejected"],
+            "properties": {
+              "alternative": { "type": "string" },
+              "why_rejected": { "type": "string" },
+              "source": {
+                "type": "string",
+                "description": "Where the alternative is described, e.g. 'hosts/gem5/NOTES.md option 2'."
+              }
+            }
+          }
+        }
+      }
+    },
+    "hook_points": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Every site the port touches, in the host checkout. Referenced by id from `spec_map` and `steps`.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "file", "symbol", "action", "change"],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/hook_id",
+            "description": "Stable handle for this site. Unique within the plan; JSON Schema cannot express key uniqueness, so the plan checks enforce it."
+          },
+          "file": {
+            "type": "string",
+            "description": "Path relative to the host checkout root."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "The class, function, or build target the change lands in. For a new file, the symbol it will define."
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "modify"],
+            "description": "Whether the file exists at `host_revision`."
+          },
+          "observed": {
+            "type": "string",
+            "description": "What the site does today, read from the checkout. Required when `action` is 'modify': the planner may only claim a hook point it actually looked at, and the integrator needs to recognise the code it is about to change. Meaningless for 'create'."
+          },
+          "change": {
+            "type": "string",
+            "description": "What goes here, in enough detail that the integrator does not re-derive the decision. Behaviour of the mechanism itself belongs in the spec, not here."
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "action": { "const": "modify" } }, "required": ["action"] },
+            "then": { "required": ["observed"] }
+          }
+        ]
+      }
+    },
+    "spec_map": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Spec item -> code site. The coverage check's principal input: every `/state/N` and `/algorithms/N` in the spec must appear here, or the plan fails before integration starts. Spec parameters are covered by `knobs`, `host_interfaces` needs by `interface_resolutions`; mapping those here as well is allowed but not required.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["spec_pointer", "spec_item", "hook_ids", "realization"],
+        "properties": {
+          "spec_pointer": { "$ref": "#/$defs/spec_pointer" },
+          "spec_item": {
+            "type": "string",
+            "description": "The `name` at that pointer, copied verbatim. Redundant on purpose: code cross-checks it, so an off-by-one pointer cannot satisfy coverage while pointing the integrator at the wrong element."
+          },
+          "hook_ids": {
+            "$ref": "#/$defs/hook_id_list",
+            "description": "Which hook points realize this spec item."
+          },
+          "realization": {
+            "type": "string",
+            "description": "How the code at those sites realizes this item: the data structure it becomes, the call it is made from. Not a restatement of the spec's pseudocode."
+          }
+        }
+      }
+    },
+    "interface_resolutions": {
+      "type": "array",
+      "description": "One entry per `host_interfaces[]` need in the spec, including the ones this host meets exactly. Recording the met ones too is what lets the coverage check demand a decision for every need rather than only for the needs the planner happened to notice were hard.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["spec_pointer", "need", "status", "resolution", "rationale"],
+        "properties": {
+          "spec_pointer": {
+            "type": "string",
+            "pattern": "^/host_interfaces/[0-9]+$",
+            "description": "Pointer to the need in the spec."
+          },
+          "need": {
+            "type": "string",
+            "description": "The spec's `need` text, copied verbatim; cross-checked against the pointer."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["exact", "fallback", "unavailable"],
+            "description": "'exact': the host provides it as the spec describes. 'fallback': it provides a substitute. 'unavailable': neither, and the port is degraded here."
+          },
+          "resolution": {
+            "type": "string",
+            "description": "What the port actually does: the host facility used for 'exact', the substitute and how it is derived otherwise."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Why, grounded in what was read in the checkout or in hosts/<host>/NOTES.md."
+          },
+          "fidelity_note": {
+            "type": "string",
+            "description": "What the port loses relative to the paper, and how that could show up in the results. Required for 'fallback' and 'unavailable'; this is the text the integrator copies into PORT_NOTES.md, so a deviation is recorded once, at the point it was decided."
+          },
+          "hook_ids": { "$ref": "#/$defs/hook_id_list" }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "status": { "enum": ["fallback", "unavailable"] } },
+              "required": ["status"]
+            },
+            "then": { "required": ["fidelity_note"] }
+          }
+        ]
+      }
+    },
+    "knobs": {
+      "type": "array",
+      "description": "One entry per spec `parameters[]` entry. Nothing tunable may be hard-coded: a parameter missing here is a parameter stage 4 cannot search.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["spec_pointer", "spec_parameter", "macro", "host_knob", "binding", "default"],
+        "properties": {
+          "spec_pointer": {
+            "type": "string",
+            "pattern": "^/parameters/[0-9]+$"
+          },
+          "spec_parameter": {
+            "type": "string",
+            "description": "The spec's parameter `name`, copied verbatim; cross-checked against the pointer."
+          },
+          "macro": {
+            "type": "string",
+            "pattern": "^SR_[A-Z0-9_]+$",
+            "description": "The #define `dse.params_header_from_spec` emits for this parameter: literally 'SR_' plus the spec parameter name upper-cased. The prefix is fixed in code for every feature, not derived from `feature_name`. Stage 4 mutates that one header, so a knob wired to any other name is invisible to the search."
+          },
+          "host_knob": {
+            "type": "string",
+            "description": "The host-native knob the macro drives: a SimObject Param, a constexpr, an environment variable, a config JSON key."
+          },
+          "binding": { "$ref": "#/$defs/binding" },
+          "default": {
+            "description": "The value the port ships. Must equal the spec's default for this parameter; code cross-checks it, because a port that quietly ships a different default measures something the spec does not describe."
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "feature_enable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "binding", "default_off", "off_path"],
+      "description": "The one knob that turns the whole feature on. Gate condition G2 is a claim about this knob, so the plan has to state the claim before the integrator can be held to it.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The knob's name, exactly as the spec names it (e.g. 'TINYSC_ENABLE')."
+        },
+        "macro": {
+          "type": "string",
+          "pattern": "^SR_[A-Z0-9_]+$",
+          "description": "Present when the enable knob is also a spec parameter, and therefore also a define in the generated params header."
+        },
+        "binding": { "$ref": "#/$defs/binding" },
+        "default_off": {
+          "type": "string",
+          "description": "The mechanism that makes off the default, such that an unconfigured build of the host reproduces the baseline without anyone remembering to set anything."
+        },
+        "off_path": {
+          "type": "string",
+          "description": "What executes with the knob off, and why that is bit-identical to the recorded baseline rather than merely close. G2 checks this claim against measured metrics."
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered, individually buildable increments. Each one must leave the host compiling, so a failure has a small blast radius and the debug node has a last-known-good point to bisect to.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "detail", "verify"],
+        "properties": {
+          "title": { "type": "string" },
+          "detail": { "type": "string", "description": "What changes in this increment." },
+          "hook_ids": { "$ref": "#/$defs/hook_id_list" },
+          "verify": {
+            "type": "string",
+            "description": "How the integrator knows this increment landed: a shell command, or the id of a test-plan `correctness[]` entry."
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "description": "What could go wrong in this port specifically. A generic risk is noise; the useful entries are the ones that name a host fact.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["risk", "mitigation"],
+        "properties": {
+          "risk": { "type": "string" },
+          "mitigation": { "type": "string" },
+          "detected_by": {
+            "type": "string",
+            "description": "The id of the test-plan entry that would catch this, if one does. A risk nothing detects is worth knowing about as such."
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "What the spec left unresolved, plus the reading this plan takes. Unlike the spec's `open_questions`, which are bare strings, a plan's must carry a decision: the planner has the host in front of it and the integrator does not get to re-decide silently. A deviation from the assumption goes in PORT_NOTES.md.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "assumption"],
+        "properties": {
+          "question": { "type": "string" },
+          "spec_pointer": { "$ref": "#/$defs/spec_pointer" },
+          "assumption": {
+            "type": "string",
+            "description": "The reading the port implements until told otherwise."
+          },
+          "cost_if_wrong": {
+            "type": "string",
+            "description": "What has to change if the assumption is wrong, which is what decides whether this is worth resolving before integration or after."
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "spec_pointer": {
+      "type": "string",
+      "pattern": "^(/([^/~]|~[01])*)+$",
+      "description": "RFC 6901 JSON Pointer into the feature spec, e.g. '/state/0'. The plan checks resolve it; a pointer that does not resolve is a planning failure, not an integration surprise."
+    },
+    "hook_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "hook_id_list": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/hook_id" },
+      "description": "Ids of `hook_points` entries. Every id must name one; code checks the reference."
+    },
+    "binding": {
+      "type": "string",
+      "enum": [
+        "compile_time_define",
+        "build_config",
+        "runtime_env",
+        "python_param",
+        "constructor_arg",
+        "other"
+      ],
+      "description": "How a value reaches the host. 'compile_time_define' needs a rebuild per value, which stage 4 pays for on every candidate; 'python_param' and 'runtime_env' do not."
+    }
+  }
+}
