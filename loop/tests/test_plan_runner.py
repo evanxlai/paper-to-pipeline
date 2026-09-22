@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+import gate
 import plan_runner
 from plan_runner import ShellOutcome
 from toy_host import ToyHost
@@ -154,6 +155,95 @@ def test_relative_improvement_follows_the_declared_direction():
     assert plan_runner._relative_improvement(10.0, 12.0, "decrease") == pytest.approx(-0.2)
 
 
+# --------------------------------------------------- traces that never ran
+class StubExecutor:
+    """A host whose runs are scripted. `fails` maps (trace, feature_on) to a
+    failure, so a trace can die on one side of the comparison and not the
+    other."""
+
+    def __init__(self, fails=(), mpki_on=50.0, mpki_off=100.0):
+        self.name = "stub"
+        self.fails = set(fails)
+        self.mpki = {True: mpki_on, False: mpki_off}
+        self.state = None
+
+    def build(self, *, feature_on, timeout_s):
+        return plan_runner.BuildOutcome(ok=True, log="")
+
+    def shell(self, command, *, feature_on, env=None, timeout_s=0):
+        self.state = feature_on
+        trace = command.rsplit(" ", 1)[-1]
+        if (trace, feature_on) in self.fails:
+            return plan_runner.ShellOutcome(exit_code=1, output="crashed")
+        return plan_runner.ShellOutcome(
+            exit_code=0, output='{"mpki": %f, "ipc": 1.0}' % self.mpki[feature_on]
+        )
+
+    def parse_metrics(self, output):
+        return json.loads(output) if output.startswith("{") else {}
+
+    def run_traces(self, traces, *, feature_on, timeout_s):
+        raise AssertionError("this plan declares command_per_trace")
+
+
+def perf_entry(**over):
+    base = {
+        "id": "p", "description": "d", "metric": "mpki", "direction": "decrease",
+        "traces": ["a.trace", "b.trace"],
+        "run": {"mode": "command_per_trace", "command_template": "sim {trace}"},
+        "block_threshold": {"min_relative_improvement": 0.0},
+        "warn_threshold": {"target_relative_improvement": 0.1, "claim_source": "s"},
+    }
+    base.update(over)
+    return base
+
+
+def test_the_gate_refuses_an_entry_scored_on_the_traces_that_survived():
+    """Scoring on whatever ran is the quiet version of passing: the mean is
+    over a different trace set than the plan declared."""
+    result = plan_runner.PerformanceResult(
+        id="bias_mpki", metric="mpki", direction="decrease",
+        baseline=100.0, measured=50.0, relative_improvement=0.5,
+        block_passed=True, warn_passed=True,
+        n_traces=3, failed_traces=["hard_a.trace", "hard_b.trace"],
+    )
+    verdict = gate.check_gate(plan_runner.TestPlanResults(
+        build_ok=True,
+        correctness=[plan_runner.CorrectnessResult(
+            id="off", kind="feature_off_baseline", passed=True)],
+        performance=[result], smoke_ok=True,
+    ))
+    assert not verdict.passed
+    assert "2 of 3 trace(s) did not complete" in verdict.reasons[0]
+    assert "hard_a.trace" in verdict.reasons[0]
+
+
+def test_a_trace_that_dies_only_on_the_baseline_side_is_still_recorded():
+    """Feature-on and feature-off dropping different traces leaves the two
+    means over different trace sets. Recording only the feature-on side hides
+    half of that."""
+    executor = StubExecutor(fails=[("b.trace", False)])
+    result = plan_runner._run_performance(executor, perf_entry(), 60, {})
+    assert result.failed_traces == ["b.trace"]
+
+
+def test_a_clean_run_on_both_sides_records_no_failures():
+    result = plan_runner._run_performance(StubExecutor(), perf_entry(), 60, {})
+    assert result.failed_traces == []
+    assert result.block_passed
+    assert result.relative_improvement == pytest.approx(0.5)
+
+
+def test_a_recorded_baseline_entry_only_reports_its_own_side(baseline):
+    """With `recorded` there is no second run to fail, so the only failures
+    are the feature-on ones."""
+    entry = perf_entry(baseline={"source": "recorded", "pointer": "/bias"},
+                       metric="mpki", traces=["a.trace", "b.trace"])
+    executor = StubExecutor(fails=[("b.trace", True)])
+    result = plan_runner._run_performance(executor, entry, 60, baseline)
+    assert result.failed_traces == ["b.trace"]
+
+
 # ------------------------------------------------------------ the whole gate
 def materialize(tmp_path, ported=False, defect=None):
     """A host, and the baseline recorded off it BEFORE the port lands.
@@ -271,6 +361,20 @@ def test_a_companion_metric_regression_blocks(tmp_path, _cc_available):
     verdict = run_gate_over((host, baseline))
     assert not verdict.passed
     assert any("regressed" in r and "ipc" in r for r in verdict.reasons)
+
+
+def test_a_performance_trace_that_does_not_run_blocks_on_the_real_host(
+    tmp_path, _cc_available
+):
+    """End to end: a correct port, improving the metric on the trace that
+    works, is still refused when another declared trace never completes."""
+    host, baseline = materialize(tmp_path, ported=True)
+    host.test_plan["performance"][0]["traces"] = [
+        "workloads/bias.trace", "workloads/nope.trace",
+    ]
+    verdict = run_gate_over((host, baseline))
+    assert not verdict.passed
+    assert any("nope.trace" in r and "did not complete" in r for r in verdict.reasons)
 
 
 def test_a_build_failure_short_circuits_to_one_reason(tmp_path, _cc_available):

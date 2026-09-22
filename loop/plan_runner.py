@@ -369,6 +369,13 @@ def _run_performance(
         off = _measure(executor, traces, entry.get("run"),
                        feature_on=False, timeout_s=timeout_s)
         base_metrics = off.metrics
+        # Both sides' failures, deduped and in order. A trace that completed
+        # feature-on and died feature-off leaves the two means over different
+        # trace sets, which is the same defect as a feature-on failure and is
+        # invisible if only one side is recorded.
+        for trace in off.failed:
+            if trace not in out.failed_traces:
+                out.failed_traces.append(trace)
     if metric not in base_metrics:
         out.reason = f"no baseline value for {metric!r} (source {source!r})"
         return out

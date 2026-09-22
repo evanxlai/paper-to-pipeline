@@ -10,7 +10,11 @@ Gate for a performance-model host:
       plan says which workloads and which tolerance;
   G3  the test plan's other `correctness[]` entries pass;
   G4  with the feature knob ON, the plan's smoke traces complete cleanly;
-  G5  the test plan's `performance[]` entries pass their `block_threshold`.
+  G5  the test plan's `performance[]` entries pass their `block_threshold`,
+      and every trace they declare completes -- an entry scored on the
+      traces that survived is a number about a different trace set than the
+      plan asked for, and on a measure_feature_off entry the two sides can
+      drop different traces, which is not a comparison at all.
 
 There is no storage condition. Only the DSE stage knows about resource
 constraints (docs/stages.md), so a gate that weighed a budget could not tell
@@ -104,7 +108,20 @@ def check_gate(results) -> GateResult:
         reasons.append(f"G4 feature-on smoke did not complete cleanly: {failed}")
 
     for result in results.performance:
-        if not result.block_passed:
+        if result.failed_traces:
+            # Scoring the entry on the traces that survived is the quiet
+            # version of passing: the mean is taken over whatever ran, and on
+            # a measure_feature_off entry the two sides can drop different
+            # traces, so the comparison is between two different trace sets.
+            # G4 already refuses this for the smoke list; a performance trace
+            # that does not complete is at least as serious.
+            reasons.append(
+                f"G5 [{result.id}] {len(result.failed_traces)} of {result.n_traces} "
+                f"trace(s) did not complete: {', '.join(result.failed_traces)}. The "
+                f"entry was scored on the rest, which is a number about a different "
+                f"trace set than the one the plan declared."
+            )
+        elif not result.block_passed:
             reasons.append(f"G5 [{result.id}] {result.reason}")
         if result.warning:
             warnings.append(result.warning)

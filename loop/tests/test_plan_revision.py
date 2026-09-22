@@ -301,21 +301,25 @@ def test_rejects_moving_an_entry_to_unlock_its_run(port, tests):
     ]
 
 
-def test_rejects_shortening_a_performance_timeout(port, tests):
-    """`plan_runner._measure` scores the traces that completed and the gate
-    does not block on the ones that did not, so a shorter timeout scores the
-    entry on the easy subset."""
+def test_allows_correcting_a_performance_timeout(port, tests):
+    """A plan that guessed a timeout too short for this host's real runtime is
+    wrong about the tree, which is the revisable class.
+
+    This field was frozen while `gate.check_gate` ignored `failed_traces`,
+    because a shorter timeout then dropped the slow traces and scored the
+    entry on the easy subset. G5 now blocks any performance entry with a
+    failed trace, so a short timeout is refused at the gate instead of
+    rewarded, and the freeze here protected nothing. The gate owns the
+    condition; this module does not hold it by proxy."""
     tests["performance"][0]["timeout_seconds"] = 600
     new = json.loads(json.dumps(tests))
     new["performance"][0]["timeout_seconds"] = 5
-    found = blockers(guard(port, tests, port, new))
-    assert codes(found) == ["revision_froze_field"]
-    assert found[0].pointer == "/tests/performance/0/timeout_seconds"
+    assert guard(port, tests, port, new) == []
 
 
 def test_allows_lengthening_a_correctness_timeout(port, tests):
-    """The correctness half has no subset hazard: a command that times out
-    fails its entry outright, so the timeout stays revisable there."""
+    """The correctness half never had the subset hazard: a command that times
+    out fails its entry outright, with no surviving subset to score."""
     new = json.loads(json.dumps(tests))
     new["correctness"][0]["timeout_seconds"] = 1800
     assert guard(port, tests, port, new) == []

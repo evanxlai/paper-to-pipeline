@@ -53,10 +53,27 @@ is lost: a mid-run tightening is not something the judged party needs, and a
 threshold that is genuinely wrong is a measurement-design defect, which is
 exactly what escalation is for.
 
-Nothing here mentions a resource budget, for the reason `plan_checks` does not:
-only the DSE stage knows about constraints, so a revision that introduces
-budget language is caught by `plan_checks._check_budget_language` on the
-revised pair and needs no rule of its own.
+One more boundary, which decides what does *not* belong in this module. Where
+another layer can hold a condition itself, this guard should not hold it by
+proxy -- two places holding one rule is how they drift apart, and the copy
+that drifts is the one nobody is testing.
+
+Two fields show what that means in practice. A revision that introduces
+budget language needs no rule here, because `plan_checks._check_budget_language`
+already rejects it on the revised pair: only the DSE stage knows about
+constraints, and that is where the rule lives. And `performance[].timeout_seconds`
+was frozen for a while, because `plan_runner._measure` scores the mean over
+the traces that completed and `gate.check_gate` did not look at the rest, so a
+shorter timeout scored the entry on the easy subset. G5 now blocks any
+performance entry with a failed trace. The hole belonged to the gate, the gate
+closed it, and the freeze came out -- a plan that guessed a timeout too short
+for this host is wrong about the tree, which is the revisable class.
+
+The test that distinguishes the two cases: can the gate see the defect in what
+it already measures? If it can, it should refuse it, and a freeze here only
+hides the gap. If it cannot -- as with a `performance[].run` change that works
+and reports a better number against a fixed comparison point -- then this is
+the only layer that can, and the field is frozen.
 """
 
 from __future__ import annotations
@@ -145,14 +162,11 @@ _TESTS_COLLECTIONS = {
     # by `_check_performance_run` below, which is the only field in either
     # document whose revisability depends on the rest of its entry.
     #
-    # `timeout_seconds` is deliberately NOT revisable on a performance entry,
-    # unlike on a correctness one. `plan_runner._measure` returns the mean of
-    # the traces that completed and records the rest in `failed_traces`, and
-    # `gate.check_gate` does not block on that list -- so a shorter timeout
-    # drops the slow traces and scores the entry on the easy subset. That is a
-    # standing gap in the runner rather than something this feature created,
-    # but freezing the field is what stops a revision from reaching it.
-    "performance": ("id", {"description", "run"}),
+    # `timeout_seconds` is revisable because G5 blocks a performance entry
+    # with any failed trace, so a shortened timeout is refused at the gate
+    # rather than rewarded here. See the boundary note in the module
+    # docstring: it was frozen until that clause existed.
+    "performance": ("id", {"description", "run", "timeout_seconds"}),
 }
 
 # Fidelity, worst last. Used only to decide whether an

@@ -180,7 +180,7 @@ suite.
 | G2 | with the feature knob off, metrics equal the recorded baseline — reported as the results of the test plan's `feature_off_baseline` entries, so the plan owns which workloads and which tolerance |
 | G3 | the test plan's other `correctness[]` entries pass |
 | G4 | with the feature knob on, the smoke traces complete without error |
-| G5 | the test plan's `performance[]` entries pass their `block_threshold` |
+| G5 | the test plan's `performance[]` entries pass their `block_threshold`, and every trace they declare completes — an entry scored on the traces that survived is a number about a different trace set than the plan asked for |
 
 There is no storage condition. See the rule at the top.
 
@@ -224,8 +224,8 @@ surviving entry is frozen apart from a named allowlist.
 
 | | Fields |
 |---|---|
-| Revisable | `hook_points` entire, `structure.choice`, `spec_map[].realization` and `hook_ids`, `steps`, `risks`, `interface_resolutions[].status` / `resolution` / `rationale` / `fidelity_note`, `knobs[].host_knob` and `binding`, `open_questions[].cost_if_wrong`, `correctness[].command` / `env` / `timeout_seconds` / `test_file`, any `description`, `notes`, `smoke.run`, and anything added |
-| Frozen | `feature_name`, `host`, `host_revision`, `spec_inputs_used`, every `pass_condition`, every `clean_tree_result`, `baseline_rel_tol`, both `performance[]` thresholds, `performance[].metric` / `direction` / `baseline` / `timeout_seconds`, the smoke and performance trace sets, `knobs[].macro` and `default`, `feature_enable.name` and `macro`, a `rejected_alternatives` entry, an `open_questions[].assumption` |
+| Revisable | `hook_points` entire, `structure.choice`, `spec_map[].realization` and `hook_ids`, `steps`, `risks`, `interface_resolutions[].status` / `resolution` / `rationale` / `fidelity_note`, `knobs[].host_knob` and `binding`, `open_questions[].cost_if_wrong`, `correctness[].command` / `env` / `test_file`, any `timeout_seconds`, any `description`, `notes`, `smoke.run`, and anything added |
+| Frozen | `feature_name`, `host`, `host_revision`, `spec_inputs_used`, every `pass_condition`, every `clean_tree_result`, `baseline_rel_tol`, both `performance[]` thresholds, `performance[].metric` / `direction` / `baseline`, the smoke and performance trace sets, `knobs[].macro` and `default`, `feature_enable.name` and `macro`, a `rejected_alternatives` entry, an `open_questions[].assumption` |
 | Append-only | `metric_keys`, `correctness[]`, `performance[]`, `spec_map[]` pointers, `knobs[]`, `interface_resolutions[]`, `open_questions[]`, `structure.rejected_alternatives`, `smoke.traces` |
 
 No rule compares two numbers for looseness. A threshold is frozen in both directions on
