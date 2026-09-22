@@ -272,12 +272,23 @@ def _relative_improvement(baseline: float, measured: float, direction: str) -> f
 
 
 def _traces_of(entry: dict) -> list:
+    """The workloads this entry declared, or an empty list.
+
+    Empty rather than an exception when the named list is missing. A plan
+    can name a trace list that is not in the repository, and that is a
+    condition the gate has to report: an exception here kills the stage
+    that was about to report it, takes the whole integration run with it,
+    and loses the attempt. Callers turn the empty list into a failed entry
+    that names the file."""
     if entry.get("traces"):
         return list(entry["traces"])
     import constants as C
     import helpers
 
-    return helpers.load_trace_list(C.REPO_ROOT / entry["trace_list"])
+    try:
+        return helpers.load_trace_list(C.REPO_ROOT / entry["trace_list"])
+    except OSError:
+        return []
 
 
 # ------------------------------------------------------------------ driver
@@ -328,12 +339,21 @@ def run_test_plan(
 
     smoke = test_plan.get("smoke") or {}
     if smoke:
-        outcome = _measure(
-            executor, _traces_of(smoke), smoke.get("run"),
-            feature_on=True, timeout_s=smoke.get("timeout_seconds", default_timeout),
-        )
-        results.smoke_ok = outcome.ok
-        results.smoke_failures = list(outcome.failed)
+        traces = _traces_of(smoke)
+        if not traces:
+            results.smoke_ok = False
+            results.smoke_failures = [
+                f"the smoke section names {smoke.get('trace_list')!r}, which this "
+                f"repository does not have, so no workload ran"
+            ]
+        else:
+            outcome = _measure(
+                executor, traces, smoke.get("run"),
+                feature_on=True,
+                timeout_s=smoke.get("timeout_seconds", default_timeout),
+            )
+            results.smoke_ok = outcome.ok
+            results.smoke_failures = list(outcome.failed)
 
     for entry in test_plan.get("performance") or []:
         results.performance.append(
@@ -350,6 +370,13 @@ def _run_performance(
     timeout_s = entry.get("timeout_seconds", default_timeout)
     out = PerformanceResult(id=entry["id"], metric=metric, direction=direction,
                             n_traces=len(traces))
+    if not traces:
+        out.reason = (
+            f"this entry names {entry.get('trace_list')!r}, which this repository "
+            f"does not have, so it measured nothing. A performance entry with no "
+            f"workload is not a passing entry."
+        )
+        return out
 
     on = _measure(executor, traces, entry.get("run"), feature_on=True, timeout_s=timeout_s)
     out.failed_traces = list(on.failed)
