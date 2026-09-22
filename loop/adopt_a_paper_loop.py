@@ -659,6 +659,13 @@ def main() -> None:
     # compare against. Point this at experiments/perf-8.list to record the
     # bigger set for the write-up.
     ap.add_argument("--baseline-list", default=str(C.REPO_ROOT / "experiments" / "smoke-2.list"))
+    # Which traces stage 4 screens each candidate on. The default is the
+    # 60-trace stratified set, which is the honest screening population and
+    # also most of the search's wall clock: one candidate is 60 simulator
+    # runs. Point it at a shorter list to demonstrate the stage, and say so
+    # when reporting the result -- a winner screened on four traces is a
+    # winner on four traces.
+    ap.add_argument("--screening-list", default=str(C.SCREENING_LIST))
     args = ap.parse_args()
 
     ray.init(address="auto", runtime_env=C.RUNTIME_ENV)
@@ -731,7 +738,11 @@ def main() -> None:
                 "reason": "the verify gate did not promote this port, so tuning it "
                           "would search the parameters of a feature that does not work",
             }
-        summary["dse"] = [dse.run_dse(h, spec, args.budget, C.DSE_CONFIG) for h in targets]
+        summary["dse"] = [
+            dse.run_dse(h, spec, args.budget, C.DSE_CONFIG,
+                        screening_list_path=Path(args.screening_list))
+            for h in targets
+        ]
 
     dump.json("summary.json", summary)
     print(json.dumps(summary, indent=2, default=str))
