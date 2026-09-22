@@ -4,373 +4,286 @@
   "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
   "spec_inputs_used": "paper_only",
   "structure": {
-    "choice": "One contestant class (SampleCondPredictor) holding sR's state and tables, exposing methods get_sR_sum and update_sR_weights. These are called from the TAGE-SC-L statistical corrector logic, which is where the threshold and SC update conditions reside.",
+    "choice": "The state and hooks are encapsulated in the contestant's `SampleCondPredictor`. The prediction sum and update are integrated directly into the host's Statistical Corrector in `cbp2016_tage_sc_l.h` (`LSUM` and `update`), leveraging the SC's existing confidence threshold (`THRES`) and training logic.",
     "rejected_alternatives": [
       {
-        "alternative": "Standalone predictor overriding TAGE-SC-L output on every disagreement",
-        "why_rejected": "No confidence threshold to avoid overriding a strong predictor. Causes major performance regressions (CycWPPKI worsened by 43%). sR must be integrated into the statistical corrector's sum (LSUM).",
-        "source": "Host notes: 'Where sR joins the statistical corrector'"
+        "alternative": "A standalone predictor in `SampleCondPredictor` overriding TAGE-SC-L on every disagreement.",
+        "why_rejected": "It adds noise and severely degrades CycWPPKI by overriding strong SC predictions without its own confidence threshold.",
+        "source": "hosts/cbp2025/NOTES.md"
       }
     ]
   },
   "hook_points": [
     {
+      "id": "h_sample_pred_class",
+      "file": "my_cond_branch_predictor.h",
+      "symbol": "SampleCondPredictor",
+      "action": "modify",
+      "observed": "Defines the `SampleCondPredictor` class with `SampleHist` passing through `tage_pred`. It contains empty `setup`, `history_update`, and `update` stubs.",
+      "change": "Include `sr_params.h`. Add sR state structures (register tracking table, UT, WT) and `bool sr_enabled`. Add methods `get_sR_sum`, `update_sR`, `notify_decode`, `notify_execute`, and `is_sr_enabled()`. In `setup()`, read the `SR_SR_ENABLE` environment variable."
+    },
+    {
+      "id": "h_interface_decode",
+      "file": "cond_branch_predictor_interface.cc",
+      "symbol": "notify_instr_decode",
+      "action": "modify",
+      "observed": "Empty hook that receives instruction decode events.",
+      "change": "Call `cond_predictor_impl.notify_decode(seq_no, piece, pc, _decode_info);` to age decay counters and allocate the destination register in the tracking table."
+    },
+    {
+      "id": "h_interface_execute",
+      "file": "cond_branch_predictor_interface.cc",
+      "symbol": "notify_instr_execute_resolve",
+      "action": "modify",
+      "observed": "Uses instruction execute events to update conditional branches.",
+      "change": "At the beginning of the function, call `cond_predictor_impl.notify_execute(seq_no, piece, pc, _exec_info);` unconditionally to process result values and update the register digests."
+    },
+    {
+      "id": "h_tage_sc_predict",
+      "file": "cbp2016_tage_sc_l.h",
+      "symbol": "cbp2016_tage_sc_l::predict_using_given_hist",
+      "action": "modify",
+      "observed": "Around line 1044, builds `LSUM` out of one contribution per component (e.g., GEHLs and biases) before comparing against `THRES` to compute `SCPRED`.",
+      "change": "Add `extern SampleCondPredictor cond_predictor_impl;` at the top of the file. Before `SCPRED` is computed, insert `LSUM += cond_predictor_impl.get_sR_sum(seq_no, piece, PC);`."
+    },
+    {
+      "id": "h_tage_sc_update_inner",
+      "file": "cbp2016_tage_sc_l.h",
+      "symbol": "cbp2016_tage_sc_l::update (inner overload)",
+      "action": "modify",
+      "observed": "Takes `(UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)`. Around line 1288, updates SC weights under the `((SCPRED != resolveDir) || ((abs(LSUM) < THRES)))` condition.",
+      "change": "Add `uint64_t seq_no` and `uint8_t piece` to the parameter list. In the SC update block (alongside `Gupdate`), add a call to `cond_predictor_impl.update_sR(seq_no, piece, PC, resolveDir);`."
+    },
+    {
+      "id": "h_tage_sc_update_outer",
+      "file": "cbp2016_tage_sc_l.h",
+      "symbol": "cbp2016_tage_sc_l::update (outer overload)",
+      "action": "modify",
+      "observed": "Takes `(uint64_t seq_no, uint8_t piece, ...)`, looks up checkpointed history, and delegates to the inner `update` without forwarding the instruction IDs.",
+      "change": "Pass `seq_no` and `piece` to the inner `update` call so the contestant predictor can access the correct instruction identity."
+    },
+    {
       "id": "h_makefile",
       "file": "Makefile",
       "symbol": "DEPS",
       "action": "modify",
-      "observed": "Lists header dependencies: cbp.h cond_branch_predictor_interface.h my_cond_branch_predictor.h",
-      "change": "Add sr_params.h to the DEPS list so that parameter changes trigger a rebuild."
-    },
-    {
-      "id": "h_my_pred_h",
-      "file": "my_cond_branch_predictor.h",
-      "symbol": "SampleCondPredictor",
-      "action": "modify",
-      "observed": "Currently holds checkpointed histories and a pass-through predict function.",
-      "change": "Add sR state: reg_status_table, usefulness_weight_tables, prediction_weight_tables. Add methods get_sR_sum, update_sR_weights, notify_decode, notify_execute, and #include \"sr_params.h\"."
-    },
-    {
-      "id": "h_my_pred_cc",
-      "file": "my_cond_branch_predictor.cc",
-      "symbol": "SampleCondPredictor",
-      "action": "modify",
-      "observed": "Empty at 0 bytes.",
-      "change": "Define the out-of-line methods for SampleCondPredictor to keep the header clean, including the digest generation and table updates."
-    },
-    {
-      "id": "h_interface_cc",
-      "file": "cond_branch_predictor_interface.cc",
-      "symbol": "notify_instr_decode",
-      "action": "modify",
-      "observed": "Empty function notify_instr_decode and notify_instr_execute_resolve handles branch prediction updates.",
-      "change": "Call cond_predictor_impl.notify_decode in notify_instr_decode. In notify_instr_execute_resolve, call cond_predictor_impl.notify_execute to feed execution values into the register table."
-    },
-    {
-      "id": "h_tage_sc_l_predict",
-      "file": "cbp2016_tage_sc_l.h",
-      "symbol": "PREDICTOR::predict_using_given_hist",
-      "action": "modify",
-      "observed": "Computes LSUM from existing components. Sets SCPRED = (LSUM >= 0).",
-      "change": "Add a call to cond_predictor_impl.get_sR_sum(seq_no, piece, PC) and add its result to LSUM before SCPRED is computed, gated by sr_enabled."
-    },
-    {
-      "id": "h_tage_sc_l_update_outer",
-      "file": "cbp2016_tage_sc_l.h",
-      "symbol": "PREDICTOR::update",
-      "action": "modify",
-      "observed": "Outer update takes seq_no and piece, retrieves history, calls inner update, then erases history.",
-      "change": "Pass seq_no and piece down to the inner update method so the SC update block has instruction identity."
-    },
-    {
-      "id": "h_tage_sc_l_update_inner",
-      "file": "cbp2016_tage_sc_l.h",
-      "symbol": "PREDICTOR::update",
-      "action": "modify",
-      "observed": "Runs SC updates under `if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))`. Does not take seq_no and piece.",
-      "change": "Add seq_no and piece to the signature. Inside the SC update condition, call cond_predictor_impl.update_sR_weights(seq_no, piece, PC, resolveDir) to train sR."
+      "observed": "Defines `DEPS` as `cbp.h cond_branch_predictor_interface.h my_cond_branch_predictor.h`.",
+      "change": "Append `sr_params.h` to the `DEPS` list so that changes from stage 4 correctly trigger a rebuild."
     }
   ],
   "spec_map": [
     {
       "spec_pointer": "/state/0",
-      "spec_item": "reg_status_table",
+      "spec_item": "register_tracking_table",
       "hook_ids": [
-        "h_my_pred_h"
+        "h_sample_pred_class"
       ],
-      "realization": "An array of 65 structures holding valid bit, payload (rob_tag or digest), and decay_ctr."
+      "realization": "An `std::array` of 65 entries in `SampleCondPredictor` storing the valid bit, 14-bit payload, and 8-bit decay counter."
     },
     {
       "spec_pointer": "/state/1",
-      "spec_item": "usefulness_weight_tables",
+      "spec_item": "sr_usefulness_table",
       "hook_ids": [
-        "h_my_pred_h"
+        "h_sample_pred_class"
       ],
-      "realization": "An array of 8 banks, each containing UT0, UT1, UT2 arrays mapped by register ID."
+      "realization": "A 2D `std::array` of 8 banks x 8 entries in `SampleCondPredictor`, with each entry storing an array of 9 6-bit integers."
     },
     {
       "spec_pointer": "/state/2",
-      "spec_item": "prediction_weight_tables",
+      "spec_item": "sr_prediction_table",
       "hook_ids": [
-        "h_my_pred_h"
+        "h_sample_pred_class"
       ],
-      "realization": "An array of 8 banks, each containing WT0 (512), WT1 (256), WT2 (128) entries."
+      "realization": "A 2D `std::array` of 8 banks x 1024 entries in `SampleCondPredictor`, with each entry serving as a 6-bit integer counter."
     },
     {
       "spec_pointer": "/algorithms/0",
-      "spec_item": "generate_digest",
+      "spec_item": "allocate_destination",
       "hook_ids": [
-        "h_my_pred_cc"
+        "h_sample_pred_class",
+        "h_interface_decode"
       ],
-      "realization": "A private method in SampleCondPredictor that computes the 12-bit digest from a 64-bit value."
+      "realization": "`notify_decode` increments decay counters for all valid registers and initializes the entry matching `_decode_info.dst_reg_info`."
     },
     {
       "spec_pointer": "/algorithms/1",
-      "spec_item": "decode_dispatch_track",
+      "spec_item": "update_digest",
       "hook_ids": [
-        "h_interface_cc",
-        "h_my_pred_cc"
+        "h_sample_pred_class",
+        "h_interface_execute"
       ],
-      "realization": "Hooked via notify_instr_decode. Marks the destination register as pending (valid=0) and increments staleness decay for all valid registers."
+      "realization": "`notify_execute` retrieves `_exec_info.dst_reg_value`, categorizes it by logical register index, formats the digest, and updates the payload."
     },
     {
       "spec_pointer": "/algorithms/2",
-      "spec_item": "execution_complete_update",
+      "spec_item": "predict",
       "hook_ids": [
-        "h_interface_cc",
-        "h_my_pred_cc"
+        "h_sample_pred_class",
+        "h_tage_sc_predict"
       ],
-      "realization": "Hooked via notify_instr_execute_resolve. Updates the pending register's payload with the digest and sets it valid."
+      "realization": "`get_sR_sum` retrieves the most useful available register digest per bank and aggregates the sR sum which is directly injected into `LSUM` in `cbp2016_tage_sc_l::predict_using_given_hist`."
     },
     {
       "spec_pointer": "/algorithms/3",
-      "spec_item": "predict",
+      "spec_item": "update",
       "hook_ids": [
-        "h_tage_sc_l_predict",
-        "h_my_pred_cc"
+        "h_sample_pred_class",
+        "h_tage_sc_update_inner",
+        "h_tage_sc_update_outer"
       ],
-      "realization": "Implemented in get_sR_sum. Sums bank contributions gated by usefulness and feeds into TAGE-SC-L's LSUM."
+      "realization": "`update_sR` is invoked inside `cbp2016_tage_sc_l::update` during an SC update to apply saturating counter changes to the randomly selected available register's UT and WT entries."
     },
     {
       "spec_pointer": "/algorithms/4",
-      "spec_item": "update",
+      "spec_item": "extract_format_specific_bits",
       "hook_ids": [
-        "h_tage_sc_l_update_outer",
-        "h_tage_sc_l_update_inner",
-        "h_my_pred_cc"
+        "h_sample_pred_class"
       ],
-      "realization": "Implemented in update_sR_weights. Called from TAGE-SC-L's SC update block to train the chosen register's UT and WT."
-    },
-    {
-      "spec_pointer": "/algorithms/5",
-      "spec_item": "pipeline_squash_recovery",
-      "hook_ids": [
-        "h_my_pred_cc"
-      ],
-      "realization": "No-op. The host traces contain only committed instructions and no flushes."
+      "realization": "Implemented as a private helper method inside `SampleCondPredictor`."
     }
   ],
   "interface_resolutions": [
     {
       "spec_pointer": "/host_interfaces/0",
-      "need": "Destination logical register ID and ROB tag at instruction decode/rename",
-      "status": "fallback",
-      "resolution": "Track seq_no and piece as a unique 64-bit ID instead of ROB tag, generated via get_unique_inst_id.",
-      "rationale": "The host is trace-driven and provides no ROB tag.",
-      "fidelity_note": "Digests are tracked by instruction sequence ID rather than ROB tag."
+      "need": "Logical destination register ID at decode",
+      "status": "exact",
+      "resolution": "The host provides `_decode_info.dst_reg_info` inside `notify_instr_decode`.",
+      "rationale": "The `DecodeInfo` structure passed into the decode hook is natively supplied by the simulator for all instructions.",
+      "hook_ids": [
+        "h_interface_decode"
+      ]
     },
     {
       "spec_pointer": "/host_interfaces/1",
-      "need": "Result value, destination logical register ID, ROB tag, and operand type at execution completion",
-      "status": "exact",
-      "resolution": "Use _exec_info.dst_reg_value and dec_info from notify_instr_execute_resolve.",
-      "rationale": "The simulator accurately populates the result value in the ExecuteInfo struct."
+      "need": "Result value, register ID, and type at completion",
+      "status": "fallback",
+      "resolution": "The host provides `_exec_info.dst_reg_value` in `notify_instr_execute_resolve`. The operand type is inferred precisely from the register index (R0-R31 is INT, R32-R63 is FP/SIMD, R64 is FLAG). We unconditionally apply the FP64 extraction method for all FP/SIMD writes.",
+      "rationale": "The host does not distinguish the specific precision of FP instructions, necessitating a uniform FP digest generation rule.",
+      "fidelity_note": "Applying the FP64 extraction mechanism uniformly means the port may capture irrelevant or meaningless bits for FP16 and FP32 outputs.",
+      "hook_ids": [
+        "h_interface_execute"
+      ]
     },
     {
       "spec_pointer": "/host_interfaces/2",
-      "need": "Decoded instruction count pulse",
+      "need": "Instruction decode events",
       "status": "exact",
-      "resolution": "Use notify_instr_decode which fires once per decoded instruction to increment decay counters.",
-      "rationale": "The simulator provides a per-instruction decode callback."
-    },
-    {
-      "spec_pointer": "/host_interfaces/3",
-      "need": "Pipeline squash / flush signal with branch ROB tag",
-      "status": "unavailable",
-      "resolution": "No-op. Squash recovery is unimplemented.",
-      "rationale": "The host trace contains only committed instructions and no wrong-path execution or flushes.",
-      "fidelity_note": "Squash recovery is disabled. Register state never rolls back, which may reduce correlation accuracy slightly compared to the paper."
-    },
-    {
-      "spec_pointer": "/host_interfaces/4",
-      "need": "Statistical Corrector summation interface",
-      "status": "exact",
-      "resolution": "Add sR output directly to LSUM in cbp2016_tage_sc_l.h and place the update call in the SC update block.",
-      "rationale": "The host predictor implements TAGE-SC-L and exposes the SC LSUM and update logic."
+      "resolution": "The host invokes `notify_instr_decode` iteratively for every decoded instruction.",
+      "rationale": "This provides the required pulse point needed to increment the decay counter.",
+      "hook_ids": [
+        "h_interface_decode"
+      ]
     }
   ],
   "knobs": [
     {
       "spec_pointer": "/parameters/0",
-      "spec_parameter": "sr_enable",
-      "macro": "SR_SR_ENABLE",
-      "host_knob": "getenv(\"SR_SR_ENABLE\")",
-      "binding": "runtime_env",
-      "default": "true"
-    },
-    {
-      "spec_pointer": "/parameters/1",
-      "spec_parameter": "num_banks",
-      "macro": "SR_NUM_BANKS",
-      "host_knob": "SR_NUM_BANKS",
-      "binding": "compile_time_define",
-      "default": 8
-    },
-    {
-      "spec_pointer": "/parameters/2",
-      "spec_parameter": "num_logical_regs",
-      "macro": "SR_NUM_LOGICAL_REGS",
-      "host_knob": "SR_NUM_LOGICAL_REGS",
-      "binding": "compile_time_define",
-      "default": 65
-    },
-    {
-      "spec_pointer": "/parameters/3",
-      "spec_parameter": "decay_threshold_insts",
-      "macro": "SR_DECAY_THRESHOLD_INSTS",
-      "host_knob": "SR_DECAY_THRESHOLD_INSTS",
+      "spec_parameter": "decay_interval",
+      "macro": "SR_DECAY_INTERVAL",
+      "host_knob": "macro definition",
       "binding": "compile_time_define",
       "default": 256
     },
     {
-      "spec_pointer": "/parameters/4",
+      "spec_pointer": "/parameters/1",
       "spec_parameter": "digest_width",
       "macro": "SR_DIGEST_WIDTH",
-      "host_knob": "SR_DIGEST_WIDTH",
+      "host_knob": "macro definition",
       "binding": "compile_time_define",
       "default": 12
     },
     {
-      "spec_pointer": "/parameters/5",
-      "spec_parameter": "wt_weight_width",
-      "macro": "SR_WT_WEIGHT_WIDTH",
-      "host_knob": "SR_WT_WEIGHT_WIDTH",
+      "spec_pointer": "/parameters/2",
+      "spec_parameter": "num_banks",
+      "macro": "SR_NUM_BANKS",
+      "host_knob": "macro definition",
       "binding": "compile_time_define",
-      "default": 6
+      "default": 8
     },
     {
-      "spec_pointer": "/parameters/6",
-      "spec_parameter": "ut_weight_width",
-      "macro": "SR_UT_WEIGHT_WIDTH",
-      "host_knob": "SR_UT_WEIGHT_WIDTH",
+      "spec_pointer": "/parameters/3",
+      "spec_parameter": "algorithms_2_pseudocode_variant",
+      "macro": "SR_ALGORITHMS_2_PSEUDOCODE_VARIANT",
+      "host_knob": "macro definition",
       "binding": "compile_time_define",
-      "default": 6
-    },
-    {
-      "spec_pointer": "/parameters/7",
-      "spec_parameter": "useful_multiplier",
-      "macro": "SR_USEFUL_MULTIPLIER",
-      "host_knob": "SR_USEFUL_MULTIPLIER",
-      "binding": "compile_time_define",
-      "default": 2.5
-    },
-    {
-      "spec_pointer": "/parameters/8",
-      "spec_parameter": "algorithms_0_pseudocode_variant",
-      "macro": "SR_ALGORITHMS_0_PSEUDOCODE_VARIANT",
-      "host_knob": "SR_ALGORITHMS_0_PSEUDOCODE_VARIANT",
-      "binding": "compile_time_define",
-      "default": "align_bit_3"
-    },
-    {
-      "spec_pointer": "/parameters/9",
-      "spec_parameter": "algorithms_0_pseudocode_variant_2",
-      "macro": "SR_ALGORITHMS_0_PSEUDOCODE_VARIANT_2",
-      "host_knob": "SR_ALGORITHMS_0_PSEUDOCODE_VARIANT_2",
-      "binding": "compile_time_define",
-      "default": "saturate_63"
-    },
-    {
-      "spec_pointer": "/parameters/10",
-      "spec_parameter": "algorithms_3_pseudocode_variant",
-      "macro": "SR_ALGORITHMS_3_PSEUDOCODE_VARIANT",
-      "host_knob": "SR_ALGORITHMS_3_PSEUDOCODE_VARIANT",
-      "binding": "compile_time_define",
-      "default": "xor_fold"
-    },
-    {
-      "spec_pointer": "/parameters/11",
-      "spec_parameter": "algorithms_3_pseudocode_variant_2",
-      "macro": "SR_ALGORITHMS_3_PSEUDOCODE_VARIANT_2",
-      "host_knob": "SR_ALGORITHMS_3_PSEUDOCODE_VARIANT_2",
-      "binding": "compile_time_define",
-      "default": "xor_hash"
-    },
-    {
-      "spec_pointer": "/parameters/12",
-      "spec_parameter": "algorithms_4_pseudocode_variant",
-      "macro": "SR_ALGORITHMS_4_PSEUDOCODE_VARIANT",
-      "host_knob": "SR_ALGORITHMS_4_PSEUDOCODE_VARIANT",
-      "binding": "compile_time_define",
-      "default": "sampled_pred_correct"
-    },
-    {
-      "spec_pointer": "/parameters/13",
-      "spec_parameter": "algorithms_4_pseudocode_variant_2",
-      "macro": "SR_ALGORITHMS_4_PSEUDOCODE_VARIANT_2",
-      "host_knob": "SR_ALGORITHMS_4_PSEUDOCODE_VARIANT_2",
-      "binding": "compile_time_define",
-      "default": "xor_fold"
+      "default": "xor"
     }
   ],
   "feature_enable": {
     "name": "sr_enable",
-    "macro": "SR_SR_ENABLE",
     "binding": "runtime_env",
-    "default_off": "A getenv result of nullptr resolves to false, bypassing all sR logic.",
-    "off_path": "With the knob off, the sR contribution is skipped entirely, leaving LSUM identical to the unmodified host. The SC update block does not call update_sR_weights, ensuring zero state mutation and maintaining bit-identical baseline metrics."
+    "default_off": "In `SampleCondPredictor::setup()`, the `sr_enabled` boolean is initialized to false. `getenv(\"SR_SR_ENABLE\")` returns `nullptr` when unset, ensuring the feature defaults to off.",
+    "off_path": "When `sr_enabled` is false, `get_sR_sum()` immediately returns 0, and the tracking hooks (`notify_decode`, `notify_execute`, `update_sR`) execute no logic. The statistical corrector performs `LSUM += 0` and proceeds indistinguishably from the baseline logic."
   },
   "steps": [
     {
-      "title": "Add sr_params.h and modify Makefile",
-      "detail": "Create sr_params.h and add it to DEPS in the Makefile.",
+      "title": "Define Parameters",
+      "detail": "Create `sr_params.h` with default constants. Add `sr_params.h` to `DEPS` in the Makefile.",
       "hook_ids": [
         "h_makefile"
       ],
-      "verify": "c_existing_regression_int"
+      "verify": "clean_tree_run"
     },
     {
-      "title": "Define sR data structures and global API in my_cond_branch_predictor",
-      "detail": "Implement the tables, generate_digest, and the skeleton of get_sR_sum and update_sR_weights in SampleCondPredictor.",
+      "title": "Add State and Enable Knob",
+      "detail": "Add required class members and `is_sr_enabled()` to `SampleCondPredictor`. Read `SR_SR_ENABLE` environment variable in `setup()`.",
       "hook_ids": [
-        "h_my_pred_h",
-        "h_my_pred_cc"
+        "h_sample_pred_class"
       ],
-      "verify": "c_existing_regression_int"
+      "verify": "clean_tree_run"
     },
     {
-      "title": "Hook decode and execute events",
-      "detail": "Call cond_predictor_impl methods from cond_branch_predictor_interface.cc to populate the register state.",
+      "title": "Implement Register Tracking",
+      "detail": "Flesh out `notify_decode` and `notify_execute` inside `SampleCondPredictor` and connect them to the event hooks in `cond_branch_predictor_interface.cc`.",
       "hook_ids": [
-        "h_interface_cc"
+        "h_sample_pred_class",
+        "h_interface_decode",
+        "h_interface_execute"
       ],
-      "verify": "c_existing_regression_int"
+      "verify": "clean_tree_run"
     },
     {
-      "title": "Integrate sR into TAGE-SC-L prediction and update",
-      "detail": "Add the sR sum to LSUM and hook the update_sR_weights call inside the SC update block.",
+      "title": "Integrate with SC",
+      "detail": "Implement `get_sR_sum` and `update_sR`. Propagate instruction identifiers to the inner `update` function in `cbp2016_tage_sc_l.h` and embed the calls for sum augmentation and SC updating.",
       "hook_ids": [
-        "h_tage_sc_l_predict",
-        "h_tage_sc_l_update_outer",
-        "h_tage_sc_l_update_inner"
+        "h_tage_sc_predict",
+        "h_tage_sc_update_inner",
+        "h_tage_sc_update_outer"
       ],
-      "verify": "c_feature_off_baseline"
+      "verify": "exact_baseline"
     }
   ],
   "risks": [
     {
-      "risk": "The sR update block in TAGE-SC-L may fail to receive the correct seq_no and piece, causing it to update weights for the wrong instruction.",
-      "mitigation": "Thread seq_no and piece through the update overloads explicitly.",
-      "detected_by": "c_feature_off_baseline"
-    },
-    {
-      "risk": "sR prediction output might accidentally be added to LSUM even when sr_enable is off, breaking the baseline.",
-      "mitigation": "Guard the get_sR_sum call inside TAGE-SC-L strictly with if (sr_enabled).",
-      "detected_by": "c_feature_off_baseline"
+      "risk": "Modifying the parameters of the inner `update` function in `cbp2016_tage_sc_l.h` can easily lead to a compilation failure if the outer `update` is not correctly modified.",
+      "mitigation": "Ensure both overloads are touched and signatures accurately aligned.",
+      "detected_by": "clean_tree_run"
     }
   ],
   "open_questions": [
     {
-      "question": "What signal selects the x0 vs x2.5 multiplier in each bank?",
-      "spec_pointer": "/summary",
-      "assumption": "The multiplier is x2.5 if the selected register's net usefulness is strictly greater than 0, else x0.",
-      "cost_if_wrong": "Change the boolean condition in the prediction gating logic."
+      "question": "What are the exact bit widths of the leading/trailing zero/one counts in the INT digest?",
+      "spec_pointer": "/algorithms/1",
+      "assumption": "3 bits allocated for leading counts, 3 for trailing counts, and 6 for LSBs.",
+      "cost_if_wrong": "Requires modifying bitwise logic masking in the generator."
     },
     {
-      "question": "How are integer leading and trailing counts formatted in the digest bit fields?",
-      "spec_pointer": "/unit_tests/0",
-      "assumption": "Counts are saturated at 63, counting leading/trailing bits matching the MSB/LSB or zeros, following the variant 'saturate_63'.",
-      "cost_if_wrong": "Rewrite the bitwise arithmetic in generate_digest."
+      "question": "How does the leading/trailing logic decide between counting zeros or ones?",
+      "spec_pointer": "/algorithms/1",
+      "assumption": "Counts zeros if the value is positive and ones if negative.",
+      "cost_if_wrong": "Requires substituting a branch in the generator code."
+    },
+    {
+      "question": "What hash functions and PC-skewing functions are used to index the UT and WT?",
+      "spec_pointer": "/algorithms/2",
+      "assumption": "Employs an XOR fold of the skewed PC and register payload.",
+      "cost_if_wrong": "Minor changes to index hash generation macros."
+    },
+    {
+      "question": "How are the 65 logical registers distributed among the 8 banks?",
+      "spec_pointer": "/state/1",
+      "assumption": "Modulo-8 assignment mapped linearly (bank = logical_reg % 8).",
+      "cost_if_wrong": "Changes to array indexing math."
     }
   ]
 }
