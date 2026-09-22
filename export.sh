@@ -28,3 +28,11 @@ export GCP_PRIVATE_KEY_PATH=/home/laievan/.ssh/id_rsa
 if [ -f "$HOME/.config/p2p/gateway.env" ]; then
     export P2P_GATEWAY_TOKEN="$(grep P2P_GATEWAY_TOKEN "$HOME/.config/p2p/gateway.env" | cut -d= -f2-)"
 fi
+
+# Where that gateway listens. Both adaevolve configs name it as
+# ${P2P_GATEWAY_URL} rather than an address, because the head has changed
+# address once already and a stale literal in a config is a connection
+# refused rather than a config error. loop/constants.py derives the same
+# value from HEAD_IP and forwards it into the EvolverNode actor; this line
+# is for probing the gateway by hand from this shell.
+export P2P_GATEWAY_URL="http://${HEAD_IP}:8900/v1"

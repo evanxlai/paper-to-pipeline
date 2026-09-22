@@ -37,7 +37,12 @@ llm:
   # *in the EvolverNode actor process* -- so they must arrive through the
   # driver's ray.init(runtime_env={"env_vars": ...}); exporting them in your
   # shell alone is not enough (loop/constants.py forwards them).
-  api_base: "http://10.128.0.2:8900/v1"
+  # Substituted by skydiscover's Config.from_yaml from the EvolverNode
+  # actor's own environment, which loop/constants.py fills from
+  # $HEAD_IP. It was a hardcoded 10.128.0.2 and the head has since
+  # moved to another address, which is an opaque connection refused
+  # rather than a config error.
+  api_base: ${P2P_GATEWAY_URL}
   api_key: ${P2P_GATEWAY_TOKEN}
   models:
     # skydiscover.config.LLMConfig builds each entry as LLMModelConfig(**m);

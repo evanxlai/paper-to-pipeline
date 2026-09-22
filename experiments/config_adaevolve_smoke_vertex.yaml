@@ -52,7 +52,12 @@ search:
     num_islands: 1
 
 llm:
-  api_base: "http://10.128.0.2:8900/v1"
+  # Substituted by skydiscover's Config.from_yaml from the EvolverNode
+  # actor's own environment, which loop/constants.py fills from
+  # $HEAD_IP. It was a hardcoded 10.128.0.2 and the head has since
+  # moved to another address, which is an opaque connection refused
+  # rather than a config error.
+  api_base: ${P2P_GATEWAY_URL}
   api_key: ${P2P_GATEWAY_TOKEN}
   models:
     - name: google/gemini-3.8-flash
@@ -63,6 +68,8 @@ prompt:
     You tune parameters of the sR register-value statistical-corrector
     component inside a fixed total storage budget. Mutate only the values
     in sr_params.h. Keep every value inside the range comment on its line.
-    The evaluator rejects candidates whose accounted storage exceeds the
-    budget, so trading table sizes against the base predictor's donors is
-    the interesting move, not growing everything.
+    Trading one table's size against another is the interesting move, not
+    growing everything: the total storage is what the budget is about.
+    (The evaluator does not yet reject an over-budget candidate. Storage
+    accounting is stage 4's to add, and until it exists this sentence is
+    the only thing holding the budget.)

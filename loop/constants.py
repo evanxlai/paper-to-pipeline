@@ -259,3 +259,11 @@ RUNTIME_ENV = {
 for _cred in ("P2P_GATEWAY_TOKEN", "GEMINI_API_KEY", "GCP_PROJECT"):
     if os.environ.get(_cred):
         RUNTIME_ENV["env_vars"][_cred] = os.environ[_cred]
+
+# Not a credential, but it has to travel the same way and for the same
+# reason: the adaevolve configs name the gateway as ${P2P_GATEWAY_URL}, and
+# skydiscover expands that inside the EvolverNode actor rather than in the
+# submitting shell. Always forwarded, because unlike a secret there is
+# nothing to leak, and on a miss _expand_env_vars leaves the literal text
+# "${P2P_GATEWAY_URL}" in place as a host name.
+RUNTIME_ENV["env_vars"]["P2P_GATEWAY_URL"] = GATEWAY_URL
