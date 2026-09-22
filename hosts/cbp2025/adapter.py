@@ -167,13 +167,21 @@ def materialize_port_tree(src: str, dst: str, fresh: bool = True) -> dict:
         return {"ok": False, "error": f"{src} does not exist on this node"}
     if fresh and target.exists():
         shutil.rmtree(target)
-    if not target.exists():
+    created = not target.exists()
+    if created:
         shutil.copytree(source, target, symlinks=True)
-    _git(target, "reset", "--hard", "HEAD")
-    removed = _git(target, "clean", "-fdx").stdout
+    # Only a tree we just laid down. Resetting an existing one would delete
+    # the port it holds, which is the opposite of what `fresh=False` is for:
+    # that flag exists so a run which died partway can pick up the tree it
+    # left.
+    removed = ""
+    if created:
+        _git(target, "reset", "--hard", "HEAD")
+        removed = _git(target, "clean", "-fdx").stdout
     return {
         "ok": True,
         "path": str(target),
+        "reused": not created,
         "revision": _git(target, "rev-parse", "HEAD").stdout.strip()
                     or "(not a git checkout)",
         "cleaned": [line for line in removed.splitlines() if line.strip()],

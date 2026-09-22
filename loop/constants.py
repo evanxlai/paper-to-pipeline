@@ -79,6 +79,13 @@ HOSTS = tuple(os.environ.get("P2P_HOSTS", "cbp2025").split(","))
 CBP2025_PORT_ROOT = os.environ.get(
     "P2P_CBP2025_PORT_ROOT", str(_WORKER_HOME / "cbp2025_port")
 )
+# Whether stage 3 throws that tree away and copies a fresh one at the start
+# of a run. On by default, because every attempt should begin from the same
+# place and a tree carrying a previous run's half-port is a tree nobody can
+# reason about. Turn it off to resume a run that died partway: the plan, the
+# gate and the baseline are unchanged, so the agent picks up the tree it
+# left and the next gate attempt judges it the same way.
+CBP2025_PORT_FRESH = os.environ.get("P2P_CBP2025_PORT_FRESH", "1") == "1"
 
 # Ray resource tokens, matching cluster/cluster.yaml available_node_types.
 #

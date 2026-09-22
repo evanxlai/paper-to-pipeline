@@ -412,7 +412,7 @@ def default_adapter(host: str, baseline_key: str) -> HostAdapter:
         # Lay down a pristine copy for the agent to edit before anything
         # else happens, so the bash tool the caller is about to start has a
         # tree to open and every attempt begins from the same place.
-        cbp2025_adapter.clean_port_tree()
+        cbp2025_adapter.clean_port_tree(fresh=C.CBP2025_PORT_FRESH)
         return HostAdapter(
             name=host,
             work_dir=C.CBP2025_PORT_ROOT,
