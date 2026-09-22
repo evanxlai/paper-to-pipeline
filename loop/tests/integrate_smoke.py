@@ -67,7 +67,7 @@ os.environ.setdefault("P2P_FEATURE_NAME", "tinysc")
 os.environ.setdefault("P2P_INTEGRATION_ATTEMPTS", "3")
 
 HOST = "toy"
-BUDGET = "smoke"  # a baseline key, not a constraint: stage 3 has no budget
+BASELINE_KEY = "smoke"  # which recorded baseline to compare against
 
 
 def parse_args() -> argparse.Namespace:
@@ -175,11 +175,9 @@ def main() -> int:
 
     host = ToyHost(work_dir, force_first_fail=args.force_first_fail)
     host.materialize()
-    # The prompt tells the agent where its spec is; on this host that has to be
-    # a path the agent can actually read, so the spec travels into the checkout.
+    # The prompt inlines the spec and both plan documents, so nothing has to
+    # travel into the checkout for the agent to read.
     spec = json.loads(SPEC_PATH.read_text())
-    agent_spec_path = work_dir / "FEATURE_SPEC.json"
-    shutil.copyfile(SPEC_PATH, agent_spec_path)
 
     baseline = host.record_baseline()
     print(f"[smoke] baseline: mpki={baseline['mpki']} ipc={baseline['ipc']} "
@@ -203,7 +201,6 @@ def main() -> int:
         name=HOST,
         work_dir=str(work_dir),
         notes=host.notes(),
-        spec_path=str(agent_spec_path),
         resources={HOST: 0.1},
         baseline=lambda: baseline,
         run_gate=host.run_gate,
@@ -211,7 +208,10 @@ def main() -> int:
 
     dump = helpers.Dumper()
     try:
-        result = integrate(dump, spec, HOST, BUDGET, adapter=adapter)
+        result = integrate(
+            dump, spec, HOST, BASELINE_KEY,
+            port_plan=host.port_plan, test_plan=host.test_plan, adapter=adapter,
+        )
     finally:
         ray.shutdown()
 
@@ -239,6 +239,10 @@ def main() -> int:
         print(f"  attempt {entry['attempt']}: {verdict}")
         for reason in entry["reasons"]:
             print(f"      - {reason.splitlines()[0][:160]}")
+        # Shortfalls never block, so they never appear as reasons. Printing
+        # them here is the only way a passing run reports one at all.
+        for warning in entry.get("warnings", []):
+            print(f"      ~ {warning.splitlines()[0][:160]}")
 
     checks = [
         ("agent called the MCP bash tool", mcp_calls > 0),

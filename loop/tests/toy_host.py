@@ -1,44 +1,53 @@
-"""A fixture host for stage 3, and the gate that judges a port into it.
+"""A fixture host for stage 3, and the executor the gate drives it through.
 
 The production hosts are a ChampSim checkout and a gem5 checkout: minutes to
 build, a trace download to run, and a cluster to run on. None of that is what
-stage 3 itself is made of. Stage 3 is a loop -- prompt the agent, let it edit a
+stage 3 is made of. Stage 3 is a loop -- prompt the agent, let it edit a
 checkout through the bash tool, build, test, judge with plain code, hand the
 failure back -- and that loop can be exercised in seconds against a host small
 enough to read in one sitting.
 
 `loop/tests/fixtures/toyhost` is that host: a trace-driven branch-predictor
 simulator of a few hundred lines with a bimodal predictor, a Makefile, and its
-own test suite. `ToyHost` copies it somewhere writable, records a baseline off
-the pristine copy, and answers the same five gate questions the real hosts
-will, against the same `gate.check_gate`.
+own test suite. `ToyHostExecutor` is the four methods plan_runner needs from
+any host; `ToyHost` copies the fixture somewhere writable, records a baseline
+off the pristine copy, and answers the gate's five questions through the same
+`plan_runner.run_test_plan` and `gate.check_gate` the production hosts will.
 
-Storage is not one of those questions. Only the DSE stage knows about resource
-constraints (docs/stages.md), so the storage arguments are passed as 0 against
-an allowance of 0 -- satisfied, and carrying no budget.
+What this file deliberately no longer decides: which workloads to run, which
+metrics to compare, at what tolerance, and what counts as the feature working.
+All of that is in `fixtures/tinysc.toy.tests.json`, because a gate condition
+hardcoded here is one the plan cannot state and a reader cannot audit. What
+stays is what no plan can express -- how to build this host, how to flip its
+knob, and how to get numbers out of its stdout.
+
+Storage is not one of the gate's questions. Only the DSE stage knows about
+resource constraints (docs/stages.md), so nothing here carries a budget.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional, Sequence
 
 import gate
+import plan_runner
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "toyhost"
 SPEC_PATH = Path(__file__).resolve().parent / "fixtures" / "tinysc.spec.json"
+PORT_PLAN_PATH = Path(__file__).resolve().parent / "fixtures" / "tinysc.toy.plan.json"
+TEST_PLAN_PATH = Path(__file__).resolve().parent / "fixtures" / "tinysc.toy.tests.json"
 
-ENABLE_KNOB = "TINYSC_ENABLE"
+# Baseline recording only. These are not gate policy: a baseline is measured
+# before any port exists, so there is no plan yet to name the workloads, and
+# the test plan's `baseline_pointer` values are written against this layout.
 SMOKE_WORKLOAD = "workloads/smoke.trace"
 BIAS_WORKLOAD = "workloads/bias.trace"
-
-# The metrics the gate compares. `gate.check_gate` defaults to the CBP2025
-# metric names; the toy simulator prints these two.
-METRIC_KEYS = ("mpki", "ipc")
 
 # The line a debug turn must add to PORT_NOTES.md to clear an injected
 # failure. See `ToyHost.force_first_fail`.
@@ -60,14 +69,105 @@ class Shell:
         return self.output[-2000:]
 
 
+class ToyHostExecutor:
+    """plan_runner.HostExecutor over a materialized copy of the fixture."""
+
+    def __init__(self, work_dir: Path, enable_knob: str, metric_keys: Sequence[str]):
+        self.name = "toy"
+        self.work_dir = Path(work_dir)
+        self.enable_knob = enable_knob
+        self.metric_keys = tuple(metric_keys)
+
+    def build(self, *, feature_on: bool, timeout_s: int = BUILD_TIMEOUT_S):
+        shell = self._sh("make", timeout=timeout_s)
+        return plan_runner.BuildOutcome(ok=shell.ok, log=shell.output)
+
+    def shell(
+        self, command: str, *, feature_on: bool,
+        env: Optional[Mapping[str, str]] = None, timeout_s: int = RUN_TIMEOUT_S,
+    ):
+        # The knob is applied here rather than by the runner, because only the
+        # host knows how a value reaches it. On this host that is an
+        # environment variable, which params.h reads on every call; on a host
+        # whose knob is a compile-time define it would be a rebuild.
+        merged = {self.enable_knob: "1" if feature_on else "0", **(env or {})}
+        shell = self._sh(command, timeout=timeout_s, env=merged)
+        if shell.output.endswith("[timed out]"):
+            return plan_runner.ShellOutcome(exit_code=-1, output=shell.output, timed_out=True)
+        code = 0 if shell.ok else 1
+        marker = "[exit "
+        if marker in shell.output:
+            tail = shell.output.rsplit(marker, 1)[1]
+            code = int(tail.split("]")[0])
+        return plan_runner.ShellOutcome(exit_code=code, output=shell.output)
+
+    def parse_metrics(self, output: str) -> dict:
+        """The simulator prints exactly one line of JSON. Returning {} rather
+        than raising on anything else is deliberate: a crashed run is a gate
+        failure with a reason, not a crashed loop."""
+        for line in reversed((output or "").splitlines()):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if all(key in parsed for key in self.metric_keys):
+                return parsed
+        return {}
+
+    def run_traces(
+        self, traces: Sequence[str], *, feature_on: bool, timeout_s: int = RUN_TIMEOUT_S
+    ):
+        """This host's native fan-out: one simulator invocation per workload,
+        arithmetic mean per metric, which is how the real host adapters
+        aggregate a suite."""
+        rows, failed = [], []
+        for trace in traces:
+            outcome = self.shell(
+                f"./build/toysim {trace}", feature_on=feature_on, timeout_s=timeout_s
+            )
+            row = self.parse_metrics(outcome.output) if outcome.exit_code == 0 else {}
+            (rows.append(row) if row else failed.append(trace))
+        if not rows:
+            return plan_runner.TraceOutcome(ok=False, metrics={}, failed=failed)
+        keys = set(rows[0]).intersection(*(set(r) for r in rows))
+        means = {k: sum(r[k] for r in rows) / len(rows) for k in keys}
+        return plan_runner.TraceOutcome(ok=not failed, metrics=means, failed=failed)
+
+    def _sh(self, command: str, timeout: int, env: Optional[dict] = None) -> Shell:
+        try:
+            proc = subprocess.run(
+                command, shell=True, cwd=self.work_dir, capture_output=True,
+                text=True, timeout=timeout, env={**os.environ, **(env or {})},
+            )
+        except subprocess.TimeoutExpired:
+            # A hung command is a gate failure with a diagnosis. Letting the
+            # exception escape would kill the loop instead.
+            return Shell(ok=False, output=f"$ {command}\n[timed out after {timeout}s]\n[timed out]")
+        return Shell(
+            ok=proc.returncode == 0,
+            output=f"$ {command}\n{proc.stdout}{proc.stderr}[exit {proc.returncode}]",
+        )
+
+
 class ToyHost:
     """A writable copy of the fixture, plus the gate over it."""
 
-    def __init__(self, work_dir: Path, force_first_fail: bool = True):
+    def __init__(self, work_dir: Path, force_first_fail: bool = True,
+                 port_plan: Optional[dict] = None, test_plan: Optional[dict] = None):
         self.work_dir = Path(work_dir)
         self.force_first_fail = force_first_fail
         self.attempts = 0
         self.history: list[dict] = []
+        self.port_plan = port_plan or json.loads(PORT_PLAN_PATH.read_text())
+        self.test_plan = test_plan or json.loads(TEST_PLAN_PATH.read_text())
+        self.executor = ToyHostExecutor(
+            self.work_dir,
+            enable_knob=self.port_plan["feature_enable"]["name"],
+            metric_keys=self.test_plan["metric_keys"],
+        )
 
     # -------------------------------------------------------------- setup
     def materialize(self) -> Path:
@@ -85,11 +185,11 @@ class ToyHost:
         the checkout, so what it records is the host's own behavior and not
         the feature-off path of a port -- those being equal is exactly what G2
         is for, and a baseline read off the ported tree could not tell."""
-        build = self._sh("make")
+        build = self.executor.build(feature_on=False)
         if not build.ok:
-            raise SystemExit("toy host baseline build failed:\n" + build.tail)
-        smoke = self._measure(SMOKE_WORKLOAD, enable=False)
-        bias = self._measure(BIAS_WORKLOAD, enable=False)
+            raise SystemExit("toy host baseline build failed:\n" + build.log[-2000:])
+        smoke = self._measure(SMOKE_WORKLOAD)
+        bias = self._measure(BIAS_WORKLOAD)
         if smoke is None or bias is None:
             raise SystemExit("toy host baseline run produced no stats")
         return {**smoke, "bias": bias}
@@ -98,71 +198,33 @@ class ToyHost:
         return (self.work_dir / "NOTES.md").read_text()
 
     # --------------------------------------------------------------- gate
-    def run_gate(self, baseline: dict) -> gate.GateResult:
-        """G1 build, G2 feature-off equals baseline, G3 the test suite, G4 the
-        feature-on smoke, G5 the direction of the metric the feature claims to
-        move.
+    def run_gate(self, baseline: dict, port_plan: Optional[dict] = None,
+                 test_plan: Optional[dict] = None) -> gate.GateResult:
+        """Run the test plan, then let gate.check_gate judge it. Every
+        condition and every threshold comes from the plan; nothing about what
+        counts as a working port is decided in this file.
 
-        G5 is the one condition that asks whether the port *works* rather than
-        whether it is harmless, and it is directional only: the feature must
-        move MPKI down on a history-correlated workload. How far down is a
-        tuning question, and tuning is stage 4's job.
-
-        Note this is a *fixture* condition, hardcoded because there is no plan
-        stage yet to hand the gate anything better. The production G5 is not a
-        fixed must-beat-baseline comparison: it is whatever the test plan's
-        `performance[]` entries declare for that feature, with `block_threshold`
-        blocking and `warn_threshold` only reported (docs/stages.md)."""
+        The pair is an argument so that a plan stage 3 revised mid-run
+        (plan_revision.py) is the one judged. It defaults to the pair this
+        host was constructed with, which is what the tests that call this
+        directly want."""
+        port_plan = self.port_plan if port_plan is None else port_plan
+        test_plan = self.test_plan if test_plan is None else test_plan
         self.attempts += 1
-
-        build = self._sh("make")
-        if not build.ok:
-            result = gate.GateResult(False, [f"G1 build failed:\n{build.tail}"])
-            return self._record(result, build_ok=False)
-
-        feature_off = self._measure(SMOKE_WORKLOAD, enable=False) or {}
-        tests = self._sh("make test")
-        feature_on = self._measure(SMOKE_WORKLOAD, enable=True)
-
-        result = gate.check_gate(
-            build_ok=True,
-            build_log_tail=build.tail,
-            baseline_metrics=baseline,
-            feature_off_metrics=feature_off,
-            unit_test_failures=[] if tests.ok else [f"`make test`:\n{tests.tail}"],
-            feature_on_ok=feature_on is not None,
-            # Stage 3 has no storage condition; see the module docstring.
-            storage_bits=0,
-            budget_bits=0,
-            metric_keys=METRIC_KEYS,
-            rel_tol=0.0,
-        )
-
-        # Injection first, so a run that is only failing because of it says
-        # so on the first line rather than after a real-looking G5.
+        # Computed before the build, not after: a first attempt that fails to
+        # compile still has to be told to append the marker, or attempt 2
+        # demands one that attempt 1 never asked for.
         reasons = self._injection_reasons()
-        reasons += result.reasons
-        reasons += self._direction_reasons(baseline)
-        return self._record(gate.GateResult(passed=not reasons, reasons=reasons))
 
-    def _direction_reasons(self, baseline: dict) -> list:
-        """G5. The spec claims TinySC recovers branches whose outcome depends
-        on global history, and `workloads/bias.trace` is built out of them, so
-        a correct port must show up here. A port that does not is misbuilt:
-        no parameter value rescues a mechanism that is wired wrong."""
-        on = self._measure(BIAS_WORKLOAD, enable=True)
-        if on is None:
-            return ["G5 feature-on run over the bias workload did not produce stats"]
-        before = baseline["bias"]["mpki"]
-        after = on["mpki"]
-        if after >= before:
-            return [
-                f"G5 with {ENABLE_KNOB}=1 the MPKI on {BIAS_WORKLOAD} is {after}, "
-                f"which is not below the baseline {before}. The feature is "
-                f"either not reaching the prediction path or is not consulting "
-                f"global history."
-            ]
-        return []
+        results = plan_runner.run_test_plan(
+            self.executor, test_plan, port_plan, baseline
+        )
+        verdict = gate.check_gate(results)
+        reasons += verdict.reasons
+        return self._record(
+            gate.GateResult(passed=not reasons, reasons=reasons, warnings=verdict.warnings),
+            build_ok=results.build_ok,
+        )
 
     def _injection_reasons(self) -> list:
         """Fault injection, off by default in production and on by default in
@@ -173,7 +235,10 @@ class ToyHost:
         rejects the first attempt unconditionally and then verifies that the
         debug turn actually wrote something to the checkout -- so what the
         injection proves is that the feedback reached the agent and the agent's
-        reply reached the tree, not merely that a second gate call happened."""
+        reply reached the tree, not merely that a second gate call happened.
+
+        It is harness policy, not a gate condition: no plan declares it and no
+        real host has it."""
         if not self.force_first_fail:
             return []
         if self.attempts == 1:
@@ -201,47 +266,15 @@ class ToyHost:
                 "passed": result.passed,
                 "build_ok": build_ok,
                 "reasons": result.reasons,
+                "warnings": result.warnings,
             }
         )
         return result
 
-    # ---------------------------------------------------------- internals
-    def _sh(self, command: str, timeout: int = BUILD_TIMEOUT_S, env: Optional[dict] = None) -> Shell:
-        import os
-
-        proc = subprocess.run(
-            command,
-            shell=True,
-            cwd=self.work_dir,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env={**os.environ, **(env or {})},
+    def _measure(self, workload: str) -> Optional[dict]:
+        outcome = self.executor.shell(
+            f"./build/toysim {workload}", feature_on=False, timeout_s=RUN_TIMEOUT_S
         )
-        return Shell(
-            ok=proc.returncode == 0,
-            output=f"$ {command}\n{proc.stdout}{proc.stderr}[exit {proc.returncode}]",
-        )
-
-    def _measure(self, workload: str, enable: bool) -> Optional[dict]:
-        """Run the simulator and parse its stats line, or None if the run did
-        not produce one. Returning None rather than raising is deliberate: a
-        crashed run is a gate failure with a reason, not a crashed loop."""
-        shell = self._sh(
-            f"./build/toysim {workload}",
-            timeout=RUN_TIMEOUT_S,
-            env={ENABLE_KNOB: "1" if enable else "0"},
-        )
-        if not shell.ok:
+        if outcome.exit_code != 0:
             return None
-        for line in reversed(shell.output.splitlines()):
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if all(key in parsed for key in METRIC_KEYS):
-                return parsed
-        return None
+        return self.executor.parse_metrics(outcome.output) or None

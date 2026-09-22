@@ -95,10 +95,13 @@ this feature go into *this* model, and how will we know it worked?
   `plan/port_plan.schema.json` and `plan/test_plan.schema.json`. Those schemas are the
   enforceable form of the two tables below; where this document is prose, they are the
   contract, and `loop/tests/fixtures/tinysc.toy.{plan,tests}.json` is a worked pair.
-- **Decided by code:** schema validation plus coverage checks — every spec `state`
-  element, `algorithms` entry, `parameters` entry, and `host_interfaces` need must map to
-  something in the plan. An unmapped spec item is a planning failure, not an integration
-  surprise.
+- **Decided by code:** schema validation plus coverage checks (`loop/plan_checks.py`) —
+  every spec `state` element, `algorithms` entry, `parameters` entry, `host_interfaces`
+  need and `unit_tests` entry must map to something in the plan pair. An unmapped spec
+  item is a planning failure, not an integration surprise. The checks also settle what
+  the schemas cannot: ids that are unique, references that resolve, each verbatim echo
+  agreeing with the pointer it claims, and every rule whose two halves live in different
+  documents.
 
 ### Port plan (`plan/<feature>.<host>.plan.json`)
 
@@ -133,6 +136,10 @@ Two buckets, because they answer different questions.
   baseline. This is the strongest regression available and it is exact for
   trace-driven simulators.
 
+**`smoke`** — the workloads G4 runs with the feature on, answering "does it run" rather
+than "is it better". It is its own section because a gate condition with no declared
+input is one the gate has to invent, and an invented condition is one nobody can audit.
+
 **`performance[]`** — does the feature's claimed benefit actually show up? Each entry
 carries a metric, a direction, a trace list, and two thresholds:
 
@@ -149,44 +156,124 @@ no amount of tuning will rescue it.
 
 Performance entries need enough traces to carry signal. The five-trace smoke list is for
 "does it run", not for "is it better"; a performance list sits between smoke and the
-60-trace screening set.
+60-trace screening set. When an entry names several traces it is scored on the
+improvement of the means, not the mean of the improvements — the two differ on a
+heterogeneous trace list, and the first is how the host adapters already aggregate a
+suite.
 
 ## Stage 3: integrate
 
 - **In:** the port plan, the test plan, the reviewed feature spec, and the host checkout
   (read/write, through a `BashTool` plus the host build/run/stats adapters). Plus the
-  attempt budget, `P2P_INTEGRATION_ATTEMPTS`.
+  attempt budget, `P2P_INTEGRATION_ATTEMPTS`, and the plan-revision budget,
+  `P2P_PLAN_REVISIONS`.
 - **Precedence:** the plan is authoritative on *where and how* to hook; the spec is
   authoritative on *what the mechanism is*. The plan does not restate pseudocode.
 - **Out:** the edited checkout, `PORT_NOTES.md` recording any deviation, the per-attempt
-  test results, and a promotion verdict.
+  test results, a promotion verdict, and any accepted plan revision as
+  `plan/<feature>.<host>.plan.rev<N>.json` plus its test-plan twin.
 - **Decided by code**, in `gate.py`. Agents never self-report success.
 
 | | Gate condition |
 |---|---|
 | G1 | the host builds with the feature code present |
-| G2 | with the feature knob off, metrics equal the recorded baseline |
-| G3 | the test plan's `correctness[]` entries pass |
+| G2 | with the feature knob off, metrics equal the recorded baseline — reported as the results of the test plan's `feature_off_baseline` entries, so the plan owns which workloads and which tolerance |
+| G3 | the test plan's other `correctness[]` entries pass |
 | G4 | with the feature knob on, the smoke traces complete without error |
 | G5 | the test plan's `performance[]` entries pass their `block_threshold` |
 
 There is no storage condition. See the rule at the top.
 
+A `warn_threshold` shortfall is recorded as a warning and never as a reason. The
+distinction is load-bearing rather than cosmetic: the gate's reasons are what the debug
+node is handed and told to fix, so a non-blocking observation placed among them becomes
+work the next turn tries to do.
+
 Inner loop: implement, run the test plan, and on any failure hand off to the debug node,
 which reports a root cause back to the implement node. Repeat until the gate passes or
 the attempt budget runs out.
+
+### Plan revision (`plan_revision.py`)
+
+The plan was written against this checkout and can still be wrong about it. A hook point
+may name a symbol that has moved, or a correctness command may name a target this tree
+does not build. Stage 3 repairs that itself rather than returning the work to stage 2,
+because stage 2 needs the reviewed spec, the host notes and a full read of the tree, and
+re-running it re-derives every decision that was already right.
+
+The hazard is that the test plan *is* the gate. Every threshold, tolerance, metric name,
+pass condition and workload `gate.py` weighs is declared there, so the party proposing a
+revision is the party the revision judges. `plan_checks.run_checks` cannot catch that: it
+decides whether one pair is coherent and covers the spec, and has no notion of a previous
+version, so it cannot see a revision that is coherent and simply weaker.
+
+So the split is not by size of change. It is by who the change serves. A factual
+correction about the tree is revisable in place. A weaker demand is not, and escalates.
+
+The mechanism, in order. The agent emits a `## Plan revision` heading and two complete
+fenced JSON blocks. Code then validates both against their schemas, re-runs the plan
+checks, and diffs the pair against the one in force. Code writes the files, and only if
+nothing was weakened. The agent's one tool is a shell rooted at the host checkout, so it
+cannot reach the plan artifacts itself, and this is the single door. A rejection writes
+nothing and buys one repair turn (`P2P_PLAN_REPAIR_TURNS`) that names each refused field.
+
+Two rules cover every field, so what is allowed is read off a table rather than reasoned
+about per case. **Frozen** means the revision must repeat the value exactly.
+**Append-only** means a keyed collection may gain entries and may never lose one, and a
+surviving entry is frozen apart from a named allowlist.
+
+| | Fields |
+|---|---|
+| Revisable | `hook_points` entire, `structure.choice`, `spec_map[].realization` and `hook_ids`, `steps`, `risks`, `interface_resolutions[].status` / `resolution` / `rationale` / `fidelity_note`, `knobs[].host_knob` and `binding`, `open_questions[].cost_if_wrong`, `correctness[].command` / `env` / `timeout_seconds` / `test_file`, any `description`, `notes`, `smoke.run`, and anything added |
+| Frozen | `feature_name`, `host`, `host_revision`, `spec_inputs_used`, every `pass_condition`, every `clean_tree_result`, `baseline_rel_tol`, both `performance[]` thresholds, `performance[].metric` / `direction` / `baseline` / `timeout_seconds`, the smoke and performance trace sets, `knobs[].macro` and `default`, `feature_enable.name` and `macro`, a `rejected_alternatives` entry, an `open_questions[].assumption` |
+| Append-only | `metric_keys`, `correctness[]`, `performance[]`, `spec_map[]` pointers, `knobs[]`, `interface_resolutions[]`, `open_questions[]`, `structure.rejected_alternatives`, `smoke.traces` |
+
+No rule compares two numbers for looseness. A threshold is frozen in both directions on
+purpose: each one has its own sense of "tighter", a `no_regression` band inverts it, and
+one sign error readmits the whole hazard. Nothing legitimate is lost, because a
+mid-run tightening is not something the judged party needs.
+
+Two fields are recorded rather than refused, both as `warn` findings in the revision
+record. `feature_enable.off_path` and `default_off` are prose that G2 does not read, so
+rewriting them cannot loosen the gate numerically. It can retire a promise quietly, which
+is what the warn prevents. An `interface_resolutions[].status` that drops in fidelity is
+the legitimate discovery that a host facility does not do what it looked like it did, and
+the `fidelity_note` beside it is what the write-up reports.
+
+One field's revisability depends on its entry. A `performance[].run` block is revisable
+when that entry's `baseline.source` is `measure_feature_off`, because `plan_runner`
+measures feature-on and feature-off through the same `run` and a corrected command moves
+both sides. It is frozen when the source is `recorded`, where the comparison point was
+measured before the port existed, so `run` feeds only the measured side and revising it
+moves the improvement without moving the bar.
+
+**Escalation.** A defect stage 3 may not decide ends the attempt. The agent emits
+`PLAN ESCALATION: <pointer> -- <reason>`, and the stage returns status `needs_replan` with
+the pointer and reason recorded. It does not spend the remaining attempts. This is the
+"serious issue" route back to stage 2, and it is what a frozen-but-wrong value gets
+instead of a rewrite.
+
+Stage 2's own artifacts are never overwritten. A revision is written beside them, numbered,
+and the highest revision present is the pair in force, so the plan a port was originally
+judged against survives for diagnosis and a restarted run resumes from the revisions it
+already earned.
 
 ## Stage 3b: debug
 
 - **In:** the failing test output, the build and run logs, the integration diff, and both
   plan artifacts. It may run build, run, and the tests in order to reproduce and narrow
   a failure.
-- **Out:** a structured root-cause report addressed to the implement node.
-- **Authority: diagnosis only.** The debug node never edits the checkout. The implement
-  node applies every fix.
+- **Out:** a structured root-cause report addressed to the implement node. Or a proposed
+  plan revision. Or an escalation to stage 2.
+- **Authority: diagnosis and proposal only.** The debug node never edits the checkout,
+  and it never edits the plan either. It proposes, and code disposes: the implement node
+  applies every fix to the tree, and `plan_revision.py` writes every accepted revision to
+  the artifacts.
 
 The split is the same one stage 1.5 uses — the proposer is not the disposer — and it
-keeps exactly one writer on the tree, so a regression always has one author.
+keeps exactly one writer on the tree, so a regression always has one author. The
+revision path does not weaken that. It is the same rule applied to a second artifact: the
+node that finds the defect states it, and code decides whether it may be acted on.
 
 ## Stage 4: DSE
 

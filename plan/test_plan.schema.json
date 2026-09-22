@@ -10,6 +10,7 @@
     "host",
     "host_revision",
     "metric_keys",
+    "smoke",
     "correctness",
     "performance"
   ],
@@ -37,6 +38,26 @@
       "minimum": 0,
       "default": 0,
       "description": "G2's relative tolerance. 0 for a deterministic trace-driven simulator, which is every host here by default; a non-zero value is a claim that this host is not reproducible run to run, and `notes` must say why."
+    },
+    "smoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["trace_list"] }, { "required": ["traces"] }],
+      "description": "G4's input: the workloads the host must complete without error with the feature ON. This asks 'does it run', not 'is it better' -- a handful of short traces, not the performance list. It is a required section because a gate condition with no declared input is one the gate has to invent, and an invented condition is one nobody can audit.",
+      "properties": {
+        "trace_list": {
+          "type": "string",
+          "description": "Path, relative to the repository root, of a trace list in `helpers.load_trace_list` format."
+        },
+        "traces": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Inline workload list, for a host whose workloads live in the checkout."
+        },
+        "run": { "$ref": "#/$defs/perf_run" },
+        "timeout_seconds": { "type": "integer", "minimum": 1 }
+      }
     },
     "correctness": {
       "type": "array",
@@ -140,7 +161,7 @@
           "direction": {
             "type": "string",
             "enum": ["decrease", "increase"],
-            "description": "Which way the paper says this metric moves. Fixes the sign of `relative_improvement` below: (baseline - measured) / |baseline| for 'decrease', (measured - baseline) / |baseline| for 'increase'."
+            "description": "Which way the paper says this metric moves. Fixes the sign of `relative_improvement` below: (baseline - measured) / |baseline| for 'decrease', (measured - baseline) / |baseline| for 'increase'. When the entry names several traces, `measured` and `baseline` are each the arithmetic mean of the metric over the traces, and the improvement is computed from those two means -- improvement of the means, not the mean of the per-trace improvements. The two differ on a heterogeneous trace list, and this is the one that matches how the host adapters already aggregate a suite."
           },
           "trace_list": {
             "type": "string",
@@ -156,7 +177,11 @@
             "$ref": "#/$defs/perf_baseline",
             "description": "Where the comparison point comes from. Defaults to measuring the feature-off run over the same traces, which G2 has already established is bit-identical to the baseline."
           },
-          "run": { "$ref": "#/$defs/perf_run" },
+          "run": {
+            "$ref": "#/$defs/perf_run",
+            "description": "How to execute the traces. Absent means `{\"mode\": \"host_adapter\"}`."
+          },
+          "timeout_seconds": { "type": "integer", "minimum": 1 },
           "block_threshold": {
             "type": "object",
             "additionalProperties": false,
@@ -264,11 +289,16 @@
             "metrics_equal_baseline",
             "metric_threshold"
           ],
-          "description": "'exit_zero': the command exits 0. 'stdout_matches' / 'stdout_excludes': `pattern` must / must not match the combined output. 'matches_clean_tree': exit code equals `clean_tree_result.exit_code`, and if `pattern` is given, the text it captures equals the one the clean tree produced. 'metrics_equal_baseline': G2, the feature-off metrics equal the recorded baseline within `rel_tol`. 'metric_threshold': one parsed metric against a fixed bound."
+          "description": "'exit_zero': the command exits 0. 'stdout_matches' / 'stdout_excludes': the command exits 0 AND `pattern` must / must not match the combined output. The exit clause is not decoration: without it 'the output contains no FAIL line' is satisfied by a command that crashed before printing anything, which is the most likely way a broken port passes a test. Set `allow_nonzero_exit` when the command is expected to fail and the output is the real verdict. 'matches_clean_tree': exit code equals `clean_tree_result.exit_code`, and if `pattern` is given, the text it captures -- the first capturing group, or the whole match when the pattern has no group -- equals `clean_tree_result.summary`. 'metrics_equal_baseline': G2, the feature-off metrics equal the recorded baseline within `rel_tol`. 'metric_threshold': one parsed metric against a fixed bound."
         },
         "pattern": {
           "type": "string",
-          "description": "ECMA-262 regular expression, matched against stdout and stderr combined."
+          "description": "Regular expression, matched against stdout and stderr combined. Written in the schema as ECMA-262 but evaluated by the gate with Python's `re`; the two dialects agree on everything but lookbehind and named-group syntax, so keep patterns simple. The plan checks compile it and reject what Python cannot parse, because an uncompilable pattern crashes the gate rather than failing a test."
+        },
+        "allow_nonzero_exit": {
+          "type": "boolean",
+          "default": false,
+          "description": "For 'stdout_matches' and 'stdout_excludes' only: drop the exit-zero clause, because this command is expected to exit non-zero and its output carries the verdict."
         },
         "metrics": {
           "type": "array",

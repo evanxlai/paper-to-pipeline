@@ -40,6 +40,23 @@ SPEC_OUT_PATH = REPO_ROOT / "spec" / f"{FEATURE_NAME}.{DISTILL_MODE}.json"
 PLAN_DIR = REPO_ROOT / "plan"
 PORT_PLAN_SCHEMA_PATH = PLAN_DIR / "port_plan.schema.json"
 TEST_PLAN_SCHEMA_PATH = PLAN_DIR / "test_plan.schema.json"
+# One repair turn, like distill. Rounds exist in stage 1.5 because resolving
+# one ambiguity spawns the next; stage 2's failures are a fixed deterministic
+# list -- a spec item is either mapped or it is not -- so a second turn buys
+# nothing a first turn with the whole finding list could not.
+PLAN_REPAIR_TURNS = int(os.environ.get("P2P_PLAN_REPAIR_TURNS", "1"))
+# The stage-2 twin of SPEC_ALLOW_ERRORS. An unmapped spec item is not a gap
+# the integration agent notices and asks about; it is one the agent fills by
+# guessing, and a guess that builds and runs is indistinguishable from a port.
+PLAN_ALLOW_GAPS = os.environ.get("P2P_PLAN_ALLOW_GAPS", "0") == "1"
+# How many times stage 3 may revise the plan pair it was handed, before it has
+# to live with it (plan_revision.py). Small on purpose: the revisions this
+# exists for are factual corrections about the tree, and a run that needs a
+# fourth one is not correcting the plan any more -- it is rewriting it a line
+# at a time to fit whatever it built, which is what the stage-2 re-run is for.
+# Each revision also costs a gate run, so a generous budget spends the
+# integration attempts on planning instead of on porting.
+PLAN_REVISIONS = int(os.environ.get("P2P_PLAN_REVISIONS", "3"))
 
 # ---------------------------------------------------------------- hosts
 # Worker-side checkout paths (created by cluster worker_setup_commands under

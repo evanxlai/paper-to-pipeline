@@ -74,10 +74,11 @@
     },
     {
       "id": "suite_cases",
-      "file": "tests/test_tinysc.cpp",
+      "file": "tests/test_predictor.cpp",
       "symbol": "main",
-      "action": "create",
-      "change": "The spec's three unit tests, as a new file the TEST_SRCS wildcard picks up. Each case sets the knobs it needs with setenv before constructing anything, which works because params.h reads the environment on every call; that is what lets all three coexist in one run of build/toytest. Each check prints the exact message the test plan's pass conditions key on. tests/test_predictor.cpp is not touched: its baseline cases must keep passing as written."
+      "action": "modify",
+      "observed": "Four check() calls across three baseline cases (always-taken, never-taken, distinct PCs), each a static function called from main(); main() prints '<n> checks, <n> failures' and returns non-zero if any failed. The file's own header comment says a ported feature adds its own cases here.",
+      "change": "Three new case functions for the spec's unit tests, called from main() alongside the existing three. They go in this file rather than a new one because the Makefile compiles every tests/*.cpp into a single binary and this file already defines main(): a second file with a main() fails to link, and one without a main() is never called. Each case sets the knobs it needs with setenv before constructing anything, which works because params.h reads the environment on every call, and that is what lets cases needing the feature on and off coexist in one run. Each case prints `ok: <its name>` on success, and those are the exact strings the test plan's pass conditions match: a positive marker proves the case ran, where the absence of a failure line is equally satisfied by a case nobody wrote. No existing case is weakened or removed."
     }
   ],
   "spec_map": [
@@ -130,16 +131,16 @@
       "spec_parameter": "TINYSC_ENABLE",
       "macro": "SR_TINYSC_ENABLE",
       "host_knob": "tinysc_enable() in src/params.h, overridable at run time by the TINYSC_ENABLE environment variable",
-      "binding": "compile_time_define",
+      "binding": "runtime_env",
       "default": 0,
-      "notes": "Also the feature enable knob; see feature_enable."
+      "notes": "Also the feature enable knob; see feature_enable. Binding is runtime_env because params.h reads the environment on every call; the SR_ macro is the compiled-in fallback, which is what stage 4 mutates when it rewrites the header and rebuilds."
     },
     {
       "spec_pointer": "/parameters/1",
       "spec_parameter": "TINYSC_ENTRIES",
       "macro": "SR_TINYSC_ENTRIES",
       "host_knob": "tinysc_entries(), TINYSC_ENTRIES environment override",
-      "binding": "compile_time_define",
+      "binding": "runtime_env",
       "default": 256,
       "notes": "The index masks with entries - 1, so a non-power-of-two value silently aliases. The constructor rejects one rather than truncating."
     },
@@ -148,7 +149,7 @@
       "spec_parameter": "TINYSC_HIST_BITS",
       "macro": "SR_TINYSC_HIST_BITS",
       "host_knob": "tinysc_hist_bits(), TINYSC_HIST_BITS environment override",
-      "binding": "compile_time_define",
+      "binding": "runtime_env",
       "default": 8
     },
     {
@@ -156,14 +157,14 @@
       "spec_parameter": "TINYSC_THRESHOLD",
       "macro": "SR_TINYSC_THRESHOLD",
       "host_knob": "tinysc_threshold(), TINYSC_THRESHOLD environment override",
-      "binding": "compile_time_define",
+      "binding": "runtime_env",
       "default": 4
     }
   ],
   "feature_enable": {
     "name": "TINYSC_ENABLE",
     "macro": "SR_TINYSC_ENABLE",
-    "binding": "compile_time_define",
+    "binding": "runtime_env",
     "default_off": "SR_TINYSC_ENABLE is 0 in the generated header, and tinysc_enable() falls back to it, so `make && ./build/toysim <workload>` with nothing set in the environment runs the baseline. Off is the value you get by doing nothing, not the value you get by remembering something.",
     "off_path": "ToyPredictor::predict returns the bimodal result before the corrector reads anything, and ToyPredictor::update performs the same saturating bimodal update as today before train() returns immediately. No corrector state is read or written, so the sequence of bimodal counter values over a workload is identical to the unmodified host. src/sim.cpp is deterministic -- a fixed instruction count per branch and a fixed misprediction penalty -- so identical predictions give byte-identical stats, not merely close ones."
   },
@@ -188,7 +189,7 @@
     },
     {
       "title": "Add the spec's unit tests to the host suite",
-      "detail": "Create tests/test_tinysc.cpp with the three cases, each setting its own knobs with setenv and printing the check messages the test plan keys on.",
+      "detail": "Add the three cases to tests/test_predictor.cpp and call them from main(), each setting its own knobs with setenv and printing the check messages the test plan keys on. The existing three cases stay exactly as they are.",
       "hook_ids": ["suite_cases"],
       "verify": "host_suite"
     }

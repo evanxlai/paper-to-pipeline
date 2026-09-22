@@ -38,24 +38,45 @@ class Dumper:
         return self.text(name + ".md", body)
 
 
-def validate_spec(spec_text: str) -> tuple[dict | None, list[str]]:
-    """Parse + schema-check a distilled feature spec. Uses jsonschema when
-    installed; falls back to a required-keys check so the loop still runs
-    in a bare env."""
+def validate_json(
+    text: str, schema_path, require_jsonschema: bool = False
+) -> tuple[dict | None, list[str]]:
+    """Parse + schema-check one document against the schema at `schema_path`.
+    Uses jsonschema when installed; falls back to a required-keys check so the
+    loop still runs in a bare env.
+
+    `require_jsonschema` turns that fallback off. The stage-2 plan schemas put
+    almost all of their force in nested `required`, `if`/`then` and
+    `additionalProperties: false` -- none of which the fallback sees -- so for
+    a plan the degraded path is not a weaker check, it is no check at all: it
+    would wave through a port plan with an empty spec_map, or one carrying a
+    storage budget under an invented field name. A stage that would rather
+    fail than pretend sets this and gets a plain error instead."""
     try:
-        spec = json.loads(spec_text)
+        document = json.loads(text)
     except json.JSONDecodeError as e:
         return None, [f"not valid JSON: {e}"]
-    schema = json.loads(Path(C.SPEC_SCHEMA_PATH).read_text())
+    schema = json.loads(Path(schema_path).read_text())
     try:
         import jsonschema
-
-        v = jsonschema.Draft202012Validator(schema)
-        errs = [f"{'/'.join(map(str, e.path))}: {e.message}" for e in v.iter_errors(spec)]
-        return (spec, errs) if errs else (spec, [])
     except ImportError:
-        missing = [k for k in schema["required"] if k not in spec]
-        return spec, [f"missing required field: {k}" for k in missing]
+        if require_jsonschema:
+            return document, [
+                "jsonschema is not installed, and this document cannot be "
+                "meaningfully checked without it (its schema relies on nested "
+                "required, if/then and additionalProperties)"
+            ]
+        missing = [k for k in schema.get("required", []) if k not in document]
+        return document, [f"missing required field: {k}" for k in missing]
+
+    v = jsonschema.Draft202012Validator(schema)
+    errs = [f"{'/'.join(map(str, e.path))}: {e.message}" for e in v.iter_errors(document)]
+    return (document, errs) if errs else (document, [])
+
+
+def validate_spec(spec_text: str) -> tuple[dict | None, list[str]]:
+    """Parse + schema-check a distilled feature spec."""
+    return validate_json(spec_text, C.SPEC_SCHEMA_PATH)
 
 
 def truncate(text: str, limit: int = 300) -> str:
@@ -64,11 +85,23 @@ def truncate(text: str, limit: int = 300) -> str:
     return text if len(text) <= limit else text[:limit] + " ...[truncated]"
 
 
-def extract_json_block(text: str) -> str:
-    """Pull the last fenced JSON block from an LLM reply, else the whole text."""
+def extract_json_blocks(text: str) -> list[str]:
+    """Every fenced JSON block in an LLM reply, in order.
+
+    Stage 2 emits two documents in one reply, which is exactly the case
+    `extract_json_block` below gets wrong: it keeps only the last block, so a
+    correct two-document reply would silently lose the port plan and the node
+    would report schema errors about a test plan missing every port-plan
+    field. Callers that expect n documents should check the count themselves
+    and say so, rather than indexing into whatever came back."""
     import re
 
-    blocks = re.findall(r"```(?:json)?\s*\n(.*?)```", text, re.S)
+    return re.findall(r"```(?:json)?\s*\n(.*?)```", text, re.S)
+
+
+def extract_json_block(text: str) -> str:
+    """Pull the last fenced JSON block from an LLM reply, else the whole text."""
+    blocks = extract_json_blocks(text)
     return blocks[-1] if blocks else text
 
 
@@ -77,6 +110,15 @@ def load_trace_list(path: Path) -> list[str]:
     (the TODO(week 1) placeholders these files ship with) are skipped."""
     lines = Path(path).read_text().splitlines()
     return [t.strip() for t in lines if t.strip() and not t.strip().startswith("#")]
+
+
+def plan_paths(host: str, feature: str | None = None) -> tuple[Path, Path]:
+    """Where stage 2's two artifacts land for one host."""
+    feature = feature or C.FEATURE_NAME
+    return (
+        C.PLAN_DIR / f"{feature}.{host}.plan.json",
+        C.PLAN_DIR / f"{feature}.{host}.tests.json",
+    )
 
 
 def baseline_path(host: str, budget: str) -> Path:

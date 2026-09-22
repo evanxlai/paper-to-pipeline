@@ -13,7 +13,9 @@ Demonstration: port sR, the register-value statistical-corrector component of RU
 Done:
 
 - The stage contracts, including the plan / integrate / debug split ([docs/stages.md](docs/stages.md)).
-- The loop driver, the LLM backend factory, the deterministic gate, and the prompts (`loop/`).
+- The loop driver, the LLM backend factory, and the prompts (`loop/`).
+- Stage 2 end to end: the port-plan and test-plan schemas (`plan/*.schema.json`), the planner prompt and plan node (`loop/plan_node.py`), and the coverage checks that make an unmapped spec item a planning failure rather than an integration surprise (`loop/plan_checks.py`).
+- The deterministic verify gate (`loop/gate.py`) and the test-plan runner behind it (`loop/plan_runner.py`). Every condition and threshold comes from the plan; the gate has no defaults of its own and no storage condition.
 - The CBP2025 CHIA node, written for upstreaming (`chia_nodes/cbp2025/`).
 - The feature-spec JSON schema (`spec/feature_spec.schema.json`).
 - Cluster configuration YAML for a local head plus GCP spot workers over Tailscale (`cluster/cluster.yaml`).
@@ -22,9 +24,9 @@ Done:
 
 Not done (marked TODO in the code):
 
-- The plan node and the debug node (stages 2 and 3b in [docs/stages.md](docs/stages.md)). Today a single `integrate` stage plans and implements in one session, and the debug turn resumes that same session instead of being an independent diagnosis-only node.
-- The port-plan and test-plan JSON schemas (`plan/*.schema.json`) plus their coverage checks, which are what make an unmapped spec item a planning failure rather than an integration surprise.
-- Retiring every budget check from the pre-DSE stages. `gate.py` still carries a storage condition, and `distill`/`integrate` still take a `budget` argument; per the rule above, neither belongs before stage 4.
+- The debug node (stage 3b in [docs/stages.md](docs/stages.md)). The debug turn resumes the integration session rather than being an independent diagnosis-only node, so there is not yet a single writer on the tree the way the contract describes.
+- Retiring the last budget from the pre-DSE stages. The gate's storage condition is gone and `integrate` now takes a baseline key rather than a budget, but `distill` still takes a real one: it reaches `spec_checks`, whose `budget_fit` check compares the spec's accounted storage against an allowance and fails the stage closed. Per the rule above that comparison belongs to stage 4 alone.
+- A performance trace list sized between the 5-trace smoke set and the 60-trace screening set. Until one exists the `performance[]` thresholds have no signal on a real host.
 - Host build/run adapters (`hosts/__init__.py`). The gate fails closed until these exist.
 - DSE evaluator wiring against `evolve-flows` (its `ChiaEvaluator` internals are unverified).
 - Trace lists (`experiments/*.list`) wait on the trace download.
@@ -73,7 +75,9 @@ paper (+ optional artifact)          docs/research/ has the verified APIs
         v
     verify gate (gate.py, plain code; agents never self-report success)
         |   G1 build | G2 feature-off == baseline | G3 correctness tests
-        |   G4 feature-on smoke clean | G5 performance direction
+        |   G4 feature-on smoke clean | G5 performance block_threshold:
+        |      direction, plus no-regression on companion metrics.
+        |      A warn_threshold shortfall is reported and does not block.
         v
 [4] DSE (evolve-flows evolver mutates sr_params.h)
         |   the only stage with a constraint set; iso-budget is one allowance
@@ -89,15 +93,20 @@ CHIA mechanics: every step is a `@ChiaFunction` dispatched over Ray. Agents touc
 
 ```
 loop/                    the CHIA loop (head driver + nodes + prompts)
-  adopt_a_paper_loop.py  driver: distill | baseline | integrate | dse (plan: TODO)
+  adopt_a_paper_loop.py  driver: distill | baseline | plan | integrate | dse
   constants.py           every knob, env-overridable as P2P_*
   llm.py                 Gemini (antigravity/opencode+vertex) or Claude backends
   llm_gateway.py         OpenAI-compatible proxy to Vertex; refreshes the bearer
-  gate.py                the deterministic verify gate (G1..G5)
+  plan_node.py           stage 2: the planning agent, validate + one repair turn
+  plan_checks.py         stage 2: deterministic coverage checks over a plan pair
+  plan_runner.py         runs a test plan against a host; feeds the gate
+  gate.py                the deterministic verify gate (G1..G5), judging only
   dse.py                 evolve-flows wiring for the tuning stage
-  prompts/               system, distiller, reviewer, integrator, debug
+  prompts/               system, distiller, reviewer, planner, integrator, debug
   tests/integrate_smoke.py  stage 3 end to end against a fixture host, minutes
   tests/fixtures/toyhost/   that fixture: a 300-line C++ predictor sim
+  tests/fixtures/tinysc_reference/  a correct port of it, so the gate is shown
+                            passing a good port and failing a bad one
 chia_nodes/cbp2025/      new CHIA node wrapping the CBP2025 kit (upstream target)
 hosts/                   per-host adapters + integration NOTES + recorded baselines
 spec/                    feature-spec JSON schema (+ distilled specs land here)
