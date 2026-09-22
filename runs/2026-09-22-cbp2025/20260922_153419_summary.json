@@ -1,0 +1,17 @@
+{
+  "stage": "integrate",
+  "budget": "iso-192KiB",
+  "integrate": [
+    {
+      "host": "cbp2025",
+      "baseline": "iso-192KiB",
+      "status": "needs_replan",
+      "attempts": 1,
+      "plan_revisions": 0,
+      "escalation": {
+        "pointer": "/correctness/1/feature_state",
+        "reason": "c_existing_regression has feature_state: both but its matches_clean_tree pass_condition expects an exact string match of the baseline metrics. A performance-improving feature will inherently change the metrics, making it impossible to exactly match the clean tree result when the feature is on."
+      }
+    }
+  ]
+}

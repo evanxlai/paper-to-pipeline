@@ -21,6 +21,8 @@ stage went through `chia job submit`.
 | `130623` | plan | Read that escalation and answered it. `/host_interfaces/4` moved from `fallback` to `exact`. |
 | `131818` | integrate | sR now added into the statistical corrector's `LSUM`. G5 measured exactly 0.0000. G2 failed on a baseline pointer the agent is not allowed to change, and it escalated that. |
 | `140845` | plan | Answered the pointer escalation, and named the outer `update` overload as a hook point. |
+| `143148` | integrate | Stopped by `RESOURCE_EXHAUSTED (429)` from Vertex after seven retries, with the port most of the way written. A model quota, not a fault in the loop. The tree survived. |
+| `153419` | integrate | Resumed on that tree with `P2P_CBP2025_PORT_FRESH=0`. First run with G2 passing, and the first where the feature reaches the metric at all: 388.07 to 633.70 CycWPPKI, IPC down 29 percent. Escalated `/correctness/1/feature_state`. |
 
 ## What to read first
 
@@ -42,8 +44,17 @@ there.
 
 `20260922_131818_*` is the same shape a second time: a correct escalation
 about a genuinely wrong frozen value, caused by a documentation gap rather
-than by the agent. Both classes now fail at stage 2 instead, in a repair
-turn, through checks added in `loop/plan_checks.py`.
+than by the agent.
+
+`20260922_153419_*` is a third. An `existing_regression` entry asked for
+the clean tree's exact measurement row with the feature on. The
+`performance` entry in the same plan asked for that row to change. No port
+satisfies both, and the agent said so instead of picking one.
+
+Three escalations, three correct, none of them the agent's fault. Two of
+the three classes now fail at stage 2 instead, in a repair turn, through
+checks added to `loop/plan_checks.py`. The third is recorded in
+`hosts/cbp2025/NOTES.md`, which is where the wrong fact was.
 
 ## What each file is
 
