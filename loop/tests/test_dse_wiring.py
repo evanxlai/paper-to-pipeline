@@ -215,3 +215,64 @@ def test_evaluator_class_is_not_nested_in_a_function(skydiscover, tmp_path):
     import sr_evaluator
 
     assert "<locals>" not in sr_evaluator.SRParamsEvaluator.__qualname__
+
+
+# ------------------------------------------------- the profiler's wrapper
+# start_collector() is on for the whole job, so every ChiaFunction result
+# arrives wrapped. chia's get() unwraps it and every other caller in this
+# repository goes through get(). skydiscover's ChiaEvaluator awaits the
+# ObjectRef itself, so the wrapper reaches the evaluator intact. The first
+# stage-4 run died on that before evaluating a single candidate.
+
+
+def test_unwrap_strips_a_profiled_result(skydiscover):
+    import sr_evaluator
+    from chia.trace.profiler import _ProfiledResult
+
+    class Build:
+        success = True
+        binary = b"bytes"
+
+    wrapped = _ProfiledResult(
+        value=Build(), worker_ip="10.0.0.1", worker_id="w", node_id="n",
+        exec_time_s=1.0,
+    )
+    assert sr_evaluator._unwrap(wrapped).success is True
+
+
+def test_unwrap_passes_an_unwrapped_result_through(skydiscover):
+    """The profiler can be off. The evaluator has to work either way."""
+    import sr_evaluator
+
+    class Build:
+        success = False
+
+    plain = Build()
+    assert sr_evaluator._unwrap(plain) is plain
+    assert sr_evaluator._unwrap(None) is None
+
+
+def test_map_results_unwraps_every_run(skydiscover, tmp_path):
+    """aggregate() reads .success and .metrics off each run. A wrapped run
+    makes every candidate score zero, which reads as a healthy search that
+    learns nothing rather than as a bug."""
+    import sr_evaluator
+    from chia.trace.profiler import _ProfiledResult
+
+    class Run:
+        success = True
+        trace = "int/a.gz"
+        metrics = {"50perc": {"mpki": 2.0, "cycwppki": 40.0, "ipc": 1.5}}
+
+    ev = sr_evaluator.SRParamsEvaluator(
+        "/nonexistent", ["int/a.gz"], str(tmp_path), 60, 60)
+    try:
+        wrapped = _ProfiledResult(
+            value=Run(), worker_ip="i", worker_id="w", node_id="n",
+            exec_time_s=1.0,
+        )
+        out = ev._map_results([wrapped])
+    finally:
+        ev.close()
+    assert out.metrics["combined_score"] > 0
+    assert out.metrics["brmispki_50perc_amean"] == 2.0

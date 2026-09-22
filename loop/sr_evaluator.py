@@ -38,6 +38,27 @@ from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
 from skydiscover.evaluation.chia_evaluator import ChiaEvaluator
 from skydiscover.evaluation.evaluation_result import EvaluationResult
 
+def _unwrap(result):
+    """Strip the profiler's wrapper off a resolved ChiaFunction result.
+
+    `start_collector()` is on for the whole job (adopt_a_paper_loop.main),
+    so every ChiaFunction returns a `_ProfiledResult` carrying the real
+    value plus worker metadata. `chia.base.ChiaFunction.get` unwraps that
+    transparently, and every other caller in this repository goes through
+    it. skydiscover's ChiaEvaluator does not: it awaits the ObjectRef
+    itself.
+
+    Without this the first stage-4 run died with "'_ProfiledResult' object
+    has no attribute 'success'" before a single candidate was evaluated. It
+    is duck-typed rather than imported so that the evaluator keeps working
+    if the profiler is off, and so this module does not take a dependency
+    on a private chia class."""
+    value = getattr(result, "value", None)
+    if value is not None and type(result).__name__ == "_ProfiledResult":
+        return value
+    return result
+
+
 # Per-evaluation binary handoff between build and run. ChiaEvaluator calls
 # build_fn and run_fn separately with no shared argument -- run_fn is invoked
 # as run_fn(workload=trace) and never receives the build artifact -- so build
@@ -100,7 +121,7 @@ class SRParamsEvaluator(ChiaEvaluator):
 
     async def _dispatch_build(self, program_solution, label):
         _eval_binary.set(None)
-        result = await super()._dispatch_build(program_solution, label)
+        result = _unwrap(await super()._dispatch_build(program_solution, label))
         if isinstance(result, EvaluationResult) or result is None:
             return result
         if not result.success:
@@ -136,7 +157,9 @@ class SRParamsEvaluator(ChiaEvaluator):
         )
 
     def _map_results(self, run_results: list) -> EvaluationResult:
-        agg = CBP2025Node.aggregate(list(run_results))
+        # Same unwrap as the build side: these came back through
+        # skydiscover rather than through chia's get().
+        agg = CBP2025Node.aggregate([_unwrap(r) for r in run_results])
         mpki = agg.get(C.DSE_SCREEN_METRIC)
         if mpki is None or agg["n"] < len(self._screening_traces) * 0.9:
             return EvaluationResult(
