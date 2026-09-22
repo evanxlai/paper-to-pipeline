@@ -195,6 +195,15 @@ def make_plan(
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(json.dumps(port_plan, indent=2))
     tests_path.write_text(json.dumps(test_plan, indent=2))
+    # Retire any revision an earlier run left beside the old pair. They are
+    # corrections to a plan that no longer exists, and `plan_revision.latest`
+    # prefers the highest-numbered revision on disk -- so leaving them there
+    # means stage 3 never reads the plan this stage just wrote.
+    import plan_revision
+
+    retired = plan_revision.retire(host, feature, dump.prefix)
+    if retired:
+        dump.json(f"plan_{host}_retired_revisions.json", retired)
     return port_plan, test_plan
 
 

@@ -135,7 +135,10 @@ def _feature_env(host: str, spec: dict) -> dict:
     import plan_revision
     from hosts.cbp2025 import adapter as cbp2025_adapter
 
-    port_plan, _tests, _rev = plan_revision.latest(host, spec.get("feature_name"))
+    try:
+        port_plan, _tests, _rev = plan_revision.latest(host, spec.get("feature_name"))
+    except FileNotFoundError:
+        port_plan = {}
     enable = (port_plan or {}).get("feature_enable") or {}
     if not enable.get("name"):
         raise SystemExit(

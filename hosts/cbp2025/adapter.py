@@ -78,6 +78,12 @@ _ROW_TO_METRIC = {
 def host_shell(cwd: str, command: str, env: dict | None, timeout_s: int) -> dict:
     """One shell command on the node that owns the checkout.
 
+    `output` is the command's own stdout and stderr and nothing else. It is
+    deliberately not prefixed with the command line: a `stdout_excludes`
+    pass condition is matched against this text, so an echoed command would
+    let the entry fail on a word that appears only in its own invocation.
+    The failing entry's id and command are already in the test plan.
+
     Returns a dict rather than raising, for plan_runner's reason: a hung or
     crashed test is a gate failure with a diagnosis, and an exception here
     would instead take down the stage that was trying to diagnose it."""
@@ -90,30 +96,68 @@ def host_shell(cwd: str, command: str, env: dict | None, timeout_s: int) -> dict
     except subprocess.TimeoutExpired as e:
         return {
             "exit_code": -1,
-            "output": f"$ {command}\n{e.stdout or ''}{e.stderr or ''}"
-                      f"\n[timed out after {timeout_s}s]",
+            "output": f"{e.stdout or ''}{e.stderr or ''}"
+                      f"\n[{command!r} timed out after {timeout_s}s]",
             "timed_out": True,
         }
     except OSError as e:
-        return {"exit_code": -1, "output": f"$ {command}\n[could not run: {e}]",
+        return {"exit_code": -1, "output": f"[could not run {command!r}: {e}]",
                 "timed_out": False}
     return {
         "exit_code": proc.returncode,
-        "output": f"$ {command}\n{proc.stdout}{proc.stderr}",
+        "output": proc.stdout + proc.stderr,
         "timed_out": False,
+    }
+
+
+def _git(cwd, *args) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+
+
+@ChiaFunction(resources={C.CBP2025_HOST_RESOURCE: 1.0})
+def restore_checkout(root: str) -> dict:
+    """Put a checkout back to the commit it claims to be at.
+
+    An agent with a shell leaves things behind. Stage 2's planner is allowed
+    to build the host and run its suite, so object files and a binary are
+    expected. What is not expected is source: on the first real stage-2 run
+    the planner wrote a `test_sr.cc` containing
+    `int main(){ std::cout << "Test passed"; }` while working out the
+    compile command for the spec unit tests, and left it there. That file
+    then travelled into the port tree, and all seven `spec_unit_test`
+    entries passed G3 against a tree nobody had ported into.
+
+    `git clean -fdx` plus `reset --hard` is the only reliable answer,
+    because there is no list of "files an agent might leave" to enumerate.
+    Nothing of value is lost: the kit's sample traces are tracked, and build
+    output is meant to be rebuilt."""
+    before = _git(root, "status", "--porcelain").stdout
+    _git(root, "reset", "--hard", "HEAD")
+    removed = _git(root, "clean", "-fdx").stdout
+    return {
+        "root": root,
+        "was_dirty": bool(before.strip()),
+        "removed": [line for line in removed.splitlines() if line.strip()],
+        "revision": _git(root, "rev-parse", "HEAD").stdout.strip(),
     }
 
 
 @ChiaFunction(resources={C.CBP2025_HOST_RESOURCE: 1.0})
 def materialize_port_tree(src: str, dst: str, fresh: bool = True) -> dict:
     """Lay down the tree stage 3 is allowed to edit, as a copy of the
-    pristine checkout.
+    pristine checkout, reset to the commit the plan was written against.
 
     The agent never edits `src`. Stage 2 read that tree to record
     `host_revision` and every clean-tree result in the test plan, and
     `--stage baseline` builds it to produce the numbers G2 compares against;
     an agent editing it in place would leave both describing a tree that no
     longer exists, and the next baseline run would measure the port.
+
+    The copy is then reset and cleaned rather than trusted. See
+    `restore_checkout` for what stage 2 actually left behind the first time
+    this ran, and why "copy whatever is there" is not good enough. It also
+    removes the build output, which matters on its own: a first attempt that
+    never compiled anything could otherwise still run ./cbp.
 
     `.git` travels with the copy so the port tree answers `git rev-parse
     HEAD` and `git diff` the same way -- the diff is how a run is reviewed
@@ -125,20 +169,14 @@ def materialize_port_tree(src: str, dst: str, fresh: bool = True) -> dict:
         shutil.rmtree(target)
     if not target.exists():
         shutil.copytree(source, target, symlinks=True)
-    # Build output from the pristine tree would let a first attempt that
-    # never compiled anything still run ./cbp, so the agent has to build.
-    for stale in (*target.glob("*.o"), *target.glob("lib/*.o"),
-                  target / "cbp", target / "lib" / "libcbp.a"):
-        if stale.exists():
-            stale.unlink()
-    proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=target,
-        capture_output=True, text=True,
-    )
+    _git(target, "reset", "--hard", "HEAD")
+    removed = _git(target, "clean", "-fdx").stdout
     return {
         "ok": True,
         "path": str(target),
-        "revision": proc.stdout.strip() or "(not a git checkout)",
+        "revision": _git(target, "rev-parse", "HEAD").stdout.strip()
+                    or "(not a git checkout)",
+        "cleaned": [line for line in removed.splitlines() if line.strip()],
     }
 
 
@@ -224,6 +262,7 @@ class CBP2025Executor:
         # binary as bytes and does not care, but a shell command runs
         # whatever is in the tree, so the two have to be tracked separately.
         self._tree_state: Optional[bool] = None
+        self._last_build_error: str = ""
 
     # --------------------------------------------------------------- build
     def _build_key(self, feature_on: bool) -> bool:
@@ -268,11 +307,19 @@ class CBP2025Executor:
         self.build(feature_on=feature_on, force=True)
 
     def _binary_for(self, feature_on: bool) -> Optional[bytes]:
-        """The binary a run in this state needs, building it if the plan's
-        knob is compile-time and only the other state has been built."""
+        """The binary a run in this state needs.
+
+        Builds it when the plan's knob is compile-time and only the other
+        state has been built so far. A failure records the compiler output
+        in `_last_build_error`, because the only thing `run_traces` can
+        otherwise say is that every trace failed -- which reads as a broken
+        trace list rather than as a port that does not compile in this
+        state."""
         key = self._build_key(feature_on)
         if key not in self._binaries:
-            self.build(feature_on=feature_on)
+            outcome = self.build(feature_on=feature_on)
+            if not outcome.ok:
+                self._last_build_error = outcome.log
         return self._binaries.get(key)
 
     # --------------------------------------------------------------- shell
@@ -307,9 +354,11 @@ class CBP2025Executor:
         own scripts/trace_exec_training_list.py aggregates a suite."""
         binary = self._binary_for(feature_on)
         if not binary:
+            state = "on" if feature_on else "off"
             return plan_runner.TraceOutcome(
                 ok=False, metrics={}, failed=list(traces),
-                log_tail="the host did not build, so no trace was run",
+                log_tail=f"the host did not build with the feature {state}, so "
+                         f"no trace was run:\n{self._last_build_error[-3000:]}",
             )
         env = enable_env(self.feature_enable, feature_on)
         refs = [
@@ -341,6 +390,11 @@ class CBP2025Executor:
 
 
 # ------------------------------------------------------------------- adapter
+
+
+def restore_host_checkout(root: str = C.CBP2025_ROOT) -> dict:
+    """Undo whatever the last agent left in the pristine checkout."""
+    return get(restore_checkout.chia_remote(root))
 
 
 def clean_port_tree(fresh: bool = True) -> dict:

@@ -1,0 +1,30 @@
+# The verify gate's performance list for the cbp2025 host: 4 traces, one per
+# workload family, all of them small.
+#
+# Sizing this is a real trade and the trade is stated here rather than
+# hidden. G5 asks one question: does the mechanism move the metric the way
+# the paper says. It is a direction check, not a score. The score comes from
+# screening-60.list and training-105.list in stage 4, which keep all six
+# families and every trace in them.
+#
+# What the length costs. The gate runs the whole list twice per integration
+# attempt, feature-on and feature-off, and the loop allows six attempts. This
+# cluster offers 4 cbp2025 slots, so a 4-trace list is exactly one wave per
+# feature state. Measured on the first full gate run, the 8-trace list it
+# replaces took about 16 minutes of simulator per attempt, or an hour and a
+# half across six attempts, and that is time the agent does not get to spend
+# fixing the port.
+#
+# What the length buys, and does not. Four traces is enough to tell "the
+# mechanism reaches the metric" from "it does not". It is not enough to
+# report a gain from, and nothing downstream treats it as one: the gate's
+# warn_threshold is explicitly non-blocking for the same reason, because the
+# port is untuned when it runs.
+#
+# The traces are the smallest member of four of the six families. media and
+# compress are absent: their smallest members are 94 MiB and 109 MiB, which
+# is two to three times everything here.
+int/int_13_trace.gz
+web/web_21_trace.gz
+fp/fp_1_trace.gz
+infra/infra_8_trace.gz

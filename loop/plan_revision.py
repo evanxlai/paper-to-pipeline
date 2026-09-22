@@ -611,6 +611,35 @@ def count(host: str, feature: str | None) -> int:
         index += 1
 
 
+def retire(host: str, feature: str | None, stamp: str) -> list:
+    """Move every existing revision out of the way, and say which ones.
+
+    Stage 2 writing a fresh pair does not delete `<plan>.rev1.json` from an
+    earlier run, and `latest` returns the highest-numbered revision it can
+    see. A re-planned host would therefore keep being judged against a
+    correction somebody made to the *previous* plan, silently, and the new
+    stage-2 output would never be read at all.
+
+    Moved rather than deleted. A revision is the record of what was asked of
+    an earlier port, and that is exactly what a reader needs when comparing
+    two runs of the same host."""
+    moved = []
+    index = 0
+    while True:
+        index += 1
+        pair = revision_paths(host, feature, index)
+        if not any(p.exists() for p in pair):
+            break
+        for path in pair:
+            if not path.exists():
+                continue
+            target = path.parent / "superseded" / f"{stamp}{path.name}"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            path.rename(target)
+            moved.append(str(target))
+    return moved
+
+
 def latest(host: str, feature: str | None) -> tuple[dict, dict, int]:
     """The plan pair in force, and which revision it is.
 

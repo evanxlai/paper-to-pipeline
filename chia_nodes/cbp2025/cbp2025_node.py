@@ -102,25 +102,41 @@ class CBP2025Node:
         (baseline TAGE-SC-L).
 
         `env` is merged over the worker's environment for both make
-        invocations. It exists for a predictor whose knobs are compile-time:
-        the kit's Makefile passes CPPFLAGS through, so a port can write
-        `CPPFLAGS += -DSR_ENABLE=$(SR_ENABLE)` and have one value per build.
-        A predictor whose knobs are read with getenv() at run time wants the
-        same dict on `run` instead, and does not need this."""
+        invocations. It exists for a predictor whose knobs are compile-time.
+        Note that the kit's Makefile as shipped forwards nothing from the
+        environment: it assigns CPPFLAGS and never uses it, and compiles with
+        `$(CC) $(FLAGS)` where FLAGS is a plain `=` assignment that make
+        prefers over the environment. Such a port has to edit the Makefile to
+        read one of these variables. A predictor whose knobs are read with
+        getenv() at run time wants the same dict on `run` instead, and needs
+        none of this.
+
+        A build that overruns `timeout_s` is a failed build with its log,
+        never an exception: G1 exists to report exactly that, and an
+        exception here would instead kill the stage that was reporting it."""
         root = Path(cbp_root)
         for rel, content in (predictor_sources or {}).items():
             target = root / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
         run_env = {**os.environ, **{k: str(v) for k, v in (env or {}).items()}}
-        proc = subprocess.run(
-            ["make", "clean"], cwd=root, capture_output=True, text=True,
-            timeout=timeout_s, env=run_env,
-        )
-        proc = subprocess.run(
-            ["make", "-j"], cwd=root, capture_output=True, text=True,
-            timeout=timeout_s, env=run_env,
-        )
+        try:
+            proc = subprocess.run(
+                ["make", "clean"], cwd=root, capture_output=True, text=True,
+                timeout=timeout_s, env=run_env,
+            )
+            proc = subprocess.run(
+                ["make", "-j"], cwd=root, capture_output=True, text=True,
+                timeout=timeout_s, env=run_env,
+            )
+        except subprocess.TimeoutExpired as e:
+            return CBP2025BuildResult(
+                success=False,
+                log=(e.stdout or "") + (e.stderr or "")
+                    + f"\n[build timed out after {timeout_s}s]",
+            )
+        except OSError as e:
+            return CBP2025BuildResult(success=False, log=f"[could not run make: {e}]")
         log = proc.stdout + proc.stderr
         binary = root / "cbp"
         if proc.returncode != 0 or not binary.exists():

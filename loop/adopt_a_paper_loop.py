@@ -73,7 +73,14 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
                 name="artifact_bash",
                 work_dir=C.REFERENCE_ARTIFACT_DIR,
                 timeout_seconds=C.BASH_TOOL_TIMEOUT_S,
-                task_options={"resources": {"cbp2025": 0.1}},
+                # "head", not a host token. REFERENCE_ARTIFACT_DIR is under
+                # third_party/ in this repository, which scripts/
+                # fetch_artifacts.sh populates on the head and no worker
+                # ever has. A host token would place this shell on a trace
+                # worker, where every command it runs reports an empty
+                # directory and the distiller concludes the artifact says
+                # nothing.
+                task_options={"resources": {"head": 0.1}},
             )
         ]
     # The schema must be inlined: in paper_only mode the agent has no tools,
@@ -182,6 +189,11 @@ def record_cbp_baseline(
     comparison between two different things that the gate would report as a
     regression.
     """
+    # The recorded baseline is what G2 holds every port to, so it has to be
+    # the host and not the host plus whatever a previous agent left in the
+    # tree. Stage 2's planner has a shell on this same checkout.
+    dump.json("cbp2025_baseline_restore.json",
+              cbp2025_adapter.restore_host_checkout(C.CBP2025_ROOT))
     build = get(
         CBP2025Node.build.options(resources={C.CBP2025_HOST_RESOURCE: 1.0})
         .chia_remote(C.CBP2025_ROOT, None, C.BUILD_TIMEOUT_S, None)
@@ -196,20 +208,32 @@ def record_cbp_baseline(
     ]
     results = [get(r) for r in refs]
     agg = get(CBP2025Node.aggregate.chia_remote(results))
-    agg["trace_list"] = str(Path(trace_list).relative_to(C.REPO_ROOT))
+    path = Path(trace_list)
+    agg["trace_list"] = str(
+        path.relative_to(C.REPO_ROOT) if path.is_absolute()
+        and path.is_relative_to(C.REPO_ROOT) else path
+    )
     agg["per_trace"] = {
         rel: cbp2025_adapter.parse_metrics(result.log)
         for rel, result in zip(traces, results)
-        if result.success
+        if result is not None and result.success
     }
+    # The run's evidence lands either way, under out/. What does not land
+    # either way is hosts/cbp2025/baselines/<budget>.json, because that file
+    # is what G2 measures a port against and every later stage reads it
+    # without knowing which run wrote it. A partial baseline promoted there
+    # is a wrong yardstick with no way to tell, so the incomplete case keeps
+    # whatever was already recorded and says why.
     dump.json("cbp2025_baseline.json", agg)
-    helpers.record_baseline("cbp2025", budget, agg)
     if agg.get("n") != len(traces):
         raise SystemExit(
             f"baseline ran {agg.get('n')} of {len(traces)} traces; failed: "
             f"{agg.get('failed')}. A baseline over a different trace set than "
-            f"the plan will name is not a baseline."
+            f"the plan will name is not a baseline, so "
+            f"{helpers.baseline_path('cbp2025', budget)} was left alone. The "
+            f"measurement is in {dump.dir}."
         )
+    helpers.record_baseline("cbp2025", budget, agg)
     return agg
 
 
@@ -264,6 +288,14 @@ def plan(dump: helpers.Dumper, spec: dict, host: str) -> tuple[dict, dict]:
         # commit. Without this, `hook_file_missing` would be a statement
         # about the head's copy and the planner would be sent to fix a file
         # that is present on the machine it is looking at.
+        # The planner gets a shell on this tree and the next stage copies
+        # it, so whatever the last run left behind would travel into the
+        # port. On the first real stage-2 run that was a `test_sr.cc`
+        # printing "Test passed", which then satisfied all seven
+        # spec_unit_test entries against an unported tree. Clean before, so
+        # the clean-tree results the planner records are about a clean tree.
+        print(f"[plan] restoring {work_dir}: "
+              f"{json.dumps(cbp2025_adapter.restore_host_checkout(work_dir))}")
         revision = cbp2025_adapter.checkout_revision()
         mirror_rev = _mirror_revision(mirror)
         if mirror_rev != revision:
@@ -288,6 +320,14 @@ def plan(dump: helpers.Dumper, spec: dict, host: str) -> tuple[dict, dict]:
         )
     finally:
         bash.stop()
+        if host == "cbp2025":
+            # And clean after, so --stage baseline and the next run start
+            # from the tree this plan describes rather than from this
+            # planner's leftovers.
+            dump.json(
+                f"plan_{host}_checkout_restored.json",
+                cbp2025_adapter.restore_host_checkout(work_dir),
+            )
 
 
 def _mirror_revision(mirror: str | None) -> str:
@@ -406,10 +446,11 @@ def _consider_revision(
     port_plan: dict,
     test_plan: dict,
     revision: int,
-) -> tuple[dict, dict, int]:
+) -> tuple[dict, dict, int, Optional[dict]]:
     """Take a plan revision off a debug turn, if it proposed one.
 
-    Returns the pair in force after the turn and its revision number. A
+    Returns the pair in force after the turn, its revision number, and an
+    escalation if the repair turn emitted one. A
     rejected proposal returns the pair unchanged: the plan on disk is written
     by `plan_revision.commit` and by nothing else, so a revision that does not
     survive review leaves no trace on the artifacts and the agent faces the
@@ -422,7 +463,7 @@ def _consider_revision(
     The repair turn costs an LLM call and no gate run, which is why it happens
     here rather than being folded into the next attempt."""
     if not plan_revision.proposed(reply):
-        return port_plan, test_plan, revision
+        return port_plan, test_plan, revision, None
 
     feature = spec.get("feature_name")
     if revision >= C.PLAN_REVISIONS:
@@ -434,7 +475,7 @@ def _consider_revision(
             "reason": "revision budget spent",
         })
         run_llm(llm, plan_revision.budget_spent_prompt(C.PLAN_REVISIONS), tools)
-        return port_plan, test_plan, revision
+        return port_plan, test_plan, revision, None
 
     index = revision + 1
     for turn in range(C.PLAN_REPAIR_TURNS + 1):
@@ -450,16 +491,23 @@ def _consider_revision(
         if not errors and not plan_revision.blocking(findings):
             return plan_revision.commit(
                 dump, adapter.name, feature, index, new_port, new_tests, findings
-            ) + (index,)
+            ) + (index, None)
         if turn == C.PLAN_REPAIR_TURNS:
             break
         resp = run_llm(llm, plan_revision.repair_prompt(errors, findings), tools)
         dump.llm(f"plan_revision_{adapter.name}_{index}_repair_{turn}", resp)
         reply = resp.result
+        # The repair prompt itself offers escalation as the other move, so a
+        # reply that takes it has to be heard here as well. Dropping it left
+        # the agent's "the planning stage has to decide this" unrecorded and
+        # sent it back into the same gate it had just declined to meet.
+        escalated = plan_revision.escalation(reply)
+        if escalated is not None:
+            return port_plan, test_plan, revision, escalated
         if not plan_revision.proposed(reply):
             break  # it took the hint and stopped proposing
 
-    return port_plan, test_plan, revision
+    return port_plan, test_plan, revision, None
 
 
 def integrate(
@@ -548,10 +596,20 @@ def integrate(
                 })
                 break
 
-            port_plan, test_plan, revision = _consider_revision(
+            port_plan, test_plan, revision, escalated = _consider_revision(
                 dump, spec, adapter, llm, [bash], resp.result,
                 port_plan, test_plan, revision,
             )
+            if escalated is not None:
+                # Same rule as an escalation in the debug turn itself: a turn
+                # that says it cannot decide this has ended the attempt.
+                status = "needs_replan"
+                dump.json(f"plan_escalation_{host}.json", {
+                    **escalated, "attempt": attempts_used,
+                    "plan_revision": revision, "gate_reasons": g.reasons,
+                    "raised_in": "plan revision repair turn",
+                })
+                break
     finally:
         bash.stop()
     return {
@@ -632,7 +690,26 @@ def main() -> None:
                 dump.text(f"integrate_{h}_diff.patch", cbp2025_adapter.port_diff())
 
     if args.stage in ("dse", "all"):
-        summary["dse"] = [dse.run_dse(h, spec, args.budget, C.DSE_CONFIG) for h in hosts]
+        # In an --stage all run, only tune what the gate promoted. The
+        # default search is 250 iterations over the screening set, which is
+        # a day and a half of cluster time; spending it on a port the gate
+        # refused measures how a broken feature responds to its parameters.
+        # An explicit --stage dse still runs, because re-running the search
+        # over an already-integrated tree is exactly what that invocation is
+        # for and the gate verdict is not in hand there.
+        promoted = {
+            entry["host"] for entry in summary.get("integrate") or []
+            if entry.get("status") == "passed"
+        }
+        targets = hosts if args.stage == "dse" else [h for h in hosts if h in promoted]
+        skipped = [h for h in hosts if h not in targets]
+        if skipped:
+            summary["dse_skipped"] = {
+                "hosts": skipped,
+                "reason": "the verify gate did not promote this port, so tuning it "
+                          "would search the parameters of a feature that does not work",
+            }
+        summary["dse"] = [dse.run_dse(h, spec, args.budget, C.DSE_CONFIG) for h in targets]
 
     dump.json("summary.json", summary)
     print(json.dumps(summary, indent=2, default=str))

@@ -13,13 +13,20 @@ The expected verdict is a specific failure, and that is the point:
 
   G1 build            passes  -- the pristine kit compiles
   G2 feature-off      passes  -- an unported tree IS the baseline
-  G3 correctness      the two existing_regression entries pass; every
+  G3 correctness      the existing_regression entries pass; every
                       spec_unit_test entry fails, because no test file exists
   G4 smoke            passes
   G5 performance      fails   -- there is no feature, so nothing improves
 
 Anything else is a defect in the harness rather than in a port. In
 particular a G1 or G2 or G4 failure here is always the harness.
+
+A spec_unit_test that PASSES here is the harness too, and it is the worst
+case of it. The first run of this script reported all seven passing,
+because stage 2's planner had left a `test_sr.cc` printing "Test passed" in
+the checkout while working out the compile command, and the port tree was a
+copy of that checkout. The gate was then holding a port to a standard
+already met by a file nobody wrote on purpose.
 
     chia job submit -- python "$(pwd)/loop/tests/cbp2025_gate_smoke.py"
 
@@ -72,8 +79,10 @@ def main() -> int:
     if args.skip_performance:
         test_plan = {**test_plan, "performance": []}
 
+    print(f"[gate-smoke] restoring {C.CBP2025_ROOT}: "
+          f"{json.dumps(cbp2025_adapter.restore_host_checkout())}")
     print(f"[gate-smoke] materializing {C.CBP2025_PORT_ROOT} from {C.CBP2025_ROOT}")
-    print(f"[gate-smoke] {cbp2025_adapter.clean_port_tree()}")
+    print(f"[gate-smoke] {json.dumps(cbp2025_adapter.clean_port_tree())}")
 
     executor = cbp2025_adapter.CBP2025Executor(
         work_dir=C.CBP2025_PORT_ROOT,
@@ -114,12 +123,18 @@ def main() -> int:
     # What the harness itself must get right, independent of any port.
     off_baseline = [r for r in results.correctness if r.kind == "feature_off_baseline"]
     regressions = [r for r in results.correctness if r.kind == "existing_regression"]
+    unit_tests = [r for r in results.correctness if r.kind == "spec_unit_test"]
     checks = [
         ("G1 the pristine copy builds", results.build_ok),
         ("G2 an unported tree equals the recorded baseline",
          bool(off_baseline) and all(r.passed for r in off_baseline)),
         ("G3 the host's own regressions pass",
          bool(regressions) and all(r.passed for r in regressions)),
+        # The direction is deliberate. These tests do not exist until the
+        # integration agent writes them, so one passing here means something
+        # already satisfies it, and the only things that can are leftovers.
+        ("G3 no spec unit test passes on an unported tree",
+         not any(r.passed for r in unit_tests)),
         ("G4 the smoke traces complete", results.smoke_ok),
         ("the performance entries produced a number, or said why",
          args.skip_performance or all(

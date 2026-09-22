@@ -106,7 +106,7 @@ The gate sets three aliases to the same value on every build and every run. Any 
 Two consequences belong in the plan.
 
 - Off must be the default. A binary that runs with none of those three variables set must behave exactly like the baseline. A `getenv` result of `nullptr` gives `false`, and that is what delivers the default. It is also why the test above reads `== '1'` and not `!= '0'`.
-- A `compile_time_define` binding also works. `CPPFLAGS` reaches the compiler through the Makefile, and the gate passes the same three variables into `make`. The cost is a full rebuild on every knob flip, which is about 20 seconds per flip per attempt. Prefer `runtime_env`.
+- A `compile_time_define` binding costs more than it looks. The gate does pass the same three variables into `make`, but this Makefile does not forward them. It sets `CPPFLAGS` and then never uses it, and it compiles with `$(CC) $(FLAGS)`, where `FLAGS` is a plain `=` assignment that make gives priority over the environment. So a compile-time knob needs a Makefile edit as well, and that edit is a hook point the plan must name. It also costs a full rebuild on every knob flip, about 20 seconds each. Prefer `runtime_env`.
 
 ## Parameters live in `sr_params.h`
 
@@ -125,7 +125,11 @@ The enable knob is the one exception to "everything through the header". It is a
 make clean && make      # ~20 s on this cluster's n2-standard-2 workers
 ```
 
-The build is `g++ -std=c++17 -O3`. It links `lib/libcbp.a` and `-lz`. The Makefile `DEPS` line names `cbp.h cond_branch_predictor_interface.h my_cond_branch_predictor.h`. Note that `cond_branch_predictor_interface.h` does not exist, and make does not mind. Note also that a new header of your own is not in that list. A plain `make` can therefore miss an edit to it. Always run `make clean && make`. That is what the gate does.
+The build is `g++ -std=c++17 -O3`. It links `lib/libcbp.a` and `-lz`. Three facts about this Makefile matter for the port.
+
+- The `DEPS` line names `cbp.h cond_branch_predictor_interface.h my_cond_branch_predictor.h`. `cond_branch_predictor_interface.h` does not exist, and make does not mind.
+- A new header of your own is not in that list. A plain `make` can therefore miss an edit to it. Always run `make clean && make`. That is what the gate does.
+- Neither `CPPFLAGS` nor `FLAGS` picks anything up from the environment. `CPPFLAGS` is assigned and then never used, and the compile rule reads `$(CC) $(FLAGS)` where `FLAGS` is a plain `=` assignment. An extra `-D` therefore has to be written into the Makefile.
 
 ## Run and metrics
 
@@ -164,9 +168,17 @@ Repository trace lists, for a `trace_list` field. Paths are relative to the repo
 | list | size | for |
 | --- | --- | --- |
 | `experiments/smoke-2.list` | 2 bundled sample traces, seconds | G4 `smoke` |
-| `experiments/perf-8.list` | 8 real traces, about 6 minutes per feature state | G5 `performance` |
+| `experiments/perf-4.list` | 4 real traces, about 2 minutes per feature state | G5 `performance` |
+| `experiments/perf-8.list` | 8 real traces, about 8 minutes per feature state | a slower, wider G5 |
 | `experiments/screening-60.list` | 60 | stage 4 screening, not the gate |
 | `experiments/training-105.list` | 105 | stage 4 validation, not the gate |
+
+Use `perf-4.list` unless you have a reason not to. The gate runs a
+performance list twice per attempt, feature-on and feature-off, and the loop
+allows six attempts, so every trace on it is paid for twelve times. Four
+traces is one wave across this cluster's four `cbp2025` slots. Eight traces
+measured at about 16 minutes of simulator per attempt on the first full gate
+run, which is an hour and a half across six attempts.
 
 ## The recorded baseline, and what G2 compares against
 
