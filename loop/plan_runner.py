@@ -113,6 +113,11 @@ class PerformanceResult:
     warning: str = ""
     n_traces: int = 0
     failed_traces: list = field(default_factory=list)
+    # The host's log from the side that failed a trace or lost a metric,
+    # labelled by side. Empty when both sides ran cleanly. The gate appends
+    # its end to a failing G5 reason, because a list of workload names does
+    # not say whether the port panicked, failed to compile, or timed out.
+    log_tail: str = ""
 
 
 @dataclass
@@ -126,6 +131,10 @@ class TestPlanResults:
     performance: list = field(default_factory=list)
     smoke_ok: bool = False
     smoke_failures: list = field(default_factory=list)
+    # The host's log from the feature-on smoke run (TraceOutcome.log_tail).
+    # The gate appends its end to a failing G4 reason and ignores it
+    # otherwise.
+    smoke_log_tail: str = ""
 
 
 # -------------------------------------------------------------- conditions
@@ -215,7 +224,18 @@ def evaluate_condition(
             return f"no recorded baseline at {pc.get('baseline_pointer', '')!r}"
         keys = pc.get("metrics") or test_plan.get("metric_keys") or []
         tol = pc["rel_tol"] if "rel_tol" in pc else test_plan.get("baseline_rel_tol", 0.0)
-        return "; ".join(gate.metric_differences(base, metrics, keys, tol))
+        why = "; ".join(gate.metric_differences(base, metrics, keys, tol))
+        if any(metrics.get(k) is None for k in keys):
+            # A metric the command did not print usually means the command
+            # failed, and the reason is in its output. Without this the agent
+            # sees "measured=None" and has to run the command again to learn
+            # that gem5 panicked. metric_differences has already reported
+            # the missing key, so this adds text and never changes a verdict.
+            why += (
+                f"\nthe command exited {outcome.exit_code}, and its output ends "
+                f"with:\n{outcome.output[-2000:]}"
+            )
+        return why
 
     if kind == "metric_threshold":
         name = pc.get("metric")
@@ -264,6 +284,20 @@ def _measure(
         keys &= set(row)
     means = {k: sum(r[k] for r in rows) / len(rows) for k in keys}
     return TraceOutcome(ok=not failed, metrics=means, failed=failed, log_tail=tail)
+
+
+def _side_tail(label: str, outcome: TraceOutcome, wanted: Sequence[str]) -> str:
+    """One side's log, labelled, when that side failed a trace or lost a
+    metric the entry reads. Empty otherwise.
+
+    A clean side has nothing to report. The command_per_trace route keeps
+    the last command's output even on success, and quoting that under a
+    failure on the other side would point the reader at the wrong run."""
+    if not outcome.log_tail:
+        return ""
+    if outcome.failed or any(k not in outcome.metrics for k in wanted):
+        return f"{label} log:\n{outcome.log_tail}"
+    return ""
 
 
 def _relative_improvement(baseline: float, measured: float, direction: str) -> float:
@@ -354,6 +388,7 @@ def run_test_plan(
             )
             results.smoke_ok = outcome.ok
             results.smoke_failures = list(outcome.failed)
+            results.smoke_log_tail = outcome.log_tail
 
     for entry in test_plan.get("performance") or []:
         results.performance.append(
@@ -378,8 +413,15 @@ def _run_performance(
         )
         return out
 
+    # Every metric this entry reads, so a side that lost one of them counts
+    # as a side with something to report.
+    wanted = [metric] + [c.get("metric") for c in
+                         (entry.get("block_threshold") or {}).get("no_regression") or []]
+
     on = _measure(executor, traces, entry.get("run"), feature_on=True, timeout_s=timeout_s)
     out.failed_traces = list(on.failed)
+    on_tail = _side_tail("feature-on", on, wanted)
+    out.log_tail = on_tail
     if metric not in on.metrics:
         out.reason = (
             f"the feature-on run produced no {metric!r} over {len(traces)} trace(s)"
@@ -396,6 +438,11 @@ def _run_performance(
         off = _measure(executor, traces, entry.get("run"),
                        feature_on=False, timeout_s=timeout_s)
         base_metrics = off.metrics
+        # Feature-on last, because the gate keeps the end of this text and
+        # the feature-on run is the one the port changed.
+        out.log_tail = "\n".join(
+            t for t in (_side_tail("feature-off", off, wanted), on_tail) if t
+        )
         # Both sides' failures, deduped and in order. A trace that completed
         # feature-on and died feature-off leaves the two means over different
         # trace sets, which is the same defect as a feature-on failure and is

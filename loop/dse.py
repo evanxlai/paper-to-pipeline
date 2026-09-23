@@ -70,13 +70,15 @@ which pulls in its module's ContextVar and fails with "cannot pickle
 actor re-imports it by name, `loop/` must be on the actor's PYTHONPATH --
 hence RUNTIME_ENV's PYTHONPATH is ".:loop", not just ".".
 
-CAVEAT (host coverage): CBP2025Node's build/run are the only fully working
-host adapter (used already by record_cbp_baseline). `hosts/champsim` and
-`hosts/gem5` (hosts/__init__.py) are still NotImplementedError stubs, so
-`run_dse`'s `host` argument currently only labels/namespaces output -- every
-host is screened through the same cbp2025 kit and gets an identical search.
-Per-host budget-bit splitting and a champsim/gem5-native evaluator are
-TODO(week 3) once the stage-2 host adapters exist.
+CAVEAT (host coverage): CBP2025Node's build/run are the only host adapter
+this stage knows (used already by record_cbp_baseline). `run_dse`'s and
+`promote_finalists`' `host` argument only labels/namespaces output: every
+build and run below goes through CBP2025Node, and loop/sr_evaluator.py does
+the same. So a gem5 or champsim search would screen the CBP2025 kit and
+report the result under the other host's name. Both entry points refuse
+every host but cbp2025 (`require_searchable`), and so does the driver before
+it starts a job. Per-host budget-bit splitting and a champsim/gem5-native
+evaluator are TODO(week 3).
 """
 
 from __future__ import annotations
@@ -89,6 +91,30 @@ from pathlib import Path
 import constants as C
 import constraints as K
 import helpers
+
+
+# The hosts stage 4 can search. Only cbp2025, because run_dse and
+# promote_finalists build and run through CBP2025Node alone (see the host
+# coverage caveat above).
+SEARCHABLE_HOSTS = ("cbp2025",)
+
+
+def require_searchable(host: str) -> None:
+    """Refuse a host this stage would silently search on the CBP2025 kit.
+
+    Here, in the entry points, and not only in the driver, so no caller can
+    go around it: a script or a test that calls run_dse("gem5", ...) gets
+    the refusal too. Without it the search runs, finishes, and writes a
+    confident gem5 result that is the CBP2025 kit's under another name.
+    Nothing in that result would say so."""
+    if host not in SEARCHABLE_HOSTS:
+        raise SystemExit(
+            f"stage 4 cannot search {host}: run_dse and promote_finalists build "
+            f"and run only through CBP2025Node, so a {host} search would silently "
+            f"search the CBP2025 kit and report it as {host}'s. Stages dse and "
+            f"promote take --host {' or '.join(SEARCHABLE_HOSTS)} until {host} has "
+            f"its own evaluator."
+        )
 
 
 # Deferred imports so the rest of the loop runs without evolve-flows installed.
@@ -408,6 +434,9 @@ def run_dse(
     host: str, spec: dict, budget_name: str, config_path: str,
     screening_list_path: Path | str = C.SCREENING_LIST,
 ) -> dict:
+    # First, before the evolver imports: a host this stage cannot search is
+    # refused the same way whether or not evolve-flows is installed.
+    require_searchable(host)
     ray, EvolverNode, EvolverInput, SRParamsEvaluator = _evolver_imports()
     screening = helpers.load_trace_list(screening_list_path)
     if not screening:
@@ -722,6 +751,9 @@ def promote_finalists(
     Each variant runs every trace. All the runs are submitted at once, so
     the cluster's trace slots stay busy; the builds go one at a time,
     because every candidate is written to the same sr_params.h."""
+    # Before anything else, including the reset of the pristine CBP2025
+    # checkout below, which a gem5 promotion has no business touching.
+    require_searchable(host)
     from chia.base.ChiaFunction import get
     from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
     from hosts.cbp2025 import adapter as cbp2025_adapter

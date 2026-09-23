@@ -37,6 +37,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# How much of a failing run's log a G4 or G5 reason carries. Enough for a
+# gem5 panic with its simerr tail, or the last compiler errors of a
+# feature-on build that failed. Every reason goes into the debug prompt,
+# so it cannot be the whole log.
+LOG_TAIL_CHARS = 1500
+
 
 @dataclass
 class GateResult:
@@ -75,6 +81,17 @@ def metric_differences(
     return out
 
 
+def _with_log_tail(reason: str, tail: str) -> str:
+    """`reason`, then the end of the log that explains it.
+
+    The reason's first line stays as it was. An escalation quotes only that
+    line to the next planner (plan_node), and a log there would bury the
+    verdict."""
+    if not (tail or "").strip():
+        return reason
+    return f"{reason}\nThe failing run's log ends with:\n{tail[-LOG_TAIL_CHARS:]}"
+
+
 def check_gate(results) -> GateResult:
     """Judge one integration attempt from what plan_runner measured.
 
@@ -105,9 +122,15 @@ def check_gate(results) -> GateResult:
 
     if not results.smoke_ok:
         failed = ", ".join(results.smoke_failures) or "no trace completed"
-        reasons.append(f"G4 feature-on smoke did not complete cleanly: {failed}")
+        reasons.append(_with_log_tail(
+            f"G4 feature-on smoke did not complete cleanly: {failed}",
+            getattr(results, "smoke_log_tail", ""),
+        ))
 
     for result in results.performance:
+        # plan_runner fills this only from a side that failed a trace or lost
+        # a metric, so a clean entry that missed its floor carries no log.
+        tail = getattr(result, "log_tail", "")
         if result.failed_traces:
             # Scoring the entry on the traces that survived is the quiet
             # version of passing: the mean is taken over whatever ran, and on
@@ -115,14 +138,15 @@ def check_gate(results) -> GateResult:
             # traces, so the comparison is between two different trace sets.
             # G4 already refuses this for the smoke list; a performance trace
             # that does not complete is at least as serious.
-            reasons.append(
+            reasons.append(_with_log_tail(
                 f"G5 [{result.id}] {len(result.failed_traces)} of {result.n_traces} "
                 f"trace(s) did not complete: {', '.join(result.failed_traces)}. The "
                 f"entry was scored on the rest, which is a number about a different "
-                f"trace set than the one the plan declared."
-            )
+                f"trace set than the one the plan declared.",
+                tail,
+            ))
         elif not result.block_passed:
-            reasons.append(f"G5 [{result.id}] {result.reason}")
+            reasons.append(_with_log_tail(f"G5 [{result.id}] {result.reason}", tail))
         if result.warning:
             warnings.append(result.warning)
 

@@ -109,6 +109,60 @@ CBP2025_DSE_ROOT = os.environ.get(
 CBP2025_RESOURCE = os.environ.get("P2P_CBP2025_RESOURCE", "cbp2025")
 CBP2025_HOST_RESOURCE = os.environ.get("P2P_CBP2025_HOST_RESOURCE", "cbp2025_host")
 
+# ------------------------------------------------------------------ gem5
+# gem5 v25.1.0.0, ARM, in syscall-emulation mode (hosts/gem5/). One node
+# holds everything -- the pristine checkout, the port tree, the search tree,
+# the run scripts and the workloads -- because a gem5 binary stays on the node
+# that built it (chia.simulators.gem5 is path-based). So there is one token,
+# not the cbp2025 pair: the shell, the builds and the runs all ask for
+# GEM5_HOST_RESOURCE, and the node advertises enough of it for ~30 runs at
+# once. It is not chia's default "gem5" token; see cluster/cluster.yaml.
+GEM5_HOST_RESOURCE = os.environ.get("P2P_GEM5_HOST_RESOURCE", "gem5_host")
+# Stage 3's tree and stage 4's tree, copies of GEM5_ROOT for the same
+# reasons as CBP2025_PORT_ROOT and CBP2025_DSE_ROOT above.
+GEM5_PORT_ROOT = os.environ.get("P2P_GEM5_PORT_ROOT", str(_WORKER_HOME / "gem5_port"))
+GEM5_PORT_FRESH = os.environ.get("P2P_GEM5_PORT_FRESH", "1") == "1"
+GEM5_DSE_ROOT = os.environ.get("P2P_GEM5_DSE_ROOT", str(_WORKER_HOME / "gem5_dse"))
+# Where the adapter installs the run scripts (hosts/gem5/run/) and the
+# workload payload on the gem5 node: se_o3.py, run_workload.py,
+# p2p_metrics.py, workloads.json, and workloads/{bin,data}/.
+GEM5_RUN_DIR = os.environ.get("P2P_GEM5_RUN_DIR", str(_WORKER_HOME / "p2p_gem5"))
+GEM5_ISA = os.environ.get("P2P_GEM5_ISA", "ARM")
+GEM5_VARIANT = os.environ.get("P2P_GEM5_VARIANT", "opt")
+GEM5_BUILD_JOBS = int(os.environ.get("P2P_GEM5_BUILD_JOBS", "30"))
+# Every build of every tree uses the same arguments, because scons records
+# them and a tree built one way rebuilds from scratch when asked the other.
+#   --ignore-style   skips gem5's interactive git-hook prompt.
+#   --linker=gold    gold links gem5.opt in a fraction of bfd's time, and the
+#                    link is most of an incremental build.
+# Flags only, on purpose. gem5 v25.1 reads CC, CXX and PYTHON_CONFIG from the
+# process environment and ignores NAME=value on the scons command line
+# (site_scons/gem5_scons/defaults.py:84-103, SConstruct:874-880). The agents'
+# shells (chia's BashTool) pass no environment of their own, so a compiler or
+# python-config chosen through the environment would differ between the gate's
+# builds and an agent's, and every switch would recompile all of gem5. Left
+# alone, every build on the node -- Ray tasks and agent shells alike -- runs
+# with chia_env active and resolves the same gcc and the same python3-config.
+# The pristine build was made that way (670 s on 32 vCPUs, 2026-09-23). A
+# fresh copy of the tree reuses most of the copied build/: its first build
+# plus ~90 s of gem5 runs fit in the gate smoke's 336 to 376 s (2026-09-23).
+# hosts/gem5/adapter.py still moves any NAME=value found here into the build's
+# environment, so an override through P2P_GEM5_SCONS_ARGS does what it says.
+GEM5_SCONS_ARGS = os.environ.get("P2P_GEM5_SCONS_ARGS", "--ignore-style --linker=gold")
+# A first build from scratch took 670 s on 32 vCPUs; the limit leaves room.
+GEM5_BUILD_TIMEOUT_S = int(os.environ.get("P2P_GEM5_BUILD_TIMEOUT", "5400"))
+GEM5_RUN_TIMEOUT_S = int(os.environ.get("P2P_GEM5_RUN_TIMEOUT", "3600"))
+# The agents' shell limit on this host. BASH_TOOL_TIMEOUT_S's 300 s fits a
+# CBP2025 build (20 s) and does not fit an incremental gem5 build and link.
+GEM5_BASH_TOOL_TIMEOUT_S = int(os.environ.get("P2P_GEM5_BASH_TIMEOUT", "1200"))
+# The workload registry (tracked) and the built payload it points into
+# (built on the head by scripts/build_gem5_workloads.sh; untracked).
+GEM5_WORKLOADS_MANIFEST = REPO_ROOT / "hosts" / "gem5" / "workloads.json"
+GEM5_WORKLOADS_DIR = Path(os.environ.get(
+    "P2P_GEM5_WORKLOADS_DIR", str(REPO_ROOT / "third_party" / "gem5_workloads")))
+GEM5_SMOKE_LIST = REPO_ROOT / "experiments" / "gem5-smoke.list"
+GEM5_PERF_LIST = REPO_ROOT / "experiments" / "gem5-perf.list"
+
 # ---------------------------------------------------------------- traces
 # CBP2025: 105 training traces (Google Drive; see scripts/fetch_artifacts.sh).
 # Worker-local dir, laid out <workload>/<name>_trace.gz as the CBP kit expects.

@@ -1,0 +1,49 @@
+# Every workload in hosts/gem5/workloads.json: fourteen perf-size entries,
+# and a smoke-size twin of each (the "_s" names).
+#
+# Use it to size and to spot-check the whole set. The twins run the same
+# code on less data, so a smoke-size failure points at the program, not at
+# the size. Twenty-eight runs fit in one wave on the gem5 node's 30 slots
+# (GEM5_HOST_RESOURCE).
+#
+# Programs: GAPBS v1.5 (six graph kernels), bzip2 1.0.8, zstd 1.5.7,
+# Lua 5.4.9 (five scripts) and SQLite 3.53.4. Each one checks its own
+# result and exits 1 on a mismatch. scripts/build_gem5_workloads.sh builds
+# them and checks every entry under qemu.
+#
+# When the manifest gains or loses an entry, change this list with it.
+
+# GAPBS, perf size
+gapbs_bfs
+gapbs_cc
+gapbs_pr
+gapbs_sssp
+gapbs_bc
+gapbs_tc
+# compression, perf size
+bzip2
+zstd
+# Lua, perf size
+lua_binary_trees
+lua_fannkuch
+lua_nbody
+lua_spectral_norm
+lua_word_freq
+# SQLite, perf size
+sqlite
+
+# smoke-size twins, in the same order
+gapbs_bfs_s
+gapbs_cc_s
+gapbs_pr_s
+gapbs_sssp_s
+gapbs_bc_s
+gapbs_tc_s
+bzip2_s
+zstd_s
+lua_binary_trees_s
+lua_fannkuch_s
+lua_nbody_s
+lua_spectral_norm_s
+lua_word_freq_s
+sqlite_s

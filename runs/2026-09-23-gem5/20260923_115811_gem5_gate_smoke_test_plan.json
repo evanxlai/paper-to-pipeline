@@ -1,0 +1,58 @@
+{
+  "feature_name": "sr",
+  "host": "gem5",
+  "host_revision": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91",
+  "metric_keys": [
+    "cond_mpki",
+    "branch_mpki",
+    "ipc"
+  ],
+  "baseline_rel_tol": 0,
+  "smoke": {
+    "trace_list": "experiments/gem5-smoke.list",
+    "run": {
+      "mode": "host_adapter"
+    },
+    "timeout_seconds": 1200
+  },
+  "correctness": [
+    {
+      "id": "feature_off_baseline",
+      "kind": "feature_off_baseline",
+      "description": "With the enable knob off, gapbs_bfs_s equals the recorded baseline exactly.",
+      "command": "python3 /home/laievan/p2p_gem5/run_workload.py gapbs_bfs_s",
+      "feature_state": "off",
+      "timeout_seconds": 1200,
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/gapbs_bfs_s",
+        "rel_tol": 0
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_cond_mpki",
+      "description": "Conditional-branch MPKI with the knob on against the same workloads with it off. On an unported tree nothing moves.",
+      "metric": "cond_mpki",
+      "direction": "decrease",
+      "trace_list": "experiments/gem5-smoke.list",
+      "run": {
+        "mode": "host_adapter"
+      },
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "timeout_seconds": 1200,
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": []
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.0,
+        "claim_source": "gate smoke on an unported tree; no claim"
+      }
+    }
+  ],
+  "notes": "Written by loop/tests/gem5_gate_smoke.py for an unported tree."
+}

@@ -1,0 +1,42 @@
+[gem5-smoke] scons args '--ignore-style --linker=gold'
+[gem5-smoke]   command line '--ignore-style --linker=gold'
+[gem5-smoke]   environment  {}
+[gem5-smoke] run dir /home/laievan/p2p_gem5: installed=True sha256=58b2b5524bd4 bytes=9591792 files=27
+[gem5-smoke] revision 7a2b0e413d06c5ce7097104abef3b1d9eaabca91 (mirror 7a2b0e413d06c5ce7097104abef3b1d9eaabca91)
+[gem5-smoke] skipping the build; using /home/laievan/gem5/build/ARM/gem5.opt
+[gem5-smoke] running 28 workload(s) on the o3 CPU: ['bzip2', 'bzip2_s', 'gapbs_bc', 'gapbs_bc_s', 'gapbs_bfs', 'gapbs_bfs_s', 'gapbs_cc', 'gapbs_cc_s', 'gapbs_pr', 'gapbs_pr_s', 'gapbs_sssp', 'gapbs_sssp_s', 'gapbs_tc', 'gapbs_tc_s', 'lua_binary_trees', 'lua_binary_trees_s', 'lua_fannkuch', 'lua_fannkuch_s', 'lua_nbody', 'lua_nbody_s', 'lua_spectral_norm', 'lua_spectral_norm_s', 'lua_word_freq', 'lua_word_freq_s', 'sqlite', 'sqlite_s', 'zstd', 'zstd_s']
+
+workload         ok          insts       cycles  cond_mpki branch_mpki     ipc   wall_s   insts/s
+-------------------------------------------------------------------------------------------------
+bzip2            yes    59,723,063   40,212,778     9.8514      9.8514  1.4852    243.6   245,171
+bzip2_s          yes     3,141,088    1,952,425    13.5857     13.5857  1.6088     25.1   124,897
+gapbs_bc         yes    53,468,950   45,527,931     9.6899      9.6899  1.1744    249.4   214,421
+gapbs_bc_s       yes     3,063,282    2,463,029    17.2707     17.2707  1.2437     26.3   116,556
+gapbs_bfs        yes    34,482,719   28,709,729    16.4882     16.4882  1.2011    180.1   191,484
+gapbs_bfs_s      yes     2,509,944    2,583,914    14.2278     14.2278  0.9714     25.9    96,875
+gapbs_cc         yes    40,873,097   30,615,075    11.3126     11.3126  1.3351    215.0   190,080
+gapbs_cc_s       yes     3,486,019    2,551,353     6.4426      6.4426  1.3663     15.5   225,269
+gapbs_pr         yes    33,748,434   25,487,790     4.1337      4.1337  1.3241    146.7   230,055
+gapbs_pr_s       yes     2,275,700    1,572,788     2.7411      2.7411  1.4469     18.8   120,832
+gapbs_sssp       yes    50,577,559   59,270,965     9.4376      9.4376  0.8533    277.2   182,463
+gapbs_sssp_s     yes     3,297,677    2,426,224    11.5081     11.5081  1.3592     24.1   136,727
+gapbs_tc         yes    65,471,414   50,625,816    36.4760     36.4760  1.2932    396.4   165,151
+gapbs_tc_s       yes     3,954,411    3,131,996    38.9932     38.9932  1.2626     25.9   152,486
+lua_binary_trees yes    37,300,911   16,831,536     1.4199      1.4199  2.2161    135.7   274,969
+lua_binary_trees_s yes     2,124,089    1,263,658     4.2456      4.2456  1.6809     16.5   128,466
+lua_fannkuch     yes    51,688,849   21,870,528     2.1893      2.1893  2.3634    160.1   322,802
+lua_fannkuch_s   yes     3,494,556    1,830,344     4.1656      4.1656  1.9092     23.8   146,966
+lua_nbody        yes    44,847,095   21,396,649     4.7545      4.7545  2.0960    162.7   275,680
+lua_nbody_s      yes     3,543,478    2,072,888     6.0655      6.0655  1.7094     13.6   260,588
+lua_spectral_norm yes    51,651,942   20,418,094     0.1390      0.1390  2.5297    166.0   311,193
+lua_spectral_norm_s yes     3,522,345    1,725,794     1.8760      1.8760  2.0410     23.4   150,224
+lua_word_freq    yes    39,191,726   22,146,622     2.9279      2.9279  1.7696    157.2   249,387
+lua_word_freq_s  yes     4,686,307    2,864,430     4.5629      4.5629  1.6360     30.4   154,106
+sqlite           yes    46,936,312   30,592,838     5.2714      5.2714  1.5342    184.9   253,782
+sqlite_s         yes     3,864,822    4,126,776    13.8555     13.8555  0.9365     20.9   184,581
+zstd             yes    61,311,097   37,775,753     9.9580      9.9580  1.6230    263.3   232,901
+zstd_s           yes     6,316,890    3,393,706     7.7418      7.7418  1.8614     30.9   204,572
+
+[gem5-smoke] aggregate over 28: {"cond_mpki": 9.690411027686881, "branch_mpki": 9.690411027686881, "ipc": 1.5654272350773868}
+[gem5-smoke] 28 of 28 ok, 398s wall for the whole fan-out
+[gem5-smoke] verdict: PASS

@@ -1,0 +1,448 @@
+{
+  "schema": 1,
+  "root": "workloads",
+  "workloads": {
+    "gapbs_bfs_s": {
+      "binary": "bin/gapbs_bfs",
+      "args": [
+        "-f",
+        "kron_g12.sg",
+        "-n",
+        "4",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 2510669,
+      "suite": "gapbs",
+      "description": "GAPBS bfs: direction-optimizing breadth-first search from one source per trial, on kron_g12.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Each trial starts from the next source of GAPBS's fixed-seed picker. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_bfs": {
+      "binary": "bin/gapbs_bfs",
+      "args": [
+        "-f",
+        "kron_g14.sg",
+        "-n",
+        "24",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 34475745,
+      "suite": "gapbs",
+      "description": "GAPBS bfs: direction-optimizing breadth-first search from one source per trial, on kron_g14.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Each trial starts from the next source of GAPBS's fixed-seed picker. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_cc_s": {
+      "binary": "bin/gapbs_cc",
+      "args": [
+        "-f",
+        "kron_g12.sg",
+        "-n",
+        "1",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 3483882,
+      "suite": "gapbs",
+      "description": "GAPBS cc: connected components with Afforest, on kron_g12.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Every trial repeats the same computation. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_cc": {
+      "binary": "bin/gapbs_cc",
+      "args": [
+        "-f",
+        "kron_g14.sg",
+        "-n",
+        "16",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 40858555,
+      "suite": "gapbs",
+      "description": "GAPBS cc: connected components with Afforest, on kron_g14.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Every trial repeats the same computation. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_pr_s": {
+      "binary": "bin/gapbs_pr",
+      "args": [
+        "-f",
+        "kron_g10.sg",
+        "-n",
+        "1",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 2275407,
+      "suite": "gapbs",
+      "description": "GAPBS pr: PageRank by Gauss-Seidel pull iteration, until the total change falls under 1e-4 or after 20 iterations, on kron_g10.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Every trial repeats the same computation. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_pr": {
+      "binary": "bin/gapbs_pr",
+      "args": [
+        "-f",
+        "kron_g14.sg",
+        "-n",
+        "1",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 33744254,
+      "suite": "gapbs",
+      "description": "GAPBS pr: PageRank by Gauss-Seidel pull iteration, until the total change falls under 1e-4 or after 20 iterations, on kron_g14.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Every trial repeats the same computation. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_sssp_s": {
+      "binary": "bin/gapbs_sssp",
+      "args": [
+        "-f",
+        "kron_g10.wsg",
+        "-n",
+        "3",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 3296720,
+      "suite": "gapbs",
+      "description": "GAPBS sssp: delta-stepping single-source shortest paths on the weighted graph, on kron_g10.wsg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Each trial starts from the next source of GAPBS's fixed-seed picker. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_sssp": {
+      "binary": "bin/gapbs_sssp",
+      "args": [
+        "-f",
+        "kron_g14.wsg",
+        "-n",
+        "4",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 50576960,
+      "suite": "gapbs",
+      "description": "GAPBS sssp: delta-stepping single-source shortest paths on the weighted graph, on kron_g14.wsg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Each trial starts from the next source of GAPBS's fixed-seed picker. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_bc_s": {
+      "binary": "bin/gapbs_bc",
+      "args": [
+        "-f",
+        "kron_g10.sg",
+        "-n",
+        "4",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 3060344,
+      "suite": "gapbs",
+      "description": "GAPBS bc: Brandes betweenness centrality from one source per trial, on kron_g10.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Each trial starts from the next source of GAPBS's fixed-seed picker. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_bc": {
+      "binary": "bin/gapbs_bc",
+      "args": [
+        "-f",
+        "kron_g14.sg",
+        "-n",
+        "4",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 53386195,
+      "suite": "gapbs",
+      "description": "GAPBS bc: Brandes betweenness centrality from one source per trial, on kron_g14.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Each trial starts from the next source of GAPBS's fixed-seed picker. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_tc_s": {
+      "binary": "bin/gapbs_tc",
+      "args": [
+        "-f",
+        "kron_g8.sg",
+        "-n",
+        "1",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 3954195,
+      "suite": "gapbs",
+      "description": "GAPBS tc: triangle counting, with GAPBS's degree relabelling when it pays, on kron_g8.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Every trial repeats the same computation. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "gapbs_tc": {
+      "binary": "bin/gapbs_tc",
+      "args": [
+        "-f",
+        "kron_g10.sg",
+        "-n",
+        "10",
+        "-v",
+        "-a"
+      ],
+      "cwd": "data/gapbs",
+      "max_insts": null,
+      "approx_insts": 65478184,
+      "suite": "gapbs",
+      "description": "GAPBS tc: triangle counting, with GAPBS's degree relabelling when it pays, on kron_g10.sg, a Kronecker graph that the build wrote with GAPBS's own generator and fixed seed. Size: the graph scale and -n, the number of trials. Every trial repeats the same computation. -v checks the last trial against a serial reference and exits 1 on a mismatch. -a prints that trial's result summary.",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/sbeamer/gapbs/tree/b5e3e19c2845f22fb338f4a4bc4b1ccee861d026"
+    },
+    "bzip2_s": {
+      "binary": "bin/bzip2_roundtrip",
+      "args": [
+        "4",
+        "1"
+      ],
+      "cwd": null,
+      "max_insts": null,
+      "approx_insts": 3137234,
+      "suite": "bzip2",
+      "description": "libbzip2 1.0.8 compresses 4 KiB of generated text at block size 1 (100 kB blocks), decompresses it and compares. Size: the first argument, in KiB. Exits 0 only if the bytes came back. Prints the FNV-1a hash of the input and of the compressed stream.",
+      "license": "bzip2-1.0.6",
+      "source": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
+    },
+    "bzip2": {
+      "binary": "bin/bzip2_roundtrip",
+      "args": [
+        "112",
+        "1"
+      ],
+      "cwd": null,
+      "max_insts": null,
+      "approx_insts": 59580412,
+      "suite": "bzip2",
+      "description": "libbzip2 1.0.8 compresses 112 KiB of generated text at block size 1 (100 kB blocks), decompresses it and compares. Size: the first argument, in KiB. Exits 0 only if the bytes came back. Prints the FNV-1a hash of the input and of the compressed stream.",
+      "license": "bzip2-1.0.6",
+      "source": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
+    },
+    "zstd_s": {
+      "binary": "bin/zstd_roundtrip",
+      "args": [
+        "17",
+        "12"
+      ],
+      "cwd": null,
+      "max_insts": null,
+      "approx_insts": 6270584,
+      "suite": "zstd",
+      "description": "libzstd 1.5.7 compresses 17 KiB of generated text at level 12, decompresses it and compares. Size: the first argument, in KiB. Keep it above 16 and at most 128, where level 12 uses the btlazy2 match finder (lib/compress/clevels.h). Exits 0 only if the bytes came back. Prints the FNV-1a hash of the input and of the compressed stream.",
+      "license": "BSD-3-Clause OR GPL-2.0-only",
+      "source": "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+    },
+    "zstd": {
+      "binary": "bin/zstd_roundtrip",
+      "args": [
+        "128",
+        "12"
+      ],
+      "cwd": null,
+      "max_insts": null,
+      "approx_insts": 61096344,
+      "suite": "zstd",
+      "description": "libzstd 1.5.7 compresses 128 KiB of generated text at level 12, decompresses it and compares. Size: the first argument, in KiB. Keep it above 16 and at most 128, where level 12 uses the btlazy2 match finder (lib/compress/clevels.h). Exits 0 only if the bytes came back. Prints the FNV-1a hash of the input and of the compressed stream.",
+      "license": "BSD-3-Clause OR GPL-2.0-only",
+      "source": "https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+    },
+    "lua_binary_trees_s": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "binary_trees.lua",
+        "5"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 2123310,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs binary_trees.lua, binary-trees: allocates and walks many small trees, so table allocation, recursion and the garbage collector dominate. Size: N is the depth of the deepest tree; the work doubles per step. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_binary_trees": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "binary_trees.lua",
+        "8"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 37299930,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs binary_trees.lua, binary-trees: allocates and walks many small trees, so table allocation, recursion and the garbage collector dominate. Size: N is the depth of the deepest tree; the work doubles per step. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_fannkuch_s": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "fannkuch_redux.lua",
+        "6",
+        "2"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 3493924,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs fannkuch_redux.lua, fannkuch-redux: counts pancake flips over every permutation, the most branch-bound Lua script here. Size: N is the permutation length (work grows as N!) and M repeats the run. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_fannkuch": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "fannkuch_redux.lua",
+        "7",
+        "4"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 51687714,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs fannkuch_redux.lua, fannkuch-redux: counts pancake flips over every permutation, the most branch-bound Lua script here. Size: N is the permutation length (work grows as N!) and M repeats the run. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_nbody_s": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "nbody.lua",
+        "120"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 3542622,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs nbody.lua, n-body: integrates the orbits of the outer planets, floating-point arithmetic on table fields with regular loops. Size: N is the number of time steps. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_nbody": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "nbody.lua",
+        "2000"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 44846239,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs nbody.lua, n-body: integrates the orbits of the outer planets, floating-point arithmetic on table fields with regular loops. Size: N is the number of time steps. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_spectral_norm_s": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "spectral_norm.lua",
+        "12"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 3521693,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs spectral_norm.lua, spectral-norm: power iteration on an N by N matrix, with a Lua call for every element. Size: N is the matrix size; the work grows as N squared. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_spectral_norm": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "spectral_norm.lua",
+        "50"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 51650469,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs spectral_norm.lua, spectral-norm: power iteration on an N by N matrix, with a Lua call for every element. Size: N is the matrix size; the work grows as N squared. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_word_freq_s": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "word_freq.lua",
+        "50"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 4683972,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs word_freq.lua, word_freq: generates text, counts words in string-keyed tables and sorts them with a comparator. Size: N is the number of lines of text. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "lua_word_freq": {
+      "binary": "bin/lua_bench",
+      "args": [
+        "word_freq.lua",
+        "800"
+      ],
+      "cwd": "data/lua",
+      "max_insts": null,
+      "approx_insts": 39190315,
+      "suite": "lua",
+      "description": "Lua 5.4.9 runs word_freq.lua, word_freq: generates text, counts words in string-keyed tables and sorts them with a comparator. Size: N is the number of lines of text. The script checks its own result, and lua_bench exits 0 only if it passed.",
+      "license": "MIT",
+      "source": "https://www.lua.org/ftp/lua-5.4.9.tar.gz"
+    },
+    "sqlite_s": {
+      "binary": "bin/sqlite_bench",
+      "args": [
+        "bench.sql",
+        "80"
+      ],
+      "cwd": "data/sqlite",
+      "max_insts": null,
+      "approx_insts": 3859205,
+      "suite": "sqlite",
+      "description": "SQLite 3.53.4 builds an order database of 80 lines in memory from recursive CTEs, then joins, groups, sorts, updates and deletes. Size: the second argument, the number of order lines. bench.sql compares pairs of answers, and sqlite_bench exits 0 only if all agree.",
+      "license": "blessing",
+      "source": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip"
+    },
+    "sqlite": {
+      "binary": "bin/sqlite_bench",
+      "args": [
+        "bench.sql",
+        "1500"
+      ],
+      "cwd": "data/sqlite",
+      "max_insts": null,
+      "approx_insts": 46929734,
+      "suite": "sqlite",
+      "description": "SQLite 3.53.4 builds an order database of 1500 lines in memory from recursive CTEs, then joins, groups, sorts, updates and deletes. Size: the second argument, the number of order lines. bench.sql compares pairs of answers, and sqlite_bench exits 0 only if all agree.",
+      "license": "blessing",
+      "source": "https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip"
+    }
+  }
+}

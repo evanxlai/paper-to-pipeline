@@ -230,3 +230,39 @@ def test_repair_turns_can_be_switched_off(monkeypatch, dump, plan_dir):
     with pytest.raises(SystemExit):
         make_plan(dump, repair_turns=0)
     assert len(seen) == 1
+
+
+# ------------------------------------------------------------ shell limit
+
+def _install_prompt_filling_llm(monkeypatch):
+    """The stub LLM, with a load_prompt that fills the real prompt file the
+    way llm.load_prompt does, so the test sees what the planner would read."""
+    seen = install_stub_llm(monkeypatch, [reply()])
+
+    def load_prompt(name, **subs):
+        text = (C.PROMPTS_DIR / name).read_text()
+        for key, val in subs.items():
+            text = text.replace("{{" + key + "}}", val).replace("${" + key + "}", val)
+        return text
+
+    sys.modules["llm"].load_prompt = load_prompt
+    return seen
+
+
+def test_the_planner_prompt_states_the_shell_limit_it_was_given(
+    monkeypatch, dump, plan_dir
+):
+    """gem5's shell allows 1200 s. A prompt that still said 300 would have
+    the planner narrow or drop commands its shell can run."""
+    seen = _install_prompt_filling_llm(monkeypatch)
+    make_plan(dump, bash_timeout=1200)
+    assert "capped at 1200 seconds per command" in seen[0]
+    assert "{{bash_timeout}}" not in seen[0]
+
+
+def test_the_planner_prompt_defaults_to_the_generic_shell_limit(
+    monkeypatch, dump, plan_dir
+):
+    seen = _install_prompt_filling_llm(monkeypatch)
+    make_plan(dump)
+    assert f"capped at {C.BASH_TOOL_TIMEOUT_S} seconds per command" in seen[0]

@@ -1,0 +1,557 @@
+{
+  "stage": [
+    "baseline"
+  ],
+  "budget": "iso-64KiB",
+  "gem5_baseline": {
+    "cond_mpki": 8.671483718575521,
+    "branch_mpki": 9.690411027686881,
+    "ipc": 1.5654272350773868,
+    "n": 28,
+    "failed": [],
+    "trace_list": "experiments/gem5-all.list",
+    "host_revision": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91",
+    "isa": "ARM",
+    "variant": "opt",
+    "scons_args": "--ignore-style --linker=gold",
+    "scons_env": {},
+    "per_trace": {
+      "gapbs_bfs": {
+        "cond_mpki": 16.460041912588157,
+        "branch_mpki": 16.488171944909563,
+        "ipc": 1.2010813128887423
+      },
+      "gapbs_cc": {
+        "cond_mpki": 11.286274685767022,
+        "branch_mpki": 11.312575604437315,
+        "ipc": 1.3350644086287555
+      },
+      "gapbs_pr": {
+        "cond_mpki": 4.103034825260337,
+        "branch_mpki": 4.133732545930872,
+        "ipc": 1.3241020111983033
+      },
+      "gapbs_sssp": {
+        "cond_mpki": 9.417318854790917,
+        "branch_mpki": 9.437624302904773,
+        "ipc": 0.8533277465619127
+      },
+      "gapbs_bc": {
+        "cond_mpki": 9.669013511580085,
+        "branch_mpki": 9.689866735741024,
+        "ipc": 1.1744208187277387
+      },
+      "gapbs_tc": {
+        "cond_mpki": 36.45966772613159,
+        "branch_mpki": 36.475964915008554,
+        "ipc": 1.2932416536258893
+      },
+      "bzip2": {
+        "cond_mpki": 9.844471640712735,
+        "branch_mpki": 9.851420380096714,
+        "ipc": 1.4851762541747302
+      },
+      "zstd": {
+        "cond_mpki": 9.949585472267769,
+        "branch_mpki": 9.958017877253118,
+        "ipc": 1.623027792457241
+      },
+      "lua_binary_trees": {
+        "cond_mpki": 0.2757037220887179,
+        "branch_mpki": 1.4199117013522806,
+        "ipc": 2.2161323244652182
+      },
+      "lua_fannkuch": {
+        "cond_mpki": 0.722592990995021,
+        "branch_mpki": 2.189272970655624,
+        "ipc": 2.3634019718225368
+      },
+      "lua_nbody": {
+        "cond_mpki": 0.1531871796824298,
+        "branch_mpki": 4.754533153150723,
+        "ipc": 2.095986852894582
+      },
+      "lua_spectral_norm": {
+        "cond_mpki": 0.09897014133563459,
+        "branch_mpki": 0.13898799777944457,
+        "ipc": 2.5297141838998294
+      },
+      "lua_word_freq": {
+        "cond_mpki": 1.5276949017249202,
+        "branch_mpki": 2.927939432930308,
+        "ipc": 1.7696480302955457
+      },
+      "sqlite": {
+        "cond_mpki": 2.9457789525517044,
+        "branch_mpki": 5.271377094987779,
+        "ipc": 1.5342254942153455
+      },
+      "gapbs_bfs_s": {
+        "cond_mpki": 13.841743082714196,
+        "branch_mpki": 14.227807472995414,
+        "ipc": 0.9713728862493102
+      },
+      "gapbs_cc_s": {
+        "cond_mpki": 6.14655284437635,
+        "branch_mpki": 6.442592538939117,
+        "ipc": 1.3663413098853825
+      },
+      "gapbs_pr_s": {
+        "cond_mpki": 2.2854506305752076,
+        "branch_mpki": 2.741134595948499,
+        "ipc": 1.4469210090616154
+      },
+      "gapbs_sssp_s": {
+        "cond_mpki": 11.20061182462685,
+        "branch_mpki": 11.508101005647308,
+        "ipc": 1.3591807681401222
+      },
+      "gapbs_bc_s": {
+        "cond_mpki": 16.908009122242092,
+        "branch_mpki": 17.270692022477853,
+        "ipc": 1.2437052101294788
+      },
+      "gapbs_tc_s": {
+        "cond_mpki": 38.76354784568422,
+        "branch_mpki": 38.9931648480646,
+        "ipc": 1.2625849458300713
+      },
+      "bzip2_s": {
+        "cond_mpki": 13.455528784930571,
+        "branch_mpki": 13.585738444768182,
+        "ipc": 1.6088136548138854
+      },
+      "zstd_s": {
+        "cond_mpki": 7.662789758884514,
+        "branch_mpki": 7.7417843274142815,
+        "ipc": 1.8613545192188128
+      },
+      "lua_binary_trees_s": {
+        "cond_mpki": 2.5502697862471866,
+        "branch_mpki": 4.245584813065743,
+        "ipc": 1.6809049600445691
+      },
+      "lua_fannkuch_s": {
+        "cond_mpki": 2.1473400340415205,
+        "branch_mpki": 4.165622184907038,
+        "ipc": 1.9092345482597808
+      },
+      "lua_nbody_s": {
+        "cond_mpki": 1.9438529038419317,
+        "branch_mpki": 6.065509648994575,
+        "ipc": 1.7094401627101898
+      },
+      "lua_spectral_norm_s": {
+        "cond_mpki": 1.3008379360908713,
+        "branch_mpki": 1.8760229335854381,
+        "ipc": 2.0409996789883382
+      },
+      "lua_word_freq_s": {
+        "cond_mpki": 3.212977724250673,
+        "branch_mpki": 4.562867946978292,
+        "ipc": 1.6360347433869915
+      },
+      "sqlite_s": {
+        "cond_mpki": 8.468695324131357,
+        "branch_mpki": 13.855489334308281,
+        "ipc": 0.9365233295919139
+      }
+    },
+    "per_trace_stats": {
+      "gapbs_bfs": {
+        "cycles": 28709729.0,
+        "insts": 34482719.0,
+        "cond_predicted": 12176643.0,
+        "cond_incorrect": 568557.0,
+        "committed_branch_mispredicts": 568557.0,
+        "cond_mispredicts_direct": 567587.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 7424685.0,
+        "committed_cond_direct": 7104259.0,
+        "committed_cond_branches": 7104259.0,
+        "wall_s": 172.49734330177307
+      },
+      "gapbs_cc": {
+        "cycles": 30615075.0,
+        "insts": 40873097.0,
+        "cond_predicted": 14511047.0,
+        "cond_incorrect": 462380.0,
+        "committed_branch_mispredicts": 462380.0,
+        "cond_mispredicts_direct": 461305.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 8685307.0,
+        "committed_cond_direct": 7427409.0,
+        "committed_cond_branches": 7427409.0,
+        "wall_s": 202.86591720581055
+      },
+      "gapbs_pr": {
+        "cycles": 25487790.0,
+        "insts": 33748434.0,
+        "cond_predicted": 7476014.0,
+        "cond_incorrect": 139507.0,
+        "committed_branch_mispredicts": 139507.0,
+        "cond_mispredicts_direct": 138471.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 6144305.0,
+        "committed_cond_direct": 6134406.0,
+        "committed_cond_branches": 6134406.0,
+        "wall_s": 155.75519728660583
+      },
+      "gapbs_sssp": {
+        "cycles": 59270965.0,
+        "insts": 50577559.0,
+        "cond_predicted": 12185375.0,
+        "cond_incorrect": 477332.0,
+        "committed_branch_mispredicts": 477332.0,
+        "cond_mispredicts_direct": 476305.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 7691902.0,
+        "committed_cond_direct": 7157797.0,
+        "committed_cond_branches": 7157797.0,
+        "wall_s": 267.6661343574524
+      },
+      "gapbs_bc": {
+        "cycles": 45527931.0,
+        "insts": 53468950.0,
+        "cond_predicted": 16867734.0,
+        "cond_incorrect": 518107.0,
+        "committed_branch_mispredicts": 518107.0,
+        "cond_mispredicts_direct": 516992.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 11544854.0,
+        "committed_cond_direct": 11457337.0,
+        "committed_cond_branches": 11457337.0,
+        "wall_s": 253.99520826339722
+      },
+      "gapbs_tc": {
+        "cycles": 50625816.0,
+        "insts": 65471414.0,
+        "cond_predicted": 47010068.0,
+        "cond_incorrect": 2388133.0,
+        "committed_branch_mispredicts": 2388133.0,
+        "cond_mispredicts_direct": 2387066.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 18120003.0,
+        "committed_cond_direct": 17608955.0,
+        "committed_cond_branches": 17608955.0,
+        "wall_s": 398.20859122276306
+      },
+      "bzip2": {
+        "cycles": 40212778.0,
+        "insts": 59723063.0,
+        "cond_predicted": 11316299.0,
+        "cond_incorrect": 588357.0,
+        "committed_branch_mispredicts": 588357.0,
+        "cond_mispredicts_direct": 587942.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 9527751.0,
+        "committed_cond_direct": 7727087.0,
+        "committed_cond_branches": 7727087.0,
+        "wall_s": 247.43861937522888
+      },
+      "zstd": {
+        "cycles": 37775753.0,
+        "insts": 61311097.0,
+        "cond_predicted": 14663316.0,
+        "cond_incorrect": 610537.0,
+        "committed_branch_mispredicts": 610537.0,
+        "cond_mispredicts_direct": 610020.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 9361098.0,
+        "committed_cond_direct": 7998161.0,
+        "committed_cond_branches": 7998161.0,
+        "wall_s": 268.56587052345276
+      },
+      "lua_binary_trees": {
+        "cycles": 16831536.0,
+        "insts": 37300911.0,
+        "cond_predicted": 5416557.0,
+        "cond_incorrect": 52964.0,
+        "committed_branch_mispredicts": 52964.0,
+        "cond_mispredicts_direct": 10284.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 7479036.0,
+        "committed_cond_direct": 5165837.0,
+        "committed_cond_branches": 5165837.0,
+        "wall_s": 145.89408087730408
+      },
+      "lua_fannkuch": {
+        "cycles": 21870528.0,
+        "insts": 51688849.0,
+        "cond_predicted": 7094367.0,
+        "cond_incorrect": 113161.0,
+        "committed_branch_mispredicts": 113161.0,
+        "cond_mispredicts_direct": 37350.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 9387620.0,
+        "committed_cond_direct": 6704532.0,
+        "committed_cond_branches": 6704532.0,
+        "wall_s": 168.8219611644745
+      },
+      "lua_nbody": {
+        "cycles": 21396649.0,
+        "insts": 44847095.0,
+        "cond_predicted": 6701180.0,
+        "cond_incorrect": 213227.0,
+        "committed_branch_mispredicts": 213227.0,
+        "cond_mispredicts_direct": 6870.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 9990291.0,
+        "committed_cond_direct": 5719358.0,
+        "committed_cond_branches": 5719358.0,
+        "wall_s": 160.57361435890198
+      },
+      "lua_spectral_norm": {
+        "cycles": 20418094.0,
+        "insts": 51651942.0,
+        "cond_predicted": 5751512.0,
+        "cond_incorrect": 7179.0,
+        "committed_branch_mispredicts": 7179.0,
+        "cond_mispredicts_direct": 5112.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 9578335.0,
+        "committed_cond_direct": 5724880.0,
+        "committed_cond_branches": 5724880.0,
+        "wall_s": 166.85303258895874
+      },
+      "lua_word_freq": {
+        "cycles": 22146622.0,
+        "insts": 39191726.0,
+        "cond_predicted": 5437711.0,
+        "cond_incorrect": 114751.0,
+        "committed_branch_mispredicts": 114751.0,
+        "cond_mispredicts_direct": 59873.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 7707315.0,
+        "committed_cond_direct": 4933801.0,
+        "committed_cond_branches": 4933801.0,
+        "wall_s": 157.6636893749237
+      },
+      "sqlite": {
+        "cycles": 30592838.0,
+        "insts": 46936312.0,
+        "cond_predicted": 8336351.0,
+        "cond_incorrect": 247419.0,
+        "committed_branch_mispredicts": 247419.0,
+        "cond_mispredicts_direct": 138264.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 10104159.0,
+        "committed_cond_direct": 7129835.0,
+        "committed_cond_branches": 7129835.0,
+        "wall_s": 185.5883252620697
+      },
+      "gapbs_bfs_s": {
+        "cycles": 2583914.0,
+        "insts": 2509944.0,
+        "cond_predicted": 896184.0,
+        "cond_incorrect": 35711.0,
+        "committed_branch_mispredicts": 35711.0,
+        "cond_mispredicts_direct": 34742.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 543653.0,
+        "committed_cond_direct": 517717.0,
+        "committed_cond_branches": 517717.0,
+        "wall_s": 25.522785425186157
+      },
+      "gapbs_cc_s": {
+        "cycles": 2551353.0,
+        "insts": 3486019.0,
+        "cond_predicted": 879162.0,
+        "cond_incorrect": 22459.0,
+        "committed_branch_mispredicts": 22459.0,
+        "cond_mispredicts_direct": 21427.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 674278.0,
+        "committed_cond_direct": 591476.0,
+        "committed_cond_branches": 591476.0,
+        "wall_s": 26.63176441192627
+      },
+      "gapbs_pr_s": {
+        "cycles": 1572788.0,
+        "insts": 2275700.0,
+        "cond_predicted": 443023.0,
+        "cond_incorrect": 6238.0,
+        "committed_branch_mispredicts": 6238.0,
+        "cond_mispredicts_direct": 5201.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 410791.0,
+        "committed_cond_direct": 401244.0,
+        "committed_cond_branches": 401244.0,
+        "wall_s": 13.507718324661255
+      },
+      "gapbs_sssp_s": {
+        "cycles": 2426224.0,
+        "insts": 3297677.0,
+        "cond_predicted": 705063.0,
+        "cond_incorrect": 37950.0,
+        "committed_branch_mispredicts": 37950.0,
+        "cond_mispredicts_direct": 36936.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 562524.0,
+        "committed_cond_direct": 464655.0,
+        "committed_cond_branches": 464655.0,
+        "wall_s": 23.090285539627075
+      },
+      "gapbs_bc_s": {
+        "cycles": 2463029.0,
+        "insts": 3063282.0,
+        "cond_predicted": 981920.0,
+        "cond_incorrect": 52905.0,
+        "committed_branch_mispredicts": 52905.0,
+        "cond_mispredicts_direct": 51794.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 621232.0,
+        "committed_cond_direct": 604713.0,
+        "committed_cond_branches": 604713.0,
+        "wall_s": 28.05497407913208
+      },
+      "gapbs_tc_s": {
+        "cycles": 3131996.0,
+        "insts": 3954411.0,
+        "cond_predicted": 3227269.0,
+        "cond_incorrect": 154195.0,
+        "committed_branch_mispredicts": 154195.0,
+        "cond_mispredicts_direct": 153287.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 1107003.0,
+        "committed_cond_direct": 1086650.0,
+        "committed_cond_branches": 1086650.0,
+        "wall_s": 43.425917863845825
+      },
+      "bzip2_s": {
+        "cycles": 1952425.0,
+        "insts": 3141088.0,
+        "cond_predicted": 717485.0,
+        "cond_incorrect": 42674.0,
+        "committed_branch_mispredicts": 42674.0,
+        "cond_mispredicts_direct": 42265.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 528521.0,
+        "committed_cond_direct": 458286.0,
+        "committed_cond_branches": 458286.0,
+        "wall_s": 16.89121961593628
+      },
+      "zstd_s": {
+        "cycles": 3393706.0,
+        "insts": 6316890.0,
+        "cond_predicted": 1097574.0,
+        "cond_incorrect": 48904.0,
+        "committed_branch_mispredicts": 48904.0,
+        "cond_mispredicts_direct": 48405.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 892262.0,
+        "committed_cond_direct": 722580.0,
+        "committed_cond_branches": 722580.0,
+        "wall_s": 37.02054452896118
+      },
+      "lua_binary_trees_s": {
+        "cycles": 1263658.0,
+        "insts": 2124089.0,
+        "cond_predicted": 320749.0,
+        "cond_incorrect": 9018.0,
+        "committed_branch_mispredicts": 9018.0,
+        "cond_mispredicts_direct": 5417.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 415065.0,
+        "committed_cond_direct": 284164.0,
+        "committed_cond_branches": 284164.0,
+        "wall_s": 16.622641563415527
+      },
+      "lua_fannkuch_s": {
+        "cycles": 1830344.0,
+        "insts": 3494556.0,
+        "cond_predicted": 508734.0,
+        "cond_incorrect": 14557.0,
+        "committed_branch_mispredicts": 14557.0,
+        "cond_mispredicts_direct": 7504.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 644517.0,
+        "committed_cond_direct": 456640.0,
+        "committed_cond_branches": 456640.0,
+        "wall_s": 15.86989164352417
+      },
+      "lua_nbody_s": {
+        "cycles": 2072888.0,
+        "insts": 3543478.0,
+        "cond_predicted": 554581.0,
+        "cond_incorrect": 21493.0,
+        "committed_branch_mispredicts": 21493.0,
+        "cond_mispredicts_direct": 6888.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 768886.0,
+        "committed_cond_direct": 459113.0,
+        "committed_cond_branches": 459113.0,
+        "wall_s": 22.831973791122437
+      },
+      "lua_spectral_norm_s": {
+        "cycles": 1725794.0,
+        "insts": 3522345.0,
+        "cond_predicted": 424610.0,
+        "cond_incorrect": 6608.0,
+        "committed_branch_mispredicts": 6608.0,
+        "cond_mispredicts_direct": 4582.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 656128.0,
+        "committed_cond_direct": 401314.0,
+        "committed_cond_branches": 401314.0,
+        "wall_s": 19.06343150138855
+      },
+      "lua_word_freq_s": {
+        "cycles": 2864430.0,
+        "insts": 4686307.0,
+        "cond_predicted": 679478.0,
+        "cond_incorrect": 21383.0,
+        "committed_branch_mispredicts": 21383.0,
+        "cond_mispredicts_direct": 15057.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 925366.0,
+        "committed_cond_direct": 593224.0,
+        "committed_cond_branches": 593224.0,
+        "wall_s": 19.277153968811035
+      },
+      "sqlite_s": {
+        "cycles": 4126776.0,
+        "insts": 3864822.0,
+        "cond_predicted": 740045.0,
+        "cond_incorrect": 53549.0,
+        "committed_branch_mispredicts": 53549.0,
+        "cond_mispredicts_direct": 32730.0,
+        "cond_mispredicts_indirect": 0.0,
+        "committed_branches": 815772.0,
+        "committed_cond_direct": 574480.0,
+        "committed_cond_branches": 574480.0,
+        "wall_s": 21.86331057548523
+      }
+    },
+    "workload_fingerprints": {
+      "gapbs_bfs": "2573b6ddcc6347af176a9de06bf54541d7e2fd97950099a1ed446c9bf48b6cac",
+      "gapbs_cc": "5830ed5dfa673407db75f7e329ec5eb39d6a0dea9c1f328449f767efeb21dbb5",
+      "gapbs_pr": "dc748db587e0d701ef826276b67a4cc475a0ce1b80ab87ba56f2f3e928ca0d78",
+      "gapbs_sssp": "2bdc87c3b5c7408e7d5e7f21c714295e309c27881cbb54acf87f1a7fbc09e6a5",
+      "gapbs_bc": "86f839f2886520116fa16aea058670168c3b21ace7cf7a98d95673c07ab80e51",
+      "gapbs_tc": "c84078f3bff8070c3d9fe718bc2b14a4078cf59a18804df6cc15e65d00d33fd7",
+      "bzip2": "82d35ce163cf9c547c26f8382e5fdb4b617c8a1908b94cae3403deadc4b3f887",
+      "zstd": "7e5f6f18dff613302b3d68e887712b284fd839e404d21e3ce8d7db0f9c026ca1",
+      "lua_binary_trees": "43e715750047be59e3c676964d0b1fe816d37aaac4634cc0e1220e1d821dae06",
+      "lua_fannkuch": "688325516fc8d6983389f102c56e83f723ae5147fb5bbb3dd9dc5c098fdb6c8c",
+      "lua_nbody": "df4b93c3207e5c4dd415452c6c07d684a26772e1a5a84e1bbb453d3186f3a003",
+      "lua_spectral_norm": "51490fffbb5f40906d117267f5e54dab8a8e15668da4c5f74f10fd519707a2a4",
+      "lua_word_freq": "196e8287019309e81628ad810cfc301ab305492998b7536b34c7122c672c63aa",
+      "sqlite": "79746222bb302f2e7bf383b8cb7401a786161c961e8299d690c537f364d85a14",
+      "gapbs_bfs_s": "490eae253a1b2a275666adab2426dc5ed9759fbc5deb084017c6a1be2a884b36",
+      "gapbs_cc_s": "0cdd9351f9f88ff0a726bb7f2f955cdde5770b5c9d514a227b148ebf60135856",
+      "gapbs_pr_s": "931e7722cf5f49f01202aa08ba7a3fb56592fc22c7c6ef48c14034dfa6bebae8",
+      "gapbs_sssp_s": "ec9003aee526e75f0ac6447c5e467936477a2db24763b0dc5c15ca710cc1a7b5",
+      "gapbs_bc_s": "8c4c1c5e395a5290419b92fca623db7e16c41df59c4f1af2bde338711517c23c",
+      "gapbs_tc_s": "34c45a2e15495b47eb5e2a1aa810f3d224fba5f30696d6c1bee5dbaf34c17828",
+      "bzip2_s": "ed0fdd00447f50eb9dbf70b1dfcb065c1660727e825a9e6b24257d9fabdb9730",
+      "zstd_s": "d35506233c8e928bb94397115a492ca1a9a5f7aaa46d89f34f058afa40171ee7",
+      "lua_binary_trees_s": "e4c3f432b160ba90e6a898e4524b022f86719bf38858d9259bd02b5c974bbf3b",
+      "lua_fannkuch_s": "23433dee540e19e48b148eeb094c384f6c04b385843f987b8dc5f99ddc7026f1",
+      "lua_nbody_s": "b86766d3f8a6733822355e7a05c3013ef6295c67ee9bc8f1eb1a235924304369",
+      "lua_spectral_norm_s": "57a6488e5a5c227bbdf917a01639c055efa6d13fb34165b9e71447a2ce29cdf0",
+      "lua_word_freq_s": "c12a3be1b046a8be86c5ee312c7e2947fb19e153938a2618bc305e2739a3bb1e",
+      "sqlite_s": "678da3c07691bdc27dd3bcdca4da4537ba199162d6fc9604d97ede71a2cfa15a"
+    }
+  }
+}

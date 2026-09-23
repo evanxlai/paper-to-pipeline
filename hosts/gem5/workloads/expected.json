@@ -1,0 +1,248 @@
+{
+  "bzip2": {
+    "args": [
+      "112",
+      "1"
+    ],
+    "stdout": "bzip2_roundtrip bytes=114688 block=1 compressed=31421 input_fnv=55f7473bcbc6916e compressed_fnv=bb0157750fefc2a6\nPASS\n"
+  },
+  "bzip2_s": {
+    "args": [
+      "4",
+      "1"
+    ],
+    "stdout": "bzip2_roundtrip bytes=4096 block=1 compressed=1594 input_fnv=84c960fca721adaa compressed_fnv=b7c89acad735448a\nPASS\n"
+  },
+  "gapbs_bc": {
+    "args": [
+      "-f",
+      "kron_g14.sg",
+      "-n",
+      "4",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 16381 nodes and 212930 undirected edges for degree: 12\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\n16324:1\n4008:0.99992\n9631:0.116969\n10007:0.047059\n9205:0.0460685\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_bc_s": {
+    "args": [
+      "-f",
+      "kron_g10.sg",
+      "-n",
+      "4",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 1024 nodes and 10496 undirected edges for degree: 10\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\n206:1\n536:0.0760988\n86:0.0312315\n496:0.0302779\n360:0.0301494\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_bfs": {
+    "args": [
+      "-f",
+      "kron_g14.sg",
+      "-n",
+      "24",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 16381 nodes and 212930 undirected edges for degree: 12\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nBFS Tree has 12543 nodes and 425850 edges\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_bfs_s": {
+    "args": [
+      "-f",
+      "kron_g12.sg",
+      "-n",
+      "4",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 4096 nodes and 48386 undirected edges for degree: 11\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nBFS Tree has 3362 nodes and 96770 edges\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_cc": {
+    "args": [
+      "-f",
+      "kron_g14.sg",
+      "-n",
+      "16",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 16381 nodes and 212930 undirected edges for degree: 12\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\n\n5 biggest clusters\n0:12543\n11608:2\n4240:2\n3911:2\n1917:2\nThere are 3834 components\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_cc_s": {
+    "args": [
+      "-f",
+      "kron_g12.sg",
+      "-n",
+      "1",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 4096 nodes and 48386 undirected edges for degree: 11\nTrial Time:          0.00000\n\n5 biggest clusters\n0:3362\n645:2\n4088:1\n4086:1\n4085:1\nThere are 734 components\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_pr": {
+    "args": [
+      "-f",
+      "kron_g14.sg",
+      "-n",
+      "1",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 16381 nodes and 212930 undirected edges for degree: 12\nTrial Time:          0.00000\n9631:0.00685468\n5105:0.00304451\n10007:0.00302191\n1690:0.00300596\n11554:0.00299776\nTotal Error:         0.00003\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_pr_s": {
+    "args": [
+      "-f",
+      "kron_g10.sg",
+      "-n",
+      "1",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 1024 nodes and 10496 undirected edges for degree: 10\nTrial Time:          0.00000\n536:0.0199823\n822:0.0105241\n270:0.0102898\n360:0.0101909\n86:0.0101051\nTotal Error:         0.00003\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_sssp": {
+    "args": [
+      "-f",
+      "kron_g14.wsg",
+      "-n",
+      "4",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 16381 nodes and 212930 undirected edges for degree: 12\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nSSSP Tree reaches 12543 nodes\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_sssp_s": {
+    "args": [
+      "-f",
+      "kron_g10.wsg",
+      "-n",
+      "3",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 1024 nodes and 10496 undirected edges for degree: 10\nTrial Time:          0.00000\nTrial Time:          0.00000\nTrial Time:          0.00000\nSSSP Tree reaches 896 nodes\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_tc": {
+    "args": [
+      "-f",
+      "kron_g10.sg",
+      "-n",
+      "10",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 1024 nodes and 10496 undirected edges for degree: 10\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\nRelabel:             0.00000\nTrial Time:          0.00000\n74720 triangles\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "gapbs_tc_s": {
+    "args": [
+      "-f",
+      "kron_g8.sg",
+      "-n",
+      "1",
+      "-v",
+      "-a"
+    ],
+    "stdout": "Read Time:           0.00000\nGraph has 256 nodes and 2155 undirected edges for degree: 8\nTrial Time:          0.00000\n10479 triangles\nVerification:           PASS\nVerification Time:   0.00000\nAverage Time:        0.00000\n"
+  },
+  "lua_binary_trees": {
+    "args": [
+      "binary_trees.lua",
+      "8"
+    ],
+    "stdout": "stretch tree of depth 9\t check: 1023\n256\t trees of depth 4\t check: 7936\n64\t trees of depth 6\t check: 8128\n16\t trees of depth 8\t check: 8176\nlong lived tree of depth 8\t check: 511\nPASS\n"
+  },
+  "lua_binary_trees_s": {
+    "args": [
+      "binary_trees.lua",
+      "5"
+    ],
+    "stdout": "stretch tree of depth 6\t check: 127\n32\t trees of depth 4\t check: 992\nlong lived tree of depth 5\t check: 63\nPASS\n"
+  },
+  "lua_fannkuch": {
+    "args": [
+      "fannkuch_redux.lua",
+      "7",
+      "4"
+    ],
+    "stdout": "228\nPfannkuchen(7) = 16\nPASS\n"
+  },
+  "lua_fannkuch_s": {
+    "args": [
+      "fannkuch_redux.lua",
+      "6",
+      "2"
+    ],
+    "stdout": "49\nPfannkuchen(6) = 10\nPASS\n"
+  },
+  "lua_nbody": {
+    "args": [
+      "nbody.lua",
+      "2000"
+    ],
+    "stdout": "-0.169075164\n-0.169071607\nPASS\n"
+  },
+  "lua_nbody_s": {
+    "args": [
+      "nbody.lua",
+      "120"
+    ],
+    "stdout": "-0.169075164\n-0.169045576\nPASS\n"
+  },
+  "lua_spectral_norm": {
+    "args": [
+      "spectral_norm.lua",
+      "50"
+    ],
+    "stdout": "1.274193837\nPASS\n"
+  },
+  "lua_spectral_norm_s": {
+    "args": [
+      "spectral_norm.lua",
+      "12"
+    ],
+    "stdout": "1.272735511\nPASS\n"
+  },
+  "lua_word_freq": {
+    "args": [
+      "word_freq.lua",
+      "800"
+    ],
+    "stdout": "lines 800 words 7586 distinct 127\nof           121\nin           119\nwas          119\nto           118\nbe           117\nchecksum 323378876\nPASS\n"
+  },
+  "lua_word_freq_s": {
+    "args": [
+      "word_freq.lua",
+      "50"
+    ],
+    "stdout": "lines 50 words 467 distinct 112\nis           12\nof           10\nthese        10\nwhat         10\nbe           9\nchecksum 70683598\nPASS\n"
+  },
+  "sqlite": {
+    "args": [
+      "bench.sql",
+      "1500"
+    ],
+    "stdout": "ok|line_count\nregion|0|81|2042899\nregion|1|84|2131158\nregion|2|81|2021741\nregion|3|66|1705528\nregion|4|97|2499402\nregion|5|83|1657844\nregion|6|80|2025489\nregion|7|95|2714792\nregion|8|100|2676053\nregion|9|118|3054142\nregion|10|93|1919284\nregion|11|116|2703483\nregion|12|100|2571877\nregion|13|105|2683980\nregion|14|105|2715771\nregion|15|96|2182732\ntop|42|461980|1\ntop|165|437291|2\ntop|28|392777|3\ntop|12|386626|4\ntop|151|373616|5\nnotes|1500|6043|274|457|140\nmoving|60|1\nok|index_vs_scan\nok|group_sum\nok|delete\nidle|0\nchecksum|71302214|9828232\nPASS\n"
+  },
+  "sqlite_s": {
+    "args": [
+      "bench.sql",
+      "80"
+    ],
+    "stdout": "ok|line_count\nregion|1|9|128971\nregion|2|5|41073\nregion|6|11|270028\nregion|8|5|196330\nregion|9|15|383905\nregion|11|7|193240\nregion|12|2|81122\nregion|13|5|138704\nregion|15|21|534217\ntop|6|277691|1\ntop|7|270028|2\ntop|4|266643|3\ntop|5|256526|4\ntop|9|196330|5\nnotes|80|303|15|19|60\nmoving|52|1\nok|index_vs_scan\nok|group_sum\nok|delete\nidle|0\nchecksum|2130037|726297\nPASS\n"
+  },
+  "zstd": {
+    "args": [
+      "128",
+      "12"
+    ],
+    "stdout": "zstd_roundtrip bytes=131072 level=12 compressed=48071 input_fnv=6439f3eb482db146 compressed_fnv=af8edb62ab970be1\nPASS\n"
+  },
+  "zstd_s": {
+    "args": [
+      "17",
+      "12"
+    ],
+    "stdout": "zstd_roundtrip bytes=17408 level=12 compressed=7054 input_fnv=145f9d09d7df1944 compressed_fnv=8e9a5710fadd4af0\nPASS\n"
+  }
+}

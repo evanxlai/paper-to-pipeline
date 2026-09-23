@@ -1,0 +1,24 @@
+# G4's list for the gem5 host (C.GEM5_SMOKE_LIST), and the list that
+# "--stage baseline" records for gem5 unless --baseline-list says otherwise.
+# Two smoke-size workloads from two different programs.
+#
+# G4 asks one question: with the feature ON, does the host finish cleanly?
+# It is not a score and not a direction check. So the right list is the
+# cheapest pair that still runs two different kinds of code. Each entry is
+# a few million guest instructions (approx_insts in hosts/gem5/workloads.json
+# holds the qemu count). At the O3 speed the brief assumes, 100 K to 300 K
+# instructions per second, each run takes well under a minute. So a broken
+# port fails G4 in about a minute. TODO(measured): the lead records the real
+# gem5 time after the first cluster run.
+#
+# gapbs_bfs_s  a compact C++ graph kernel. Its branches follow the graph
+#              data, and it reads its input from data/gapbs/, so it also
+#              covers the run dir's data path.
+# sqlite_s     the largest code in the set: a SQL parser, a planner, B-trees
+#              and a bytecode engine. A port meets many distinct branches
+#              here, which is where a table-indexing mistake shows up.
+#
+# Both programs check their own result and exit 1 on a mismatch, so a port
+# that corrupts execution fails here too, not only one that crashes.
+gapbs_bfs_s
+sqlite_s

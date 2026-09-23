@@ -1,0 +1,31 @@
+paper-to-pipeline patch for Lua 5.4.9, applied by
+scripts/build_gem5_workloads.sh with "patch -p1" in a fresh copy of the
+source.
+
+src/lmathlib.c: math.random starts from a fixed seed. Upstream seeds it at
+startup from time(NULL) and the address of the Lua state. Under gem5,
+time(NULL) returns simulated time, which moves when the predictor changes.
+The bundled scripts never call math.random, but a script added later must
+not pick up that dependence by accident.
+
+Lua 5.4.9 reads the clock in two more places. Both are hooks that Lua lets
+a build override, so the build script sets them with -D instead of
+patching.
+  luai_makeseed(L)     the string hash seed (src/lstate.c)
+  l_randomizePivot()   the table.sort pivot salt (src/ltablib.c)
+
+--- a/src/lmathlib.c
++++ b/src/lmathlib.c
+@@ -626,8 +626,10 @@
+ ** randomization).
+ */
+ static void randseed (lua_State *L, RanState *state) {
+-  lua_Unsigned seed1 = (lua_Unsigned)time(NULL);
+-  lua_Unsigned seed2 = (lua_Unsigned)(size_t)L;
++  /* paper-to-pipeline: a fixed seed. Upstream mixes in time(NULL) and the
++  ** address of 'L', and gem5 answers time(NULL) with simulated time. */
++  lua_Unsigned seed1 = (lua_Unsigned)0x2545F4914F6CDD1Du;
++  lua_Unsigned seed2 = 0;
+   setseed(L, state->s, seed1, seed2);
+ }
+ 

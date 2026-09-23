@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "returncode": 0,
+  "binary_path": "/home/laievan/gem5/build/ARM/gem5.opt",
+  "base_rev": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91",
+  "build_duration_s": 669.7622153759003,
+  "wall_s": 670.1357307434082,
+  "stderr_tail": "",
+  "stdout_tail": "ore/sc_join.o\n [     CXX] src/systemc/core/sc_main.cc -> ARM/systemc/core/sc_main.o\n [     CXX] src/systemc/core/sc_main_fiber.cc -> ARM/systemc/core/sc_main_fiber.o\n [     CXX] src/systemc/core/sc_module.cc -> ARM/systemc/core/sc_module.o\n [     CXX] src/systemc/core/sc_module_name.cc -> ARM/systemc/core/sc_module_name.o\n [     CXX] src/systemc/core/sc_object.cc -> ARM/systemc/core/sc_object.o\n [     CXX] src/systemc/core/sc_port.cc -> ARM/systemc/core/sc_port.o\n [     CXX] src/systemc/core/sc_process_handle.cc -> ARM/systemc/core/sc_process_handle.o\n [     CXX] src/systemc/core/sc_prim.cc -> ARM/systemc/core/sc_prim.o\n [     CXX] src/systemc/core/sc_sensitive.cc -> ARM/systemc/core/sc_sensitive.o\n [     CXX] src/systemc/core/sc_simcontext.cc -> ARM/systemc/core/sc_simcontext.o\n [     CXX] src/systemc/core/sc_spawn.cc -> ARM/systemc/core/sc_spawn.o\n [     CXX] src/systemc/core/sc_time.cc -> ARM/systemc/core/sc_time.o\n [     CXX] src/systemc/core/python.cc -> ARM/systemc/core/python.o\n [     CXX] src/systemc/core/sc_main_python.cc -> ARM/systemc/core/sc_main_python.o\n [     CXX] src/systemc/core/sc_time_python.cc -> ARM/systemc/core/sc_time_python.o\n [     CXX] ARM/python/m5/defines.py.cc -> .o\n [     CXX] ARM/python/m5/info.py.cc -> .o\n [     CXX] src/base/date.cc -> ARM/base/date.o\n [    LINK]  -> ARM/gem5.opt\nscons: done building targets.\n*** Summary of Warnings ***\nWarning: Header file <capstone/capstone.h> not found.\n         This host has no capstone library installed.\n"
+}

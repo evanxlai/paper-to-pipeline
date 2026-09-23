@@ -1,0 +1,10 @@
+{
+  "root": "/home/laievan/gem5",
+  "command": "scons build/ARM/gem5.opt -j30 --ignore-style --linker=gold",
+  "env": {},
+  "ok": true,
+  "binary": "/home/laievan/gem5/build/ARM/gem5.opt",
+  "returncode": 0,
+  "duration_s": 15.4,
+  "base_rev": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91"
+}

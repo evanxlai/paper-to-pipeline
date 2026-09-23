@@ -54,6 +54,22 @@ gcp_nodes:
         spot: false
         ssh_user: laievan
         ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
+    # The gem5 host: one big machine rather than several small ones. gem5 is
+    # path-based (chia.simulators.gem5): the binary stays on the node that
+    # built it, so every run of a build has to land on that node, and a
+    # second node would need its own full build. One 32-vCPU machine builds
+    # gem5 in under an hour and then runs ~30 workloads side by side. On
+    # demand, like sim_worker, and for the same reason. The 12-vCPU note on
+    # sim_worker is stale: the project quota is 3000 vCPUs (checked
+    # 2026-09-23).
+    gem5_node:
+        machine_type: c2d-standard-32
+        count: 1
+        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        disk_size_gb: 300
+        spot: false
+        ssh_user: laievan
+        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
     # Integration host: on-demand (agents keep long-lived state in the checkouts).
     host_worker:
         #machine_type: c2d-standard-16
@@ -173,17 +189,56 @@ available_node_types:
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
         worker_setup_commands: *cbp2025_setup
 
-    # ChampSim + gem5 checkouts for the integration agents and gate runs.
+    # ChampSim checkout. It used to advertise "gem5" too, but an e2-small
+    # (2 GB) cannot build gem5, and a token two nodes advertise is a token
+    # Ray may resolve to either. gem5 now lives on gem5_host below.
     host_worker:
-        resources: {"champsim": 4, "gem5": 4}
+        resources: {"champsim": 4}
         num_workers: 1
         compatible_ips: ["@host_worker:0"]
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
         worker_setup_commands:
             - sudo apt-get install -y build-essential scons python3-dev zlib1g-dev
             - test -d ~/ChampSim || git clone https://github.com/ChampSim/ChampSim ~/ChampSim
+            # TODO: ChampSim vcpkg bootstrap; trace sync
+
+    # The gem5 host: the pristine checkout (~/gem5), the port tree, the
+    # search tree, the harness and the workloads, all on one machine.
+    #
+    # Its own token, "gem5_host", and deliberately not the "gem5" that
+    # chia.simulators.gem5 defaults to. The agent's shell, every build and
+    # every run have to agree on a filesystem (hosts/gem5/adapter.py), and
+    # the running cluster still has a host_worker advertising "gem5" from
+    # before the change above: `chia up --add` skips workers that already
+    # joined, so that token stays live until a full bring-up. A name only
+    # this node carries cannot be resolved anywhere else.
+    #
+    # 30 run slots on 32 vCPUs: each gem5 run is one single-threaded
+    # process, and two vCPUs stay free for the agent's shell and the raylet.
+    gem5_host:
+        resources: {"gem5_host": 30}
+        num_workers: 1
+        compatible_ips: ["@gem5_node:0"]
+        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        worker_setup_commands:
+            # gem5's own dependency list for Ubuntu 22.04, plus ccache.
+            - >
+              sudo apt-get update -q && sudo apt-get install -y -q build-essential git m4
+              scons zlib1g zlib1g-dev libprotobuf-dev protobuf-compiler libprotoc-dev
+              libgoogle-perftools-dev python3-dev pkg-config libhdf5-serial-dev
+              libpng-dev libelf-dev ccache
             - test -d ~/gem5 || git clone --branch v25.1.0.0 --depth 1 https://github.com/gem5/gem5 ~/gem5
-            # TODO: ChampSim vcpkg bootstrap; gem5 scons prebuild; trace sync
+            # base_dir makes ccache hash paths under $HOME as relative ones, so
+            # the port tree and the search tree, which are copies of ~/gem5 at
+            # other paths, hit the pristine build's cache instead of
+            # recompiling gem5 from scratch.
+            - >
+              mkdir -p ~/.config/ccache &&
+              printf 'base_dir = %s\nmax_size = 60G\n' "$HOME" > ~/.config/ccache/ccache.conf
+            # The pristine build is not done here. It takes most of an hour,
+            # and it runs as a chia job instead (hosts/gem5/adapter.py), so a
+            # failed build is a job with a log rather than a node that never
+            # joined.
 
     # Gemini agent (Antigravity CLI). Sign in with `agy` on the head machine
     # first so ~/.gemini exists; the mount must be writable.

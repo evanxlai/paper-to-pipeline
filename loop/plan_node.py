@@ -115,6 +115,7 @@ def make_plan(
     checks_root: str | None = None,
     baseline: dict | None = None,
     host_storage_bits: int | None = None,
+    bash_timeout: int | None = None,
 ) -> tuple[dict, dict]:
     """Plan the port of `spec` into `host`, or refuse to.
 
@@ -132,7 +133,13 @@ def make_plan(
     `host_storage_bits` is the host's own storage accounting, measured on
     the clean tree by the host adapter where it can. The plan's
     `host_storage.baseline_bits` has to equal it, so the number stage 4 costs
-    every candidate against is measured rather than recalled."""
+    every candidate against is measured rather than recalled.
+
+    `bash_timeout` is the per-command limit of the shell in `tools`, in
+    seconds, and the prompt tells the planner that number. It defaults to
+    C.BASH_TOOL_TIMEOUT_S. A host whose shell allows longer passes its own
+    limit (gem5: C.GEM5_BASH_TOOL_TIMEOUT_S). Otherwise the prompt states
+    the default, and the planner plans around a limit that is not there."""
     # Lazy, like spec_review: this module stays importable, and testable,
     # without chia installed.
     from llm import load_prompt, make_llm, run_llm
@@ -172,7 +179,7 @@ def make_plan(
         spec_path=str(C.SPEC_OUT_PATH),
         host_path=work_dir,
         host_name=host,
-        bash_timeout=str(C.BASH_TOOL_TIMEOUT_S),
+        bash_timeout=str(C.BASH_TOOL_TIMEOUT_S if bash_timeout is None else bash_timeout),
     ) + escalation_section + (
         f"\n\n## The port plan schema\n\n```json\n{C.PORT_PLAN_SCHEMA_PATH.read_text()}\n```"
         f"\n\n## The test plan schema\n\n```json\n{C.TEST_PLAN_SCHEMA_PATH.read_text()}\n```"

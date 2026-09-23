@@ -1,0 +1,53 @@
+# The verify gate's performance list for the gem5 host (C.GEM5_PERF_LIST):
+# eight perf-size workloads, 34 to 65 M committed instructions each on
+# gem5's O3 CPU (approx_insts in hosts/gem5/workloads.json holds the qemu
+# count, within 1 percent of gem5's).
+#
+# G5 asks one question: does the mechanism move the metric the way the paper
+# says? It is a direction check, not a score, as on the cbp2025 host.
+#
+# Why eight. The gate runs the list twice per attempt, feature on first and
+# then feature off, one after the other (_run_performance in
+# loop/plan_runner.py). So an attempt costs two waves, not one. Eight runs
+# fit in one wave on the gem5 node's 30 slots (GEM5_HOST_RESOURCE), and a
+# wave lasts as long as its slowest run. Measured on the clean tree
+# (2026-09-23), these eight took 157 to 396 s each inside the 28-run
+# cluster smoke, and 152 to 387 s each in the 28-run baseline recording.
+# They took 221 to 521 s each in an 8-run baseline recording made while a
+# gem5 build shared the node. gapbs_tc was the slowest every time. So the
+# two waves cost about 13 minutes per attempt on a quiet node and about 18
+# on a busy one, before the build. Each run gets at least
+# GEM5_RUN_TIMEOUT_S (3600 s), whatever the entry's timeout_seconds says.
+#
+# Keep the feature-off wave: leave the entry's baseline source at its
+# default, measure_feature_off. Source "recorded" compares against the
+# recorded baseline's top-level means, and those cover the list that made
+# the recording. Today that is all 28 workloads (hosts/gem5/baselines/
+# iso-64KiB.json, recorded over gem5-all.list), not these eight, so the
+# comparison would mix two different sets of workloads.
+#
+# Why these eight. They cover all five programs, and they lean toward code
+# whose branches depend on data values, because sR predicts from register
+# values.
+#   gapbs_bfs    frontier checks on an irregular graph
+#   gapbs_sssp   bucket and distance compares in delta stepping
+#   gapbs_tc     sorted-list intersection, the classic hard-to-predict loop
+#   bzip2        block sorting and Huffman coding on generated text
+#   zstd         binary-tree match finding (btlazy2) on generated text
+#   lua_fannkuch the most branch-bound Lua script, run by an interpreter
+#   lua_word_freq string scanning, string-keyed tables and a sort
+#   sqlite       B-tree inserts, joins, grouping, sorting and updates
+#
+# Left out, and still in gem5-all.list: gapbs_cc, gapbs_pr and gapbs_bc,
+# which repeat the graph kind of work above. lua_binary_trees, which mostly
+# measures the allocator and the garbage collector. lua_nbody and
+# lua_spectral_norm, the regular end of the set, where the branches are
+# mostly loop control.
+gapbs_bfs
+gapbs_sssp
+gapbs_tc
+bzip2
+zstd
+lua_fannkuch
+lua_word_freq
+sqlite

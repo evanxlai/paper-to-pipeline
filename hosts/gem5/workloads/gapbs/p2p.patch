@@ -1,0 +1,175 @@
+paper-to-pipeline patch for GAPBS v1.5 (commit b5e3e19), applied by
+scripts/build_gem5_workloads.sh with "patch -p1" in a fresh copy of the
+source. It changes the benchmark harness in three ways, and none of them
+touches a kernel function.
+
+1. src/timer.h: the Timer never reads the clock. Under gem5 a clock read
+   returns simulated time, so the printed timings would differ between the
+   feature-on and feature-off runs, and so would the instructions that
+   print them. GAPBS only prints timings. It never branches on them.
+
+2. src/benchmark.h: a failed verification (-v) exits with status 1.
+   Upstream prints FAIL and exits 0, and the gem5 run scripts read only
+   the exit code.
+
+3. src/benchmark.h: -v checks only the last trial, the same rule -a
+   already follows. Measured under qemu on the scale-12 graph, one bfs
+   trial costs 0.37 M instructions, and the check with -a adds about
+   1.2 M. With a check on every trial, a many-trial run would mostly
+   measure the serial checker, not the kernel.
+
+   bfs, sssp and bc need one more line for this. Each verifier has its
+   own SourcePicker, which picks the next source on every call. Called
+   once, it would check the first source against the last trial's result
+   and fail. SkipSources (src/benchmark.h) moves the verifier's picker past
+   the unchecked trials, and src/bfs.cc, src/sssp.cc and src/bc.cc call
+   it. Only main() changes in those files.
+
+--- a/src/benchmark.h
++++ b/src/benchmark.h
+@@ -6,6 +6,7 @@
+ 
+ #include <algorithm>
+ #include <cinttypes>
++#include <cstdlib>
+ #include <functional>
+ #include <random>
+ #include <utility>
+@@ -68,6 +69,17 @@
+ };
+ 
+ 
++// paper-to-pipeline: BenchmarkKernel checks only the last trial, but a
++// verifier's SourcePicker picks one source per call, starting from the
++// first. Skipping the sources of the unchecked trials makes the verifier
++// check the source that the last trial used.
++template<typename GraphT_>
++void SkipSources(SourcePicker<GraphT_> &sp, int64_t count) {
++  for (int64_t i = 0; i < count; i++)
++    sp.PickNext();
++}
++
++
+ // Returns k pairs with the largest values from list of key-value pairs
+ template<typename KeyT, typename ValT>
+ std::vector<std::pair<ValT, KeyT>> TopK(
+@@ -111,12 +123,20 @@
+     total_seconds += trial_timer.Seconds();
+     if (cli.do_analysis() && (iter == (cli.num_trials()-1)))
+       stats(g, result);
+-    if (cli.do_verify()) {
++    // paper-to-pipeline: check only the last trial, as -a analyses only
++    // the last. The serial verifier costs about three kernel trials, so
++    // checking every trial would make most of a many-trial run the
++    // verifier instead of the kernel.
++    if (cli.do_verify() && (iter == (cli.num_trials()-1))) {
+       trial_timer.Start();
+-      PrintLabel("Verification",
+-                 verify(std::ref(g), std::ref(result)) ? "PASS" : "FAIL");
++      bool verified = verify(std::ref(g), std::ref(result));
++      PrintLabel("Verification", verified ? "PASS" : "FAIL");
+       trial_timer.Stop();
+       PrintTime("Verification Time", trial_timer.Seconds());
++      // paper-to-pipeline: the gem5 run scripts read only the exit code,
++      // so a failed check must fail the process, not just print FAIL.
++      if (!verified)
++        std::exit(1);
+     }
+   }
+   PrintTime("Average Time", total_seconds / cli.num_trials());
+--- a/src/timer.h
++++ b/src/timer.h
+@@ -4,43 +4,34 @@
+ #ifndef TIMER_H_
+ #define TIMER_H_
+ 
+-#include <chrono>
+-
+ 
+ /*
+ GAP Benchmark Suite
+ Class:  Timer
+ Authors: Scott Beamer, Michael Sutton
+ 
+-Simple timer that wraps std::chrono
++paper-to-pipeline: this Timer never reads the clock, and every interval
++reads as zero. Under gem5, a guest clock read returns simulated time. A
++predictor change moves simulated time, so the printed timings, and the
++instructions that format them, would differ between the feature-on and
++feature-off runs. With the clock gone, both runs execute the same
++instructions and print the same bytes. GAPBS never branches on a timing,
++so the kernels are unchanged.
+ */
+ 
+ class Timer {
+  public:
+   Timer() {}
+ 
+-  void Start() {
+-    elapsed_time_ = start_time_ = std::chrono::high_resolution_clock::now();
+-  }
+-
+-  void Stop() {
+-    elapsed_time_ = std::chrono::high_resolution_clock::now();
+-  }
+-
+-  double Seconds() const {
+-    return std::chrono::duration_cast<std::chrono::duration<double>>(elapsed_time_ - start_time_).count();
+-  }
+-
+-  double Millisecs() const {
+-    return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(elapsed_time_ - start_time_).count();
+-  }
+-
+-  double Microsecs() const {
+-    return std::chrono::duration_cast<std::chrono::duration<double, std::micro>>(elapsed_time_ - start_time_).count();
+-  }
++  void Start() {}
++
++  void Stop() {}
++
++  double Seconds() const { return 0; }
++
++  double Millisecs() const { return 0; }
+ 
+- private:
+-  std::chrono::high_resolution_clock::time_point start_time_, elapsed_time_;
++  double Microsecs() const { return 0; }
+ };
+ 
+ // Times op's execution using the timer t
+--- a/src/bfs.cc
++++ b/src/bfs.cc
+@@ -258,7 +258,8 @@
+     return DOBFS(g, sp.PickNext(), cli.logging_en());
+   };
+   SourcePicker<Graph> vsp(g, cli.start_vertex());
+-  auto VerifierBound = [&vsp] (const Graph &g, const pvector<NodeID> &parent) {
++  auto VerifierBound = [&vsp, &cli] (const Graph &g, const pvector<NodeID> &parent) {
++    SkipSources(vsp, cli.num_trials() - 1);  // paper-to-pipeline
+     return BFSVerifier(g, vsp.PickNext(), parent);
+   };
+   BenchmarkKernel(cli, g, BFSBound, PrintBFSStats, VerifierBound);
+--- a/src/sssp.cc
++++ b/src/sssp.cc
+@@ -205,7 +205,8 @@
+     return DeltaStep(g, sp.PickNext(), cli.delta(), cli.logging_en());
+   };
+   SourcePicker<WGraph> vsp(g, cli.start_vertex());
+-  auto VerifierBound = [&vsp] (const WGraph &g, const pvector<WeightT> &dist) {
++  auto VerifierBound = [&vsp, &cli] (const WGraph &g, const pvector<WeightT> &dist) {
++    SkipSources(vsp, cli.num_trials() - 1);  // paper-to-pipeline
+     return SSSPVerifier(g, vsp.PickNext(), dist);
+   };
+   BenchmarkKernel(cli, g, SSSPBound, PrintSSSPStats, VerifierBound);
+--- a/src/bc.cc
++++ b/src/bc.cc
+@@ -245,6 +245,8 @@
+   SourcePicker<Graph> vsp(g, cli.start_vertex());
+   auto VerifierBound = [&vsp, &cli] (const Graph &g,
+                                      const pvector<ScoreT> &scores) {
++    // paper-to-pipeline: each trial picks num_iters sources.
++    SkipSources(vsp, int64_t(cli.num_trials() - 1) * cli.num_iters());
+     return BCVerifier(g, vsp, cli.num_iters(), scores);
+   };
+   BenchmarkKernel(cli, g, BCBound, PrintTopScores, VerifierBound);

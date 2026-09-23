@@ -1,0 +1,30 @@
+[gem5-gate-smoke] test plan is schema-valid against plan/test_plan.schema.json
+[gem5-gate-smoke] /home/laievan/gem5 is at 7a2b0e413d06c5ce7097104abef3b1d9eaabca91; the baseline was recorded at 7a2b0e413d06c5ce7097104abef3b1d9eaabca91
+[gem5-gate-smoke] install run dir: {"ok": true, "dest": "/home/laievan/p2p_gem5", "sha256": "f7ce82924fe64f3866ea3515295765ffc6d4f29b328b73c3b597f85528959656", "bytes": 9592413, "installed": false, "entries": ["__init__.py", "p2p_metrics.py", "run_workload.py", "se_o3.py", "workloads", "workloads.json"]}
+[gem5-gate-smoke] restore /home/laievan/gem5: {"ok": true, "root": "/home/laievan/gem5", "was_dirty": false, "removed": ["Removing build_tools/__pycache__/", "Removing ext/Kconfiglib/import/__pycache__/", "Removing ext/ply/ply/__pycache__/", "Removing site_scons/__pycache__/", "Removing site_scons/gem5_scons/__pycache__/", "Removing site_scons/gem5_scons/builders/__pycache__/", "Removing site_scons/site_tools/__pycache__/", "Removing src/mem/slicc/__pycache__/", "Removing src/mem/slicc/ast/__pycache__/", "Removing src/mem/slicc/generate/__pycache__/", "Removing src/mem/slicc/symbols/__pycache__/", "Removing src/python/m5/__pycache__/", "Removing src/python/m5/util/__pycache__/"], "kept": ["build/"], "revision": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91"}
+[gem5-gate-smoke] materializing an UNPORTED /home/laievan/gem5_port from /home/laievan/gem5
+[gem5-gate-smoke] {"ok": true, "path": "/home/laievan/gem5_port", "reused": false, "copy_s": 6.4, "revision": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91", "cleaned": []}
+[gem5-gate-smoke] rebuild_per_state=False enable_env(on)={'sr_enable': '1', 'SR_ENABLE': '1'}
+
+[gem5-gate-smoke] build_ok=True
+[gem5-gate-smoke] feature_off_metrics={"cond_mpki": 13.841743082714196, "branch_mpki": 14.227807472995414, "ipc": 0.9713728862493102}
+[gem5-gate-smoke] baseline /per_trace/gapbs_bfs_s={"cond_mpki": 13.841743082714196, "branch_mpki": 14.227807472995414, "ipc": 0.9713728862493102}
+[gem5-gate-smoke] correctness
+  PASS  feature_off_baseline   (feature_off_baseline)  
+[gem5-gate-smoke] smoke_ok=True failures=[]
+[gem5-gate-smoke] performance
+  FAIL  perf_cond_mpki         cond_mpki base=11.155219203422776 measured=11.155219203422776 rel=0.0 n=2 failed=[]
+      cond_mpki moved +0.0000 relative (11.155219203422776 -> 11.155219203422776, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric.
+
+[gem5-gate-smoke] verdict passed=False in 336s
+  - G5 [perf_cond_mpki] cond_mpki moved +0.0000 relative (11.155219203422776 -> 11.155219203422776, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric.
+
+[gem5-gate-smoke] harness checks
+  ok   the baseline was recorded at the checkout's revision
+  ok   G1 the pristine copy builds
+  ok   G2 an unported tree equals the recorded baseline
+  ok   G4 the smoke workloads complete with the knob on
+  ok   no G1, G2, G3 or G4 reason in the verdict
+  ok   G5 fails, because there is no feature
+  ok   knob on and knob off are bit-identical on an unported tree
+[gem5-gate-smoke] verdict: PASS (the expected result is G1, G2 and G4 passing and G5 failing)
