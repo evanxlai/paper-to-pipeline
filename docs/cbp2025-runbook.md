@@ -293,10 +293,23 @@ then passed against a tree nobody had ported into.
 
 ## When stage 3 escalates
 
-The agent sometimes refuses a value it is not allowed to change. Stage 3
-then returns `needs_replan`. That is not a failure of the run. It is the one message
-that travels backwards through the loop, and the answer is to run stage 2
-again:
+The agent sometimes refuses a value it is not allowed to change. That is not
+a failure of the run. It is the one message that travels backwards through
+the loop, and the answer is to run stage 2 again. The job now does that by
+itself. It re-runs stage 2, which reads the escalation and answers it, and
+then stage 3 against the new plan. It does this up to
+`P2P_ESCALATION_REPLANS` times (2 by default). The job's summary lists each
+round under `integrate[].rounds`: what escalated, and whether the next round
+kept the port or started over. A re-plan's artifacts are under
+`<prefix>replan<N>_` in `out/`.
+
+If the port's design changed, the next round starts from a clean copy.
+If only the tests changed, it keeps the port. `docs/stages.md` lists which
+fields count as the design.
+
+The commands below are for two end states. One is `needs_replan`, where the
+budget ran out. The other is `replan_failed`, where stage 2 refused the new
+plan:
 
 ```bash
 cat plan/sr.cbp2025.plan.escalations.json      # what it refused, and why
@@ -309,12 +322,14 @@ chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
 Stage 2 inlines every unresolved escalation into the planner prompt and
 marks it answered by the plan it writes. This loop raised two escalations so far. Both
 were correct, and both traced back to a wrong fact in
-`hosts/cbp2025/NOTES.md` rather than to the agent. Read the escalation
-first. Correct the notes where that is the real fault.
+`hosts/cbp2025/NOTES.md` rather than to the agent. So read the escalations
+after a run, even one that re-planned and passed. Correct the notes where
+that is the real fault, or the next run meets the same wrong fact.
 
-Add `P2P_CBP2025_PORT_FRESH=0` to the integrate step to carry the port
-forward instead of starting over. Carry it forward for a re-plan that
-changed the measurement. Start over for one that changed the design.
+For the manual route, add `P2P_CBP2025_PORT_FRESH=0` to the integrate step
+to carry the port forward instead of starting over. Carry it forward for a
+re-plan that changed the measurement. Start over for one that changed the
+design.
 
 ## Knobs worth knowing
 

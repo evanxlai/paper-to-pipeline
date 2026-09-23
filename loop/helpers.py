@@ -13,10 +13,17 @@ import constants as C
 class Dumper:
     """Timestamped artifact writer under out/ (never committed)."""
 
-    def __init__(self, out_dir: Path = C.OUT_DIR):
+    def __init__(self, out_dir: Path = C.OUT_DIR, prefix: str | None = None):
         self.dir = Path(out_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.prefix = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_")
+        self.prefix = prefix or datetime.datetime.now().strftime("%Y%m%d_%H%M%S_")
+
+    def child(self, tag: str) -> "Dumper":
+        """A writer into the same directory whose names carry `tag` after this
+        one's prefix. A job that runs a stage twice (loop/replan.py) writes
+        the second round through one, so it cannot overwrite the first
+        round's gate results and transcripts, which share every name."""
+        return Dumper(self.dir, f"{self.prefix}{tag}_")
 
     def _p(self, name: str) -> Path:
         return self.dir / (self.prefix + name)

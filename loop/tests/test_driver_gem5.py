@@ -266,6 +266,15 @@ def test_default_adapter_gem5_keeps_the_tree_to_resume(gem5, monkeypatch):
     assert gem5.calls[0] == ("clean_port_tree", False)
 
 
+@pytest.mark.parametrize("fresh", [True, False])
+def test_default_adapter_gem5_takes_a_replans_fresh_over_the_env(gem5, monkeypatch, fresh):
+    # replan.py decides per round whether the port tree starts over, and the
+    # host's own default must not overrule it in either direction.
+    monkeypatch.setattr(C, "GEM5_PORT_FRESH", not fresh)
+    loop.default_adapter("gem5", "iso-64KiB", fresh=fresh)
+    assert gem5.calls[0] == ("clean_port_tree", fresh)
+
+
 def test_default_adapter_cbp2025_is_unchanged(no_gem5, monkeypatch):
     cleaned = []
     monkeypatch.setattr(loop.cbp2025_adapter, "clean_port_tree",

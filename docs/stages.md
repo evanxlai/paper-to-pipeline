@@ -263,7 +263,8 @@ moves the improvement without moving the bar.
 `PLAN ESCALATION: <pointer> -- <reason>`, and the stage returns status `needs_replan` with
 the pointer and reason recorded. It does not spend the remaining attempts. This is the
 "serious issue" route back to stage 2, and it is what a frozen-but-wrong value gets
-instead of a rewrite.
+instead of a rewrite. It ends the attempt, not the job: the driver runs stage 2 again and
+then stage 3 against the new pair (see "Re-planning inside the job" below).
 
 An escalation is the only message that travels backwards through this loop. Where it is
 written is therefore part of the contract, not a logging choice. Stage 3 appends it to
@@ -277,6 +278,31 @@ so an escalation written there is evidence a reader can find and nothing a later
 The first real stage-3 run on the cbp2025 host escalated `/host_interfaces/4`, after the
 gate measured its port 43 percent worse on CycWPPKI. The re-plan that answered it moved the
 hook from a standalone override into the host's own statistical-corrector sum.
+
+**Re-planning inside the job** (`loop/replan.py`). An escalation does not stop the job. The
+driver runs stage 2 for that host again, which reads the escalation and answers it, and
+then runs stage 3 against the new pair. Nobody has to submit anything. The rules:
+
+- **Budget.** At most `P2P_ESCALATION_REPLANS` re-plans per host per job, 2 by default.
+  After that the host's status stays `needs_replan` and the job goes on without it.
+  `P2P_ESCALATION_REPLANS=0` restores the old behavior, where the first escalation stops
+  the host.
+- **Only an escalation re-plans.** A port that ran out of attempts, or a backend that
+  failed, is not a plan defect. Re-planning it hides the real result.
+- **The port tree.** A re-plan that changed the port's design starts the next round from a
+  clean copy of the host. The design has six parts: the structure choice, the hook
+  points (file, symbol, action), each interface resolution's status, the enable switch,
+  the knob macros and the host-knob macros. If only the measurement changed, the next
+  round keeps the port the agent already wrote. Prose is not compared, because a reworded
+  sentence is not a different port.
+- **Evidence.** Round N writes its artifacts, and its plan run's, under a `replan<N>_`
+  prefix, so no round overwrites another's gate results or transcripts. The port diff is
+  saved after every round, before the next round can replace the tree.
+- **A refused re-plan.** Stage 2 can refuse the new plan, or its backend can fail. Either
+  way the host's status is `replan_failed`, with the reason. The escalation stays open,
+  because stage 2 marks it answered only after it writes a plan.
+
+Stage 4 runs only for a host whose last round passed the gate, as before.
 
 Stage 2's own artifacts are never overwritten. A revision is written beside them, numbered,
 and the highest revision present is the pair in force, so the plan a port was originally

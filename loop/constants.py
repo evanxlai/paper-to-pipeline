@@ -57,6 +57,14 @@ PLAN_ALLOW_GAPS = os.environ.get("P2P_PLAN_ALLOW_GAPS", "0") == "1"
 # Each revision also costs a gate run, so a generous budget spends the
 # integration attempts on planning instead of on porting.
 PLAN_REVISIONS = int(os.environ.get("P2P_PLAN_REVISIONS", "3"))
+# How many times one job re-runs stage 2 for a host after stage 3 escalates,
+# before it reports `needs_replan` and stops for that host (loop/replan.py).
+# Two covers one wrong fact plus the follow-up its fix uncovers. Each round is
+# a full plan run plus a full set of integration attempts, about an hour and a
+# quarter on cbp2025, so a plan that keeps escalating is stopped rather than
+# re-planned for the rest of the day. 0 restores the old behavior: the job
+# stops at the first escalation and a person submits stage 2 by hand.
+ESCALATION_REPLANS = int(os.environ.get("P2P_ESCALATION_REPLANS", "2"))
 
 # ---------------------------------------------------------------- hosts
 # Worker-side checkout paths (created by cluster worker_setup_commands under

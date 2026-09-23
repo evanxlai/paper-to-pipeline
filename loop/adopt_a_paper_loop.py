@@ -9,7 +9,8 @@ Stages (docs/stages.md is the authoritative contract):
                   schema-checked and coverage-checked by code (plan_node.py).
   3.   integrate  per host: coding agent executes the plan through a BashTool;
                   a deterministic gate (gate.py, fed by plan_runner.py)
-                  decides promotion.
+                  decides promotion. An escalation re-runs stage 2 and then
+                  stage 3, within P2P_ESCALATION_REPLANS (replan.py).
   4.   dse        evolve-flows evolver tunes the spec's parameters under a
                   constraint set -- the only stage that knows about budgets;
                   screening fan-out (dse.py).
@@ -57,6 +58,7 @@ import helpers
 import plan_node
 import plan_revision
 import paper_markers
+import replan
 import spec_checks
 import spec_review
 from llm import load_prompt, make_llm, run_llm
@@ -603,12 +605,18 @@ class HostAdapter:
     shell_timeout_s: Optional[int] = None
 
 
-def default_adapter(host: str, baseline_key: str) -> HostAdapter:
+def default_adapter(host: str, baseline_key: str,
+                    fresh: Optional[bool] = None) -> HostAdapter:
     """The production hosts.
 
     cbp2025 (hosts/cbp2025/adapter.py) and gem5 (hosts/gem5/adapter.py) are
     implemented. champsim is not, and its gate fails closed, which is the
     safe direction: an unimplemented check must never read as a pass.
+
+    `fresh` says whether the port tree starts over from a clean copy. None
+    is the host's own default (P2P_CBP2025_PORT_FRESH, P2P_GEM5_PORT_FRESH).
+    A re-plan passes True or False, by whether it changed the port's design
+    (replan.py).
 
     TODO(week 2): champsim. Per hosts/champsim/NOTES.md: one module dir
     composing a base TAGE-SC-L + the sR term (multi-module lists keep only
@@ -618,7 +626,8 @@ def default_adapter(host: str, baseline_key: str) -> HostAdapter:
         # Lay down a pristine copy for the agent to edit before anything
         # else happens, so the bash tool the caller is about to start has a
         # tree to open and every attempt begins from the same place.
-        cbp2025_adapter.clean_port_tree(fresh=C.CBP2025_PORT_FRESH)
+        cbp2025_adapter.clean_port_tree(
+            fresh=C.CBP2025_PORT_FRESH if fresh is None else fresh)
         return HostAdapter(
             name=host,
             work_dir=C.CBP2025_PORT_ROOT,
@@ -635,7 +644,8 @@ def default_adapter(host: str, baseline_key: str) -> HostAdapter:
         # the pristine one: it fit, with ~90 s of gem5 runs, inside the gate
         # smoke's 336 to 376 s (2026-09-23). The builds after that one are
         # incremental.
-        gem5_adapter.clean_port_tree(fresh=C.GEM5_PORT_FRESH)
+        gem5_adapter.clean_port_tree(
+            fresh=C.GEM5_PORT_FRESH if fresh is None else fresh)
         # The run scripts and the workloads, which the gate and the agent's
         # own test commands both run from GEM5_RUN_DIR. Idempotent by
         # content hash.
@@ -770,6 +780,7 @@ def integrate(
     port_plan: Optional[dict] = None,
     test_plan: Optional[dict] = None,
     adapter: Optional[HostAdapter] = None,
+    fresh: Optional[bool] = None,
 ) -> dict:
     """Coding agent executes the port plan in `host` behind an enable knob,
     iterating against build/run feedback until the deterministic gate passes
@@ -781,8 +792,9 @@ def integrate(
 
     The plan arguments are keyword-with-default so that a caller holding a
     host adapter -- the stage-3 smoke test -- keeps working while it catches
-    up."""
-    adapter = adapter or default_adapter(host, baseline_key)
+    up. `fresh` goes to `default_adapter` and is ignored when the caller
+    hands over its own adapter."""
+    adapter = adapter or default_adapter(host, baseline_key, fresh=fresh)
     if port_plan is None or test_plan is None:
         port_plan, test_plan = load_plans(host, spec)
     # Where a revision this run earns will be numbered from. Read off disk
@@ -1016,17 +1028,27 @@ def main() -> None:
         summary["integrate"] = []
         for h in hosts:
             port_plan, test_plan = plans.get(h) or load_plans(h, spec)
-            summary["integrate"].append(
-                integrate(dump, spec, h, args.budget,
-                          port_plan=port_plan, test_plan=test_plan)
-            )
             # The patch is the run's primary evidence and it lives on a
             # worker, so it has to be pulled back before the job ends.
-            # Written whether the gate passed or failed: a refused port
-            # is the one a reader most needs to see.
-            diff = _port_diff(h)
-            if diff is not None:
-                dump.text(f"integrate_{h}_diff.patch", diff)
+            # Written whether the gate passed or failed: a refused port is
+            # the one a reader most needs to see. Once per round, because a
+            # re-plan that changed the design starts the next round from a
+            # clean tree.
+            def save_port(d, h=h):
+                diff = _port_diff(h)
+                if diff is not None:
+                    d.text(f"integrate_{h}_diff.patch", diff)
+
+            # An escalation does not end the job. Stage 2 runs again with the
+            # escalation in front of it, then stage 3 with the new pair, up to
+            # C.ESCALATION_REPLANS times. See replan.py for the rules.
+            summary["integrate"].append(replan.integrate_with_replans(
+                dump, port_plan, test_plan,
+                integrate=lambda d, pp, tp, fresh, h=h: integrate(
+                    d, spec, h, args.budget, port_plan=pp, test_plan=tp, fresh=fresh),
+                plan=lambda d, h=h: plan(d, spec, h, args.budget),
+                save_port=save_port,
+            ))
 
     if "dse" in stages:
         # When this job also integrated, only tune what the gate promoted. The
