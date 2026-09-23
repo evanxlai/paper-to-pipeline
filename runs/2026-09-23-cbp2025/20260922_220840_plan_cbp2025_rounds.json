@@ -1,0 +1,14 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/hook_points/3/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'includes' does not occur in cbp2016_tage_sc_l.h. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  }
+]

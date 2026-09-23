@@ -303,7 +303,7 @@ node that finds the defect states it, and code decides whether it may be acted o
 ## Stage 4: DSE
 
 - **In:** the gate-passed integration; the spec's `parameters` and `state[].size_formula`;
-  the plan's `host_knobs` and `host_storage`; a **constraint set**; the screening and full
+  the plan's `host_knobs` and `host_storage`; a **constraint set**; the screening and promotion
   trace lists; the evolve-flows search config.
 - **Out:** the tuned candidate and the tuned-vs-baseline verdict. Only the tuned
   configuration counts as the verdict.
@@ -330,3 +330,19 @@ Before searching, stage 4 builds every knob once at a second legal value (`dse.p
 Two builds of the same header must give the same binary, and a knob whose change leaves
 the binary unchanged is wired to nothing. For a knob that costs storage that stops the
 stage, because the search would credit bits the predictor never gave up.
+
+### Promotion
+
+The search ranks candidates on a screening list, and a screening list is small on purpose.
+So the verdict does not come from the search. `dse.promote_finalists` takes the top
+candidates (`P2P_DSE_TOP_K`, 3 by default) and scores them again on traces the search
+never saw (`experiments/promote-16.list`). Two references run on the same traces in the
+same job: the kit's default host, built from the pristine checkout, and the port with
+every knob at its default. The finalist with the lowest screening metric on the promotion
+traces is the tuned candidate. Its comparison with the two references is the verdict.
+
+Promotion applies the constraint set again. It re-derives each finalist's static metrics
+from its header, and it checks the measured constraints on the promotion traces, so a
+candidate cannot break a constraint and still win. A variant that did not run every
+promotion trace is reported and cannot win, for the same reason G5 refuses a partial trace
+set: its mean is a number about other traces.

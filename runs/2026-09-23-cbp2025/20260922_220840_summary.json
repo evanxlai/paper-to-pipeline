@@ -1,0 +1,13 @@
+{
+  "stage": "plan",
+  "budget": "iso-192KiB",
+  "plan": [
+    {
+      "host": "cbp2025",
+      "hook_points": 7,
+      "steps": 2,
+      "correctness": 16,
+      "performance": 1
+    }
+  ]
+}

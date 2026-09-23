@@ -257,7 +257,6 @@ node advertising them, so flipping `P2P_LLM_BACKEND` today hangs in
 - `config_adaevolve.yaml`'s `max_parallel_iterations: 8` races concurrent
   builds against the shared `~/cbp2025` checkout. Needs per-evaluation
   checkouts, or keep it at 1.
-- `promote_finalists` in `loop/dse.py` is still `NotImplementedError`.
 - Secrets forwarded through `runtime_env` are written to Ray's own logs
   (`/tmp/ray/session_*/logs/runtime_env*.log`) on the head. That now applies
   to a long-lived shared secret rather than a 60-minute token, so rotate it

@@ -1,0 +1,13 @@
+{
+  "stage": "integrate",
+  "budget": "iso-192KiB",
+  "integrate": [
+    {
+      "host": "cbp2025",
+      "baseline": "iso-192KiB",
+      "status": "passed",
+      "attempts": 3,
+      "plan_revisions": 1
+    }
+  ]
+}

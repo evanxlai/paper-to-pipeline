@@ -1,0 +1,24 @@
+{
+  "passed": false,
+  "reasons": [
+    "G3 [test_digest_generation_integer_zero] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_digest_generation_integer_arbitrary] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_digest_generation_fp64] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_digest_generation_fp32] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_digest_generation_flag] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_digest_fold_to_width] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_decay_staleness_invalidation] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_writeback_tag_mismatch] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_bank_membership] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_bank_selection_highest_usefulness] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_gating_multiplier_negative_usefulness] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_bank_vote_scaling] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_single_write_port_random_selection] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G3 [test_usefulness_update_only_when_decisive] exited 1, so its output is not evidence about the pattern\ncc1plus: fatal error: test_sr.cc: No such file or directory\ncompilation terminated.\n",
+    "G5 [perf_cycwppki] cycwppki_50perc_amean moved -0.6921 relative (388.06515 -> 656.6451750000001, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric."
+  ],
+  "warnings": [
+    "perf_cycwppki: cycwppki_50perc_amean improved -0.6921 against a claimed 0.005 (Assumed threshold). Recorded, not blocking: the port is untuned and closing that gap is stage 4's job."
+  ],
+  "plan_revision": 1
+}

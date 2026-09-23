@@ -1,0 +1,350 @@
+{
+  "stage": "dse",
+  "budget": "iso-192KiB",
+  "dse": [
+    {
+      "host": "cbp2025",
+      "budget": "iso-192KiB",
+      "constraints": [
+        {
+          "metric": "storage_bits",
+          "comparison": "<=",
+          "allowance": 1572864,
+          "name": "iso-192KiB",
+          "phase": "static"
+        }
+      ],
+      "host_knobs": 19,
+      "initial": {
+        "feasible": true,
+        "metrics": {
+          "storage_bits": 578478
+        },
+        "breakdown": {
+          "feature:register_status_table": 1495,
+          "feature:usefulness_weight_tables": 9360,
+          "feature:prediction_weight_tables": 43008,
+          "host:tagged tables, high banks": 327680,
+          "host:tagged tables, low banks": 122880,
+          "host:use-alt-on-NA counters": 80,
+          "host:bimodal, with shared hysteresis": 10240,
+          "host:global history, m[NHIST]": 3000,
+          "host:path history": 27,
+          "host:TICK counter": 10,
+          "host:loop predictor": 1248,
+          "host:loop predictor, counted again inside SC": 1248,
+          "host:SC thresholds and component weights": 668,
+          "host:SC bias tables": 4608,
+          "host:SC global GEHL": 12328,
+          "host:SC path GEHL": 6144,
+          "host:SC first local": 15152,
+          "host:SC second local": 6448,
+          "host:SC third local": 6336,
+          "host:SC IMLI": 6504,
+          "host:chooser counters": 14
+        },
+        "errors": [],
+        "violations": []
+      },
+      "search_root": "/home/laievan/cbp2025_dse",
+      "screening_traces": 4,
+      "preflight": {
+        "default_build": "312765e3adab5c19",
+        "reproducible": true,
+        "knobs": [
+          {
+            "macro": "SR_NUM_BANKS",
+            "origin": "feature",
+            "default": 8,
+            "tested": 7,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_WT0_ENTRIES",
+            "origin": "feature",
+            "default": 512,
+            "tested": 256,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_WT1_ENTRIES",
+            "origin": "feature",
+            "default": 256,
+            "tested": 128,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_WT2_ENTRIES",
+            "origin": "feature",
+            "default": 128,
+            "tested": 64,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_WT_CTR_BITS",
+            "origin": "feature",
+            "default": 6,
+            "tested": 5,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_UT_ENTRIES",
+            "origin": "feature",
+            "default": 8,
+            "tested": 4,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_UT_CTR_BITS",
+            "origin": "feature",
+            "default": 6,
+            "tested": 5,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_DIGEST_WIDTH",
+            "origin": "feature",
+            "default": 12,
+            "tested": 11,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_ROB_TAG_BITS",
+            "origin": "feature",
+            "default": 14,
+            "tested": 13,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_DECAY_INTERVAL",
+            "origin": "feature",
+            "default": 256,
+            "tested": 128,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "SR_MULTIPLIER_USEFUL",
+            "origin": "feature",
+            "default": 2.5,
+            "tested": 1.75,
+            "costs_storage": false,
+            "result": "live"
+          },
+          {
+            "macro": "SR_USEFULNESS_THRESHOLD",
+            "origin": "feature",
+            "default": 0,
+            "tested": -1,
+            "costs_storage": false,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGG",
+            "origin": "host",
+            "default": 10,
+            "tested": 9,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_TBITS",
+            "origin": "host",
+            "default": 8,
+            "tested": 7,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_NBANKLOW",
+            "origin": "host",
+            "default": 10,
+            "tested": 9,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_NBANKHIGH",
+            "origin": "host",
+            "default": 20,
+            "tested": 19,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_CWIDTH",
+            "origin": "host",
+            "default": 3,
+            "tested": 2,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_UWIDTH",
+            "origin": "host",
+            "default": 1,
+            "tested": 2,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGB",
+            "origin": "host",
+            "default": 13,
+            "tested": 12,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_HYSTSHIFT",
+            "origin": "host",
+            "default": 2,
+            "tested": 1,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_PERCWIDTH",
+            "origin": "host",
+            "default": 6,
+            "tested": 5,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGBIAS",
+            "origin": "host",
+            "default": 8,
+            "tested": 7,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGGNB",
+            "origin": "host",
+            "default": 10,
+            "tested": 9,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGPNB",
+            "origin": "host",
+            "default": 9,
+            "tested": 8,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGLNB",
+            "origin": "host",
+            "default": 10,
+            "tested": 9,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGSNB",
+            "origin": "host",
+            "default": 9,
+            "tested": 8,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGTNB",
+            "origin": "host",
+            "default": 10,
+            "tested": 9,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGINB",
+            "origin": "host",
+            "default": 8,
+            "tested": 7,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGIMNB",
+            "origin": "host",
+            "default": 9,
+            "tested": 8,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_LOGL",
+            "origin": "host",
+            "default": 5,
+            "tested": 4,
+            "costs_storage": true,
+            "result": "live"
+          },
+          {
+            "macro": "HOST_EWIDTH",
+            "origin": "host",
+            "default": 6,
+            "tested": 5,
+            "costs_storage": true,
+            "result": "live"
+          }
+        ],
+        "blocking": [],
+        "warnings": []
+      },
+      "best_program": "// generated from the feature spec and the port plan; DSE mutates values only\n// constraint: storage_bits <= 1.57286e+06 (iso-192KiB). A candidate that breaks it is not built.\n#pragma once\n#define SR_NUM_BANKS 8  // range: [1, 16]\n#define SR_WT0_ENTRIES 512  // range: [128, 2048] pow2\n#define SR_WT1_ENTRIES 256  // range: [64, 1024] pow2\n#define SR_WT2_ENTRIES 128  // range: [32, 512] pow2\n#define SR_WT_CTR_BITS 6  // range: [3, 8]\n#define SR_UT_ENTRIES 8  // range: [4, 32] pow2\n#define SR_UT_CTR_BITS 6  // range: [2, 8]\n#define SR_DIGEST_WIDTH 12  // range: [4, 12]\n#define SR_ROB_TAG_BITS 14  // range: [10, 16]\n#define SR_DECAY_INTERVAL 256  // range: [32, 2048] pow2\n#define SR_MULTIPLIER_USEFUL 2.5  // range: [1.0, 4.0]\n#define SR_USEFULNESS_THRESHOLD 0  // range: [-16, 16]\n// host knobs: the host's own structures, at the clean tree's values by default\n#define HOST_LOGG 10  // range: [8, 12]; sets LOGG\n#define HOST_TBITS 8  // range: [6, 10]; sets TBITS\n#define HOST_NBANKLOW 10  // range: [4, 16]; sets NBANKLOW\n#define HOST_NBANKHIGH 20  // range: [10, 30]; sets NBANKHIGH\n#define HOST_CWIDTH 3  // range: [2, 4]; sets CWIDTH\n#define HOST_UWIDTH 1  // range: [1, 2]; sets UWIDTH\n#define HOST_LOGB 13  // range: [10, 16]; sets LOGB\n#define HOST_HYSTSHIFT 2  // range: [1, 4]; sets HYSTSHIFT\n#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH\n#define HOST_LOGBIAS 8  // range: [6, 10]; sets LOGBIAS\n#define HOST_LOGGNB 10  // range: [8, 12]; sets LOGGNB\n#define HOST_LOGPNB 9  // range: [7, 11]; sets LOGPNB\n#define HOST_LOGLNB 10  // range: [8, 12]; sets LOGLNB\n#define HOST_LOGSNB 9  // range: [7, 11]; sets LOGSNB\n#define HOST_LOGTNB 10  // range: [8, 12]; sets LOGTNB\n#define HOST_LOGINB 8  // range: [6, 10]; sets LOGINB\n#define HOST_LOGIMNB 9  // range: [7, 11]; sets LOGIMNB\n#define HOST_LOGL 5  // range: [3, 8]; sets LOGL\n#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH\n// storage_bits is the sum of these, in bits:\n//   register_status_table: 65 * (1 + max(SR_ROB_TAG_BITS, SR_DIGEST_WIDTH) + log2(SR_DECAY_INTERVAL))\n//   usefulness_weight_tables: 65 * 3 * SR_UT_ENTRIES * SR_UT_CTR_BITS\n//   prediction_weight_tables: SR_NUM_BANKS * (SR_WT0_ENTRIES + SR_WT1_ENTRIES + SR_WT2_ENTRIES) * SR_WT_CTR_BITS\n//   host tagged tables, high banks: HOST_NBANKHIGH * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS + 4)\n//   host tagged tables, low banks: HOST_NBANKLOW * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS)\n//   host use-alt-on-NA counters: 2 ** 4 * 5\n//   host bimodal, with shared hysteresis: 2 ** HOST_LOGB + 2 ** (HOST_LOGB - HOST_HYSTSHIFT)\n//   host global history, m[NHIST]: 3000\n//   host path history: 27\n//   host TICK counter: 10\n//   host loop predictor: 2 ** HOST_LOGL * (2 * 10 + 10 + 4 + 4 + 1)\n//   host loop predictor, counted again inside SC: 2 ** HOST_LOGL * (2 * 10 + 10 + 4 + 4 + 1)\n//   host SC thresholds and component weights: 12 + 8 * 2 ** 6 + 3 * HOST_EWIDTH * 2 ** 3\n//   host SC bias tables: HOST_PERCWIDTH * 3 * 2 ** HOST_LOGBIAS\n//   host SC global GEHL: (3 - 2) * 2 ** HOST_LOGGNB * HOST_PERCWIDTH + 2 ** (HOST_LOGGNB - 1) * 2 * HOST_PERCWIDTH + 40\n//   host SC path GEHL: (3 - 2) * 2 ** HOST_LOGPNB * HOST_PERCWIDTH + 2 ** (HOST_LOGPNB - 1) * 2 * HOST_PERCWIDTH\n//   host SC first local: (3 - 2) * 2 ** HOST_LOGLNB * HOST_PERCWIDTH + 2 ** (HOST_LOGLNB - 1) * 2 * HOST_PERCWIDTH + 256 * 11 + HOST_EWIDTH * 2 ** 3\n//   host SC second local: (3 - 2) * 2 ** HOST_LOGSNB * HOST_PERCWIDTH + 2 ** (HOST_LOGSNB - 1) * 2 * HOST_PERCWIDTH + 16 * 16 + HOST_EWIDTH * 2 ** 3\n//   host SC third local: (2 - 2) * 2 ** HOST_LOGTNB * HOST_PERCWIDTH + 2 ** (HOST_LOGTNB - 1) * 2 * HOST_PERCWIDTH + 16 * 9 + HOST_EWIDTH * 2 ** 3\n//   host SC IMLI: 2 ** (HOST_LOGINB - 1) * HOST_PERCWIDTH + 8 + 2 * 2 ** (HOST_LOGIMNB - 1) * HOST_PERCWIDTH + 2 * HOST_EWIDTH * 2 ** 3 + 256 * 10\n//   host chooser counters: 2 * 7\n",
+      "best_metrics": {
+        "combined_score": 167.30171609735288,
+        "n": 4,
+        "brmispki_50perc_amean": 4.977225,
+        "cycwppki_50perc_amean": 386.72547499999996,
+        "ipc_50perc_amean": 2.707,
+        "storage_bits": 578478.0
+      },
+      "best_storage": {
+        "feasible": true,
+        "metrics": {
+          "storage_bits": 578478
+        },
+        "breakdown": {
+          "feature:register_status_table": 1495,
+          "feature:usefulness_weight_tables": 9360,
+          "feature:prediction_weight_tables": 43008,
+          "host:tagged tables, high banks": 327680,
+          "host:tagged tables, low banks": 122880,
+          "host:use-alt-on-NA counters": 80,
+          "host:bimodal, with shared hysteresis": 10240,
+          "host:global history, m[NHIST]": 3000,
+          "host:path history": 27,
+          "host:TICK counter": 10,
+          "host:loop predictor": 1248,
+          "host:loop predictor, counted again inside SC": 1248,
+          "host:SC thresholds and component weights": 668,
+          "host:SC bias tables": 4608,
+          "host:SC global GEHL": 12328,
+          "host:SC path GEHL": 6144,
+          "host:SC first local": 15152,
+          "host:SC second local": 6448,
+          "host:SC third local": 6336,
+          "host:SC IMLI": 6504,
+          "host:chooser counters": 14
+        }
+      },
+      "iterations": 1,
+      "status": "completed",
+      "error": null
+    }
+  ]
+}

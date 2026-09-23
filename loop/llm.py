@@ -7,11 +7,13 @@ so it must be dispatched onto the container holding that backend's
 credentials, via the matching resource token.
 """
 
+import time
+
 from chia.base.ChiaFunction import get
 from chia.base.tools.ChiaTool import ChiaTool
 from chia.base.llm_call import QueryResult
 from chia.models.claude import ClaudeCodeLLM
-from chia.models.antigravity import AntigravityLLM
+from chia.models.antigravity import AntigravityLLM, RateLimitError
 from chia.models.opencode import OpenCodeLLM, AdditionalModelProvider
 
 import constants as C
@@ -96,9 +98,33 @@ def collect_llm(ref, llm=None) -> QueryResult:
     return resp
 
 
+def _rate_limited(exc: Exception) -> bool:
+    """A Vertex 429. Ray re-raises a task's exception as a subclass of both
+    RayTaskError and the original class, so isinstance sees through it; the
+    string check covers a backend that reports the same quota in plain text."""
+    return isinstance(exc, RateLimitError) or "RESOURCE_EXHAUSTED" in str(exc)
+
+
 def run_llm(llm, prompt: str, tools: list[ChiaTool]) -> QueryResult:
     resources = llm_resources(llm)
-    resp = get(llm.prompt.options(resources=resources).chia_remote(llm, prompt, tools))
+    # chia raises a rate limit at once rather than retrying it, which is the
+    # right default for a library and the wrong one for a job that runs for
+    # hours. On 2026-09-23 a single 429 from gemini-3.1-pro, eleven minutes
+    # into stage 2, ended a stage 2-to-4 submission and lost the planner's
+    # turn. The quota is per minute, so waiting is the fix. A resumed session
+    # is safe to re-send: its transcript is only synced back on success, so
+    # the retry continues from the last turn that completed.
+    for attempt in range(C.LLM_RATE_LIMIT_RETRIES + 1):
+        try:
+            resp = get(llm.prompt.options(resources=resources).chia_remote(llm, prompt, tools))
+            break
+        except Exception as exc:  # noqa: BLE001
+            if not _rate_limited(exc) or attempt == C.LLM_RATE_LIMIT_RETRIES:
+                raise
+            wait = min(C.LLM_RATE_LIMIT_BACKOFF_S * 2 ** attempt, 900)
+            print(f"[llm] {type(llm).__name__} rate-limited (429), attempt "
+                  f"{attempt + 1} of {C.LLM_RATE_LIMIT_RETRIES + 1}; retrying in {wait}s")
+            time.sleep(wait)
     if not resp.success:
         # Backend-level failure (bad creds, CLI crash, timeout). Surface it
         # here: callers only see an empty result, which otherwise shows up

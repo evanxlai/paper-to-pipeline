@@ -12,10 +12,15 @@ Stages (docs/stages.md is the authoritative contract):
                   decides promotion.
   4.   dse        evolve-flows evolver tunes the spec's parameters under a
                   constraint set -- the only stage that knows about budgets;
-                  screening fan-out, then full-suite validation (dse.py).
+                  screening fan-out (dse.py).
+  4b.  promote    the top candidates scored again on traces the search never
+                  saw, next to the baseline and the untuned port; that
+                  comparison is stage 4's verdict (dse.promote_finalists).
 
 Run (after `chia up cluster/cluster.yaml`):
   chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" --stage all
+`--stage` takes several stages, run in pipeline order; stages 2 to 4 over the
+spec already on disk are `--stage plan integrate dse`.
 Env knobs are P2P_* (constants.py), forwarded via
   chia job submit --runtime-env-json '{"env_vars": {"P2P_DISTILL_MODE": "paper_plus_reference"}}' -- ...
 
@@ -682,11 +687,17 @@ def integrate(
 
 
 # ------------------------------------------------------------ main
+STAGES = ("distill", "baseline", "plan", "integrate", "dse", "promote")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", default="all",
-                    choices=["distill", "baseline", "plan", "integrate", "dse", "all"])
-    ap.add_argument("--host", default=None, help="limit plan/integrate/dse to one host")
+    # One or more stages, always run in pipeline order. `all` is every stage,
+    # distill included. `--stage plan integrate dse` is stages 2 to 4 in one
+    # submission against the spec already on disk, which `all` cannot do
+    # without re-distilling it.
+    ap.add_argument("--stage", nargs="+", default=["all"], choices=[*STAGES, "all"])
+    ap.add_argument("--host", default=None, help="limit plan/integrate/dse/promote to one host")
     ap.add_argument("--budget", default="iso-192KiB", choices=list(C.BUDGET_TRACKS_BITS))
     # Which traces --stage baseline measures. The default is the two traces
     # the CBP2025 kit ships, because the only gate condition that reads the
@@ -703,32 +714,52 @@ def main() -> None:
     # when reporting the result -- a winner screened on four traces is a
     # winner on four traces.
     ap.add_argument("--screening-list", default=str(C.SCREENING_LIST))
+    # Which traces the promote stage scores stage 4's finalists on. The
+    # default is 16 training traces outside both screening lists.
+    ap.add_argument("--promote-list", default=str(C.PROMOTE_LIST))
+    # Where a promote stage finds its candidates when this job runs no dse:
+    # a stage-4 summary.json, or an adaevolve output directory holding
+    # checkpoints/. Needs --host, because a checkpoint does not name one.
+    ap.add_argument("--promote-from", default=None)
     args = ap.parse_args()
+    stages = set(STAGES) if "all" in args.stage else set(args.stage)
+    if "promote" in stages and "dse" not in stages and not (args.promote_from and args.host):
+        raise SystemExit("--stage promote without dse promotes a finished search, so it "
+                         "needs --promote-from <summary.json or adaevolve dir> and --host")
 
     ray.init(address="auto", runtime_env=C.RUNTIME_ENV)
     start_collector()  # token + compute cost per accepted change (chia viz-profile)
     dump = helpers.Dumper()
-    summary: dict = {"stage": args.stage, "budget": args.budget}
+    summary: dict = {"stage": [s for s in STAGES if s in stages], "budget": args.budget}
+
+    if "dse" in stages:
+        # Now, not after an hour of planning and integrating. run_dse checks
+        # again when it starts, because hours can pass in between.
+        llm_check = dse.check_llm(C.DSE_CONFIG)
+        if llm_check["errors"]:
+            dump.json("dse_llm_check.json", llm_check)
+            raise SystemExit("stage 4 cannot reach its LLM: "
+                             + "; ".join(llm_check["errors"]))
 
     spec = None
-    if args.stage in ("distill", "all"):
+    if "distill" in stages:
         spec = distill(dump, args.budget)
     elif Path(C.SPEC_OUT_PATH).exists():
         spec = json.loads(Path(C.SPEC_OUT_PATH).read_text())
 
-    if args.stage in ("baseline", "all"):
+    if "baseline" in stages:
         summary["cbp2025_baseline"] = record_cbp_baseline(
             dump, Path(args.baseline_list), args.budget
         )
 
     hosts = [args.host] if args.host else list(C.HOSTS)
     plans: dict = {}
-    if args.stage in ("plan", "integrate", "all"):
+    if stages & {"plan", "integrate"}:
         if spec is None:
             raise SystemExit(
                 f"no feature spec at {C.SPEC_OUT_PATH}; run --stage distill first."
             )
-    if args.stage in ("plan", "all"):
+    if "plan" in stages:
         summary["plan"] = []
         for h in hosts:
             plans[h] = plan(dump, spec, h, args.budget)
@@ -740,7 +771,7 @@ def main() -> None:
                 "performance": len(plans[h][1]["performance"]),
             })
 
-    if args.stage in ("integrate", "all"):
+    if "integrate" in stages:
         summary["integrate"] = []
         for h in hosts:
             port_plan, test_plan = plans.get(h) or load_plans(h, spec)
@@ -755,19 +786,19 @@ def main() -> None:
                 # is the one a reader most needs to see.
                 dump.text(f"integrate_{h}_diff.patch", cbp2025_adapter.port_diff())
 
-    if args.stage in ("dse", "all"):
-        # In an --stage all run, only tune what the gate promoted. The
+    if "dse" in stages:
+        # When this job also integrated, only tune what the gate promoted. The
         # default search is 250 iterations over the screening set, which is
         # a day and a half of cluster time; spending it on a port the gate
         # refused measures how a broken feature responds to its parameters.
-        # An explicit --stage dse still runs, because re-running the search
-        # over an already-integrated tree is exactly what that invocation is
-        # for and the gate verdict is not in hand there.
+        # A job that runs dse without integrate still searches, because
+        # re-running the search over an already-integrated tree is exactly
+        # what that invocation is for and the gate verdict is not in hand.
         promoted = {
             entry["host"] for entry in summary.get("integrate") or []
             if entry.get("status") == "passed"
         }
-        targets = hosts if args.stage == "dse" else [h for h in hosts if h in promoted]
+        targets = [h for h in hosts if h in promoted] if "integrate" in stages else hosts
         skipped = [h for h in hosts if h not in targets]
         if skipped:
             summary["dse_skipped"] = {
@@ -781,8 +812,39 @@ def main() -> None:
             for h in targets
         ]
 
+    if "promote" in stages:
+        # The candidates come from this job's search when it ran one, and
+        # from a finished search on disk when it did not. A search that did
+        # not finish has no finalists worth hours of simulator.
+        if "dse" in stages:
+            sources = {d["host"]: d.get("population") or [] for d in summary.get("dse") or []
+                       if d.get("status") in dse.DSE_OK}
+        else:
+            sources = {args.host: dse.load_population(args.promote_from, args.host)}
+        if spec is None:
+            raise SystemExit(f"no feature spec at {C.SPEC_OUT_PATH}; promotion needs it "
+                             f"to read the candidates' knobs")
+        summary["promote"] = []
+        for h, population in sources.items():
+            result = dse.promote_finalists(h, spec, args.budget, population,
+                                           promote_list_path=Path(args.promote_list))
+            dump.json(f"promote_{h}.json", result)
+            summary["promote"].append(result)
+
     dump.json("summary.json", summary)
     print(json.dumps(summary, indent=2, default=str))
+    # Loudly, after the evidence is written: a search that could not reach
+    # its LLM, or scored nothing but its seed, is not a finished stage 4, and
+    # a job that reports SUCCEEDED for it gets read as a result.
+    failed = [d for d in summary.get("dse") or [] if d.get("status") not in dse.DSE_OK]
+    if failed:
+        raise SystemExit("stage 4 failed: " + "; ".join(
+            f"{d['host']}: {d.get('status')}: {d.get('error')}" for d in failed))
+    unpromoted = [p for p in summary.get("promote") or []
+                  if p.get("status") not in dse.PROMOTE_OK]
+    if unpromoted:
+        raise SystemExit("promotion failed: " + "; ".join(
+            f"{p['host']}: {p.get('status')}: {p.get('error')}" for p in unpromoted))
 
 
 if __name__ == "__main__":

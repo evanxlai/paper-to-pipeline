@@ -118,6 +118,10 @@ CBP2025_HOST_RESOURCE = os.environ.get("P2P_CBP2025_HOST_RESOURCE", "cbp2025_hos
 TRACE_DIR = os.environ.get("P2P_TRACE_DIR", str(_WORKER_HOME / "traces" / "cbp2025"))
 SCREENING_LIST = REPO_ROOT / "experiments" / "screening-60.list"
 FULL_LIST = REPO_ROOT / "experiments" / "training-105.list"
+# Stage 4's finalists are re-scored here rather than on FULL_LIST: 16 traces
+# the search never saw, about 30 minutes per candidate instead of 3.5 hours.
+# See its header for how the traces were chosen.
+PROMOTE_LIST = REPO_ROOT / "experiments" / "promote-16.list"
 SMOKE_LIST = REPO_ROOT / "experiments" / "smoke-5.list"
 # The list the verify gate's performance entries are meant to use: big enough
 # to carry signal, small enough that six integration attempts do not spend an
@@ -166,6 +170,12 @@ CLAUDE_MODEL = os.environ.get("P2P_CLAUDE_MODEL", "claude-opus-4-6")
 OPENCODE_VERTEX_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
 OPENCODE_VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "global")
 LLM_TIMEOUT_SECONDS = int(os.environ.get("P2P_LLM_TIMEOUT", "7200"))
+# How often llm.run_llm re-sends a call that came back 429 RESOURCE_EXHAUSTED,
+# and the first wait, doubled each time up to 15 minutes. The defaults wait
+# about 45 minutes in all before giving up, which covers a per-minute quota
+# and does not hide a quota that is really spent.
+LLM_RATE_LIMIT_RETRIES = int(os.environ.get("P2P_LLM_RATE_LIMIT_RETRIES", "6"))
+LLM_RATE_LIMIT_BACKOFF_S = int(os.environ.get("P2P_LLM_RATE_LIMIT_BACKOFF", "60"))
 
 # Resource tokens must match cluster/cluster.yaml available_node_types.
 LLM_RESOURCE = {"llm": 1.0}
@@ -179,10 +189,50 @@ OPENCODE_RESOURCE = {"opencode_creds": 1.0}
 # docs/llm-gateway.md. Bound to the head's VPC IP, so the shared secret is
 # mandatory -- anything that can reach the port can spend the project's
 # Vertex credits.
-GATEWAY_HOST = os.environ.get("P2P_GATEWAY_HOST", os.environ.get("HEAD_IP", "127.0.0.1"))
-GATEWAY_PORT = int(os.environ.get("P2P_GATEWAY_PORT", "8900"))
+#
+# A Ray job does NOT inherit the submitting shell's environment, so in the
+# job's driver HEAD_IP and P2P_GATEWAY_TOKEN are unset even after
+# `source export.sh`. These used to fall back to 127.0.0.1 and an empty
+# token. The gateway listens on the head's VPC address only, so every
+# evolver call failed with "Connection error", and stage 4 "completed" with
+# only its seed scored. What the environment leaves unset now comes from the
+# gateway's own env file, which scripts/install_llm_gateway.sh writes and
+# the systemd unit reads: it names the exact address the gateway is bound
+# to. The driver runs on the head, which is where that file lives. The node's
+# own address is the last resort, because the gateway runs on the head too.
+def _read_env_file(path: Path) -> dict:
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}
+    pairs = (line.split("=", 1) for line in text.splitlines()
+             if "=" in line and not line.lstrip().startswith("#"))
+    return {k.strip(): v.strip() for k, v in pairs}
+
+
+def _node_ip() -> str:
+    """This machine's address on its default route, as `hostname -I` reports
+    it first. A UDP connect sends no packet; it only picks the interface."""
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+
+
+GATEWAY_ENV_FILE = Path(os.environ.get(
+    "P2P_GATEWAY_ENV_FILE", str(Path.home() / ".config" / "p2p" / "gateway.env")))
+_GATEWAY_FILE = _read_env_file(GATEWAY_ENV_FILE)
+GATEWAY_HOST = (os.environ.get("P2P_GATEWAY_HOST") or os.environ.get("HEAD_IP")
+                or _GATEWAY_FILE.get("P2P_GATEWAY_HOST") or _node_ip())
+GATEWAY_PORT = int(os.environ.get("P2P_GATEWAY_PORT")
+                   or _GATEWAY_FILE.get("P2P_GATEWAY_PORT") or "8900")
 GATEWAY_URL = os.environ.get("P2P_GATEWAY_URL", f"http://{GATEWAY_HOST}:{GATEWAY_PORT}/v1")
-GATEWAY_TOKEN = os.environ.get("P2P_GATEWAY_TOKEN", "")
+GATEWAY_TOKEN = (os.environ.get("P2P_GATEWAY_TOKEN")
+                 or _GATEWAY_FILE.get("P2P_GATEWAY_TOKEN") or "")
 
 # ---------------------------------------------------------------- loop
 NUM_INTEGRATION_ATTEMPTS = int(os.environ.get("P2P_INTEGRATION_ATTEMPTS", "6"))
@@ -240,7 +290,9 @@ DSE_CONFIG = os.environ.get(
 )
 DSE_MAX_ITERATIONS = int(os.environ.get("P2P_DSE_ITERATIONS", "250"))
 DSE_SCREEN_METRIC = "brmispki_50perc_amean"
-DSE_PROMOTE_TOP_K = int(os.environ.get("P2P_DSE_TOP_K", "5"))
+# 3 finalists plus the default host and the port at the paper's defaults is
+# 5 runs of PROMOTE_LIST, about 2.5 hours on this cluster.
+DSE_PROMOTE_TOP_K = int(os.environ.get("P2P_DSE_TOP_K", "3"))
 # Stage 4 builds every knob once at a second value before searching, and stops
 # if a knob that costs storage turns out to be wired to nothing (loop/dse.py
 # `preflight`). About one build per knob, ~20 s each on the cluster. Turn it
@@ -278,9 +330,13 @@ RUNTIME_ENV = {
 # the head. That now applies to a long-lived shared secret rather than a
 # 60-minute token, so rotate it (edit the gateway env file and restart)
 # rather than treating it as permanent.
-for _cred in ("P2P_GATEWAY_TOKEN", "GEMINI_API_KEY", "GCP_PROJECT"):
+for _cred in ("GEMINI_API_KEY", "GCP_PROJECT"):
     if os.environ.get(_cred):
         RUNTIME_ENV["env_vars"][_cred] = os.environ[_cred]
+# The resolved value, not os.environ's: in a job's driver the token usually
+# comes from GATEWAY_ENV_FILE, and the actor has no other way to get it.
+if GATEWAY_TOKEN:
+    RUNTIME_ENV["env_vars"]["P2P_GATEWAY_TOKEN"] = GATEWAY_TOKEN
 
 # Not a credential, but it has to travel the same way and for the same
 # reason: the adaevolve configs name the gateway as ${P2P_GATEWAY_URL}, and

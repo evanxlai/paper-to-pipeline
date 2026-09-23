@@ -81,6 +81,12 @@ numbers to compare against.
 Point `--baseline-list` at a bigger list to record more. G2 can only use a
 trace that one shell command finishes inside the agent's 300-second cap.
 
+Baselines are stored per `--budget` name, and every later stage reads the
+one for the budget it is given. The kit's default host is a 64 KiB-class
+TAGE-SC-L (524,615 bits). So it is a fair baseline for `iso-64KiB`, and not
+for `iso-192KiB`. Record the `iso-64KiB` one with
+`--stage baseline --budget iso-64KiB`.
+
 ### 3. Plan, about 6 minutes
 
 ```bash
@@ -128,34 +134,117 @@ Stage 3 records the failure as `backend_error` with the resume instruction
 and leaves the tree alone. Resume it, or drop to
 `P2P_ANTIGRAVITY_MODEL=gemini-3.8-flash-high`, which has far more headroom.
 
+Since 2026-09-23, every stage waits out a 429 before it gives up.
+`llm.run_llm` re-sends the call up to 6 times, after 1, 2, 4, 8, 15 and 15
+minutes. The job log shows each wait as `rate-limited (429)`. A quota that
+stays spent past that still stops the stage. `P2P_LLM_RATE_LIMIT_RETRIES`
+and `P2P_LLM_RATE_LIMIT_BACKOFF` change the count and the first wait.
+
 ### 5. Tune, hours to days
 
 ```bash
 chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
-  --stage dse --host cbp2025
+  --stage dse --host cbp2025 --budget iso-64KiB
 ```
 
 Needs the LLM gateway and `evolve-flows` (see `docs/dse-setup.md`). The
 search mutates `sr_params.h` in the ported tree, so stage 3 has to run
-first. Two knobs make a demonstration fit in a session:
-`P2P_DSE_CONFIG=experiments/config_adaevolve_smoke_vertex.yaml` runs 3
-iterations instead of 250, and `--screening-list experiments/perf-4.list`
-scores each candidate on 4 traces instead of 60. Report both numbers with any result. A winner screened on four traces is
-a winner on four traces.
+first.
+
+You do not pass the gateway's address or token. A Ray job does not get the
+submitting shell's environment. So the job's driver reads both from
+`~/.config/p2p/gateway.env` on the head. Then it forwards them to the search.
+Before any build, the stage sends one small request to every model the
+search config names. If one fails, the stage stops with `llm_unreachable`
+and names the model and the reason. A search that ends with only its seed
+program scored ends as `no_candidates`. Either way the job exits non-zero.
+
+The search config sets the size. `P2P_DSE_CONFIG` picks it, and it has to
+travel through `--runtime-env-json`:
+
+| config | iterations | time on this cluster |
+| --- | --- | --- |
+| `config_adaevolve_smoke_vertex.yaml` | 3 | about 40 minutes |
+| `config_adaevolve_medium_vertex.yaml` | 24 | about 4 to 6 hours on `perf-8.list` |
+| `config_adaevolve.yaml` (default) | 250 | days, and it needs more trace workers |
+
+`--screening-list` picks the traces each candidate is scored on. The
+default is the 60-trace screening set, which costs about fifteen times
+`perf-4.list`. Report both numbers with any result. A winner screened on
+four traces is a winner on four traces.
 
 The search runs in `~/cbp2025_dse`. The stage copies the ported tree there
 as it starts. The evolver overwrites `sr_params.h` on every iteration,
 and the port the gate promoted has to stay on disk as the gate saw it.
 
-### All of it
+### 6. Promote, about 2.5 hours
 
 ```bash
-chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" --stage all
+chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
+  --stage promote --host cbp2025 --budget iso-64KiB \
+  --promote-from "$(pwd)/out/<run>_summary.json"
 ```
 
-In this mode stage 4 only runs for a host the gate promoted. The default
-search is 250 iterations, and spending that on a refused port measures how
-a broken feature responds to its parameters.
+The search picks its winners on a few traces. Promotion scores the top 3
+again on `experiments/promote-16.list`: 16 training traces that are in
+neither screening list. The same job runs two references on the same
+traces: the kit's default host, and the port with every knob at its
+default. That is 5 runs of about 30 minutes each on 4 trace slots.
+
+The result is `out/<run>_promote_cbp2025.json`. Its `verdict` names the
+winner and says whether it beats each reference. `vs_baseline` and
+`vs_defaults` give the change in each metric, and how many traces went
+each way. Report both.
+
+Where the finalists come from:
+
+- **In the same job as the search.** Add `promote` to `--stage`, for
+  example `--stage dse promote`. No `--promote-from` is needed.
+- **After a finished search.** `--promote-from` takes that job's
+  `summary.json`, or an adaevolve output directory that holds
+  `checkpoints/`. A search run before promotion existed has no population in
+  its summary, so point at its checkpoints instead. They sit under
+  `/tmp/ray/session_latest` on the node that ran the evolver, and a Ray
+  restart deletes them, so copy them out first.
+
+What the stage refuses, and why:
+
+- A candidate is a finalist only if screening built and scored it, and its
+  header still passes every static constraint. The same knob values count
+  once. The defaults are never a finalist, because they run anyway.
+- It uses the plan in force and the port on disk. Both must be the ones the
+  search ran with. Otherwise every header fails the static check, and the
+  stage stops with `no_finalists`.
+- It will not start while a search is running, because both use
+  `~/cbp2025_dse`. It also resets the pristine checkout `~/cbp2025`, as the
+  baseline stage does.
+- Every variant must run every trace, or its mean is about other traces.
+  If a reference or every finalist misses one, the job exits non-zero.
+
+`P2P_DSE_TOP_K` changes the number of finalists. `--promote-list` changes
+the traces.
+
+### Several stages in one submission
+
+`--stage` takes more than one stage, and runs them in pipeline order.
+Stages 2 to 4 against the spec already on disk:
+
+```bash
+chia job submit \
+  --runtime-env-json "{\"env_vars\": {\"P2P_DSE_CONFIG\": \"$(pwd)/experiments/config_adaevolve_medium_vertex.yaml\"}}" \
+  -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
+  --stage plan integrate dse --host cbp2025 --budget iso-64KiB \
+  --screening-list "$(pwd)/experiments/perf-8.list"
+```
+
+`--stage all` is every stage, distill included. Distill rewrites
+`spec/sr.paper_only.json`, so do not use `all` to re-run the later stages
+over a spec that was refined by hand.
+
+When a job runs integrate, stage 4 only runs for a host the gate promoted.
+Spending a search on a refused port measures how a broken feature responds
+to its parameters. When stage 4 is in the job, the LLM check also runs at
+the start. Then a dead gateway stops the job before planning, not after it.
 
 ## Three cheap questions before a long run
 
@@ -219,7 +308,8 @@ changed the measurement. Start over for one that changed the design.
 | `P2P_INTEGRATION_ATTEMPTS` | 6 | gate attempts before stage 3 gives up |
 | `P2P_CBP2025_PORT_FRESH` | 1 | 0 resumes a stage 3 run on the tree it left |
 | `P2P_SPEC_REVIEW` | 1 | 0 skips stage 1.5, which is most of distill's cost |
-| `P2P_DSE_CONFIG` | the 250-iteration config | the smoke config runs 3 |
+| `P2P_DSE_CONFIG` | the 250-iteration config | the smoke config runs 3, the medium one 24 |
+| `P2P_DSE_TOP_K` | 3 | how many finalists the promote stage scores again |
 
 `--screening-list` and `--baseline-list` are command-line flags rather than
 environment variables, so they go after the script name.

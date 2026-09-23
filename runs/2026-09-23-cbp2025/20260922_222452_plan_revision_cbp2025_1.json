@@ -1,0 +1,13 @@
+{
+  "revision": 1,
+  "port_plan": "/home/laievan/chia-hackathon/paper-to-pipeline/plan/sr.cbp2025.plan.rev1.json",
+  "test_plan": "/home/laievan/chia-hackathon/paper-to-pipeline/plan/sr.cbp2025.tests.rev1.json",
+  "recorded": [
+    {
+      "pointer": "/plan/hook_points/3/symbol",
+      "code": "symbol_not_found",
+      "severity": "warn",
+      "message": "'includes' does not occur in cbp2016_tage_sc_l.h. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+    }
+  ]
+}

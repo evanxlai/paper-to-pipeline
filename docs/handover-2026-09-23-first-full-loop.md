@@ -79,6 +79,15 @@ all 31 knobs (12 sR, 19 host) changed the binary.
 
 ### 1. Stage 4 cannot reach its LLM when submitted as the runbook says
 
+**Fixed later on 2026-09-23.** Do not use the workaround below. In a job's
+driver, `loop/constants.py` now fills an unset gateway address, port and
+token from `~/.config/p2p/gateway.env`. The node's own address is the last
+resort. `dse.check_llm` sends one small request per configured model before
+any build. The job exits non-zero on `llm_unreachable`, and on
+`no_candidates`, which means a search that scored only its seed. The
+runbook command works as written. `loop/tests/test_dse_llm_route.py` pins
+all three parts.
+
 A Ray job does not inherit the submitting shell's environment. The job's
 driver therefore has no `HEAD_IP`, no `P2P_GATEWAY_TOKEN` and no
 `P2P_GATEWAY_URL`. This was checked with a one-line job. `loop/constants.py`

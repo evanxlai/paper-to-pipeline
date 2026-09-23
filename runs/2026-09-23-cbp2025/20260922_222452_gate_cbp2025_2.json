@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "reasons": [],
+  "warnings": [
+    "perf_cycwppki: cycwppki_50perc_amean improved 0.0035 against a claimed 0.005 (Assumed threshold). Recorded, not blocking: the port is untuned and closing that gap is stage 4's job."
+  ],
+  "plan_revision": 1
+}

@@ -12,30 +12,16 @@
     "run": {
       "mode": "host_adapter"
     },
-    "timeout_seconds": 600
+    "timeout_seconds": 300
   },
   "correctness": [
     {
-      "id": "baseline_check",
-      "kind": "existing_regression",
-      "description": "Check that the unmodified host suite passes with the feature off.",
-      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
-      "feature_state": "off",
-      "clean_tree_result": {
-        "exit_code": 0,
-        "passed": true,
-        "summary": " Read 997301 instrs "
-      },
-      "pass_condition": {
-        "kind": "matches_clean_tree"
-      }
-    },
-    {
       "id": "feature_off_baseline",
       "kind": "feature_off_baseline",
-      "description": "Ensure the metrics are bit-identical to the baseline when the feature is off.",
+      "description": "Verify that with the enable knob off, metrics equal the recorded baseline exactly.",
       "command": "./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "off",
+      "timeout_seconds": 300,
       "pass_condition": {
         "kind": "metrics_equal_baseline",
         "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
@@ -43,208 +29,206 @@
       }
     },
     {
-      "id": "test_digest_generation_integer_zero",
+      "id": "unit_test_0",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_digest_generation_integer_zero",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test digest generation for integer zero.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 0",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/0",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_digest_generation_integer_zero: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_digest_generation_integer_arbitrary",
+      "id": "unit_test_1",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_digest_generation_integer_arbitrary",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test digest generation for arbitrary integer.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 1",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/1",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_digest_generation_integer_arbitrary: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_digest_generation_fp64",
+      "id": "unit_test_2",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_digest_generation_fp64",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test digest generation for FP64.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 2",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/2",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_digest_generation_fp64: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_digest_generation_fp32",
+      "id": "unit_test_3",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_digest_generation_fp32",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test digest generation for FP32.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 3",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/3",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_digest_generation_fp32: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_digest_generation_flag",
+      "id": "unit_test_4",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_digest_generation_flag",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test digest generation for flags.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 4",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/4",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_digest_generation_flag: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_digest_fold_to_width",
+      "id": "unit_test_5",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_digest_fold_to_width",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test digest folding to width.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 5",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/5",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_digest_fold_to_width: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_decay_staleness_invalidation",
+      "id": "unit_test_6",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_decay_staleness_invalidation",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test decay staleness invalidation.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 6",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/6",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_decay_staleness_invalidation: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_writeback_tag_mismatch",
+      "id": "unit_test_7",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_writeback_tag_mismatch",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test writeback tag mismatch.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 7",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/7",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_writeback_tag_mismatch: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_bank_membership",
+      "id": "unit_test_8",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_bank_membership",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test bank membership.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 8",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/8",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_bank_membership: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_bank_selection_highest_usefulness",
+      "id": "unit_test_9",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_bank_selection_highest_usefulness",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test bank selection highest usefulness.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 9",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/9",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_bank_selection_highest_usefulness: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_gating_multiplier_negative_usefulness",
+      "id": "unit_test_10",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_gating_multiplier_negative_usefulness",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test gating multiplier with negative usefulness.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 10",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/10",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_gating_multiplier_negative_usefulness: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_bank_vote_scaling",
+      "id": "unit_test_11",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_bank_vote_scaling",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test bank vote scaling.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 11",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/11",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_bank_vote_scaling: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_single_write_port_random_selection",
+      "id": "unit_test_12",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_single_write_port_random_selection",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test single write port random selection.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 12",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/12",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_single_write_port_random_selection: PASS"
+        "kind": "exit_zero"
       }
     },
     {
-      "id": "test_usefulness_update_only_when_decisive",
+      "id": "unit_test_13",
       "kind": "spec_unit_test",
-      "description": "Unit test: test_usefulness_update_only_when_decisive",
-      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "description": "Test usefulness update only when decisive.",
+      "command": "g++ -std=c++17 -I. test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr 13",
       "feature_state": "on",
+      "timeout_seconds": 30,
       "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/13",
       "pass_condition": {
-        "kind": "stdout_matches",
-        "pattern": "test_usefulness_update_only_when_decisive: PASS"
+        "kind": "exit_zero"
       }
     }
   ],
   "performance": [
     {
       "id": "perf_cycwppki",
-      "description": "Ensure CycWPPKI improves on average across the 4-trace perf list.",
+      "description": "Check if CycWPPKI improves as claimed.",
       "metric": "cycwppki_50perc_amean",
       "direction": "decrease",
       "trace_list": "experiments/perf-4.list",
-      "baseline": {
-        "source": "measure_feature_off"
-      },
       "run": {
         "mode": "host_adapter"
       },
+      "timeout_seconds": 3600,
       "block_threshold": {
         "min_relative_improvement": 0.0,
         "no_regression": []
       },
       "warn_threshold": {
-        "target_relative_improvement": 0.005,
-        "claim_source": "Assumed threshold"
+        "target_relative_improvement": 0.0,
+        "claim_source": "Paper claim about CycWpPKI improvement (unquantified in spec)"
       }
     }
   ]

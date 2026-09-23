@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import constants as C
@@ -314,6 +315,95 @@ def preflight(build, spec: dict, port_plan: dict, header: str) -> dict:
     return report
 
 
+def _expand(text: str, env: dict) -> str:
+    """${VAR} substitution the way skydiscover's Config.from_yaml does it: a
+    name that is not set stays as the literal placeholder."""
+    return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}",
+                  lambda m: env.get(m.group(1), m.group(0)), text)
+
+
+def check_llm(config_path: str, timeout_s: int = 120) -> dict:
+    """Send one small request to every model the search config names, through
+    the same URL and key the evolver will use. Returns the per-model result
+    and a list of errors; an empty list means every model answered.
+
+    Why this exists: when the evolver cannot reach its LLM, skydiscover logs
+    each failed call and carries on. The search then "completes" having
+    scored only the seed program, and nothing in the result says that no
+    proposal was ever made. That happened on 2026-09-22, twice. The probe
+    costs a few seconds and a few tokens, so a dead route stops the stage
+    before any build instead of after the whole search.
+
+    The ${VAR} placeholders are expanded from the environment the evolver
+    actor will see: this process's plus what RUNTIME_ENV forwards."""
+    import urllib.error
+    import urllib.request
+
+    import yaml
+
+    llm = (yaml.safe_load(Path(config_path).read_text()) or {}).get("llm") or {}
+    env = {**os.environ, **C.RUNTIME_ENV["env_vars"]}
+    report = {"config": str(config_path), "models": {}, "errors": []}
+    for m in llm.get("models") or []:
+        name = m.get("name", "?")
+        base = _expand(str(m.get("api_base") or llm.get("api_base") or ""), env)
+        key = _expand(str(m.get("api_key") or llm.get("api_key") or ""), env)
+        report["api_base"] = base
+        unset = re.findall(r"\$\{(\w+)\}", base + key)
+        if unset or not base:
+            result = (f"{', '.join(unset)} not set in the evolver's environment"
+                      if unset else "no api_base in the config")
+        else:
+            request = urllib.request.Request(
+                base.rstrip("/") + "/chat/completions",
+                data=json.dumps({
+                    "model": name, "max_tokens": 256,
+                    "messages": [{"role": "user", "content": "Reply with the word OK."}],
+                }).encode(),
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {key}"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=timeout_s) as resp:
+                    result = "ok" if resp.status == 200 else f"HTTP {resp.status}"
+            except urllib.error.HTTPError as e:
+                result = f"HTTP {e.code}: {e.read()[:300].decode(errors='replace')}"
+            except (urllib.error.URLError, OSError) as e:
+                result = f"{base} unreachable: {getattr(e, 'reason', e)}"
+        report["models"][name] = result
+        if result != "ok":
+            report["errors"].append(f"{name}: {result}")
+    if not report["models"]:
+        report["errors"].append(f"{config_path} names no llm.models")
+    return report
+
+
+# The run_dse statuses that mean the search produced a result. Anything else
+# is a stage-4 failure, and the job exits non-zero on it (adopt_a_paper_loop).
+DSE_OK = ("completed", "stopped")
+
+
+def search_outcome(result) -> tuple[str, str | None]:
+    """(status, error) for a finished EvolverResult.
+
+    iteration_count is the number of programs the search scored, and the
+    seed is one of them. A "completed" search with nothing else in it never
+    got a proposal back, whatever the reason, and reporting its seed as the
+    best candidate reads as a result when it is not one."""
+    if result.terminal_status in DSE_OK and result.iteration_count <= 1:
+        return "no_candidates", ("the search scored only its seed program: no "
+                                 "proposal came back from the LLM. The "
+                                 "EvolverNode's log says why.")
+    return result.terminal_status, result.error_message
+
+
+def evolver_actor_name(host: str) -> str:
+    """The detached actor a running search lives in. run_dse kills any
+    actor of this name before it starts, and promotion refuses to run
+    while one exists."""
+    return f"p2p-dse-evolver-{host}"
+
+
 def run_dse(
     host: str, spec: dict, budget_name: str, config_path: str,
     screening_list_path: Path | str = C.SCREENING_LIST,
@@ -347,6 +437,12 @@ def run_dse(
     }
     if start.errors:
         return {**summary, "status": "header_invalid", "error": start.message()}
+
+    # Before the preflight's thirty-odd builds, not after them.
+    summary["llm_check"] = check_llm(config_path)
+    if summary["llm_check"]["errors"]:
+        return {**summary, "status": "llm_unreachable",
+                "error": "; ".join(summary["llm_check"]["errors"])}
 
     # A copy of the ported tree. Not the pristine checkout, because
     # sr_params.h means nothing until stage 3 has written a predictor that
@@ -390,7 +486,7 @@ def run_dse(
         config_content=config_content,
     )
 
-    actor_name = f"p2p-dse-evolver-{host}"
+    actor_name = evolver_actor_name(host)
     try:
         ray.kill(ray.get_actor(actor_name))
     except ValueError:
@@ -413,6 +509,7 @@ def run_dse(
         ray.kill(evolver)
 
     best = K.check_static(result.best_program or "", spec, port_plan, constraints)
+    status, error = search_outcome(result)
     return {
         **summary,
         "best_program": result.best_program,
@@ -422,16 +519,301 @@ def run_dse(
         "best_storage": {"feasible": best.ok, "metrics": best.metrics,
                          "breakdown": best.breakdown},
         "iterations": result.iteration_count,
-        "status": result.terminal_status,
-        "error": result.error_message,
+        # What promote_finalists picks from, in this job or a later one.
+        "population": [_program_entry(p) for p in result.population or []],
+        "status": status,
+        "error": error,
     }
 
 
-def promote_finalists(dse_result: dict, top_k: int = C.DSE_PROMOTE_TOP_K) -> list:
-    """Full 105-trace validation of the screening winners.
-    TODO(week 3): pull the top-k population entries from
-    dse_result / metrics_log_path and fan out over FULL_LIST."""
-    raise NotImplementedError
+# ------------------------------------------------------------ promotion
+#
+# The search picks its winners on a screening list of a few traces, and a
+# winner on a few traces can lose on others. Promotion scores the top few
+# again on traces the search never saw (C.PROMOTE_LIST), next to two
+# references run on the same traces in the same job: the kit's default host,
+# which is the baseline, and the port with every knob at its default, which
+# is the untuned port. That comparison is stage 4's verdict.
+
+BASELINE, DEFAULTS = "baseline", "defaults"
+PROMOTE_OK = ("promoted",)
+# Lower is better for both branch metrics. IPC is reported, not judged.
+_LOWER_IS_BETTER = ("brmispki_50perc_amean", "cycwppki_50perc_amean")
+_PROMOTE_METRICS = (*_LOWER_IS_BETTER, "ipc_50perc_amean")
+
+
+def _program_entry(p: dict) -> dict:
+    """The part of one evolver program that promotion needs. The full record
+    also carries the prompts and the parent's source, which no summary needs."""
+    return {"id": p.get("id"), "iteration_found": p.get("iteration_found"),
+            "solution": p.get("solution") or "", "metrics": dict(p.get("metrics") or {})}
+
+
+def load_population(path: Path | str, host: str | None = None) -> list[dict]:
+    """The programs a finished search scored, read back from disk.
+
+    `path` is one of three things:
+    - a job's summary.json, whose dse[] entries carry `population`;
+    - an adaevolve output directory, which holds checkpoints/checkpoint_<N>/;
+    - one checkpoint_<N> directory, which holds programs/.
+
+    Every checkpoint is read, not only the last. A checkpoint holds the
+    programs that were in the database at that moment, and the database
+    drops programs as the search goes on. So a later checkpoint can lack a
+    program an earlier one kept, and that program can have the best score."""
+    path = Path(path)
+    if not path.exists():
+        raise SystemExit(f"{path} does not exist, so there is no search to promote from")
+    if path.is_file():
+        doc = json.loads(path.read_text())
+        runs = [d for d in doc.get("dse") or [] if host is None or d.get("host") == host]
+        return [_program_entry(p) for d in runs for p in d.get("population") or []]
+    dirs = ([path / "programs"] if (path / "programs").is_dir()
+            else sorted((path / "checkpoints").glob("checkpoint_*/programs")))
+    if not dirs:
+        raise SystemExit(f"{path} holds no programs/ and no checkpoints/checkpoint_*/programs/")
+    programs = {}
+    for d in dirs:
+        for f in sorted(d.glob("*.json")):
+            p = json.loads(f.read_text())
+            programs[p.get("id") or f.stem] = _program_entry(p)
+    return list(programs.values())
+
+
+def _knob_key(report: "K.CandidateReport") -> tuple:
+    return tuple(sorted(report.feature.items())), tuple(sorted(report.host.items()))
+
+
+def _screen_rank(p: dict) -> tuple:
+    """Best first: the search's own fitness, then the earlier find."""
+    return -float(p["metrics"].get("combined_score") or 0.0), p.get("iteration_found") or 0
+
+
+def select_finalists(
+    population: list[dict], spec: dict, port_plan: dict, constraints: list, top_k: int,
+) -> tuple[list[dict], dict]:
+    """The top_k distinct candidates by screening score, and a count of the
+    candidates passed over, by reason.
+
+    A candidate qualifies when screening built and scored it, which means its
+    metrics carry the screening metric (a refused or failed candidate has
+    only a score), and when its header still passes every static constraint
+    here. Candidates with the same knob values are one candidate. The
+    defaults are left out, because promotion runs them anyway, as the
+    untuned port."""
+    defaults = _knob_key(K.check_static(params_header(spec, port_plan), spec, port_plan, []))
+    best: dict = {}
+    passed_over = {"not_scored": 0, "fails_static_check": 0, "defaults": 0, "duplicate": 0}
+    for p in population:
+        if (p.get("metrics") or {}).get(C.DSE_SCREEN_METRIC) is None:
+            passed_over["not_scored"] += 1
+            continue
+        report = K.check_static(p.get("solution") or "", spec, port_plan, constraints)
+        if not report.ok:
+            passed_over["fails_static_check"] += 1
+            continue
+        key = _knob_key(report)
+        if key == defaults:
+            passed_over["defaults"] += 1
+            continue
+        entry = {**p, "storage_bits": report.metrics.get("storage_bits")}
+        if key in best:
+            passed_over["duplicate"] += 1
+            if _screen_rank(best[key]) <= _screen_rank(entry):
+                continue
+        best[key] = entry
+    return sorted(best.values(), key=_screen_rank)[:top_k], passed_over
+
+
+def _mean(values: list) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _versus(a: dict, b: dict, traces: list, metric: str) -> dict:
+    """Variant a against variant b on one metric, over traces both ran.
+    `change` is a's mean over b's, minus one: negative means a is lower."""
+    both = [t for t in traces if a.get(t) and b.get(t)]
+    mean_a = _mean([a[t][metric] for t in both])
+    mean_b = _mean([b[t][metric] for t in both])
+    return {
+        "change": (mean_a / mean_b - 1) if mean_a is not None and mean_b else None,
+        "traces_lower": sum(a[t][metric] < b[t][metric] for t in both),
+        "traces_higher": sum(a[t][metric] > b[t][metric] for t in both),
+        "traces_same": sum(a[t][metric] == b[t][metric] for t in both),
+    }
+
+
+def compare_variants(per_trace: dict, traces: list, finalists: list[str],
+                     constraints: list | None = None) -> dict:
+    """Score every variant on the promotion traces and name the winner.
+
+    `per_trace` is {label: {trace: metrics or None}}, with None for a run
+    that failed. Means are only compared over the same traces: a variant
+    that did not run every trace is reported, and it can be neither a
+    reference nor the winner. The winner is the complete finalist with the
+    lowest screening metric that also meets every measured constraint on
+    these traces."""
+    scores = {}
+    for label, runs in per_trace.items():
+        ok = [runs[t] for t in traces if runs.get(t)]
+        scores[label] = {"n": len(ok), "failed": [t for t in traces if not runs.get(t)],
+                         **{m: _mean([r[m] for r in ok if m in r]) for m in _PROMOTE_METRICS}}
+    complete = {label for label, s in scores.items() if not s["failed"]}
+    result = {"variants": scores, "vs_baseline": {}, "vs_defaults": {}}
+    # Everything against the baseline, and the finalists against the untuned
+    # port too: that second comparison is what the tuning itself bought.
+    pairs = [(label, BASELINE, "vs_baseline") for label in per_trace if label != BASELINE]
+    pairs += [(label, DEFAULTS, "vs_defaults") for label in finalists]
+    for label, ref, into in pairs:
+        if ref in per_trace and {label, ref} <= complete:
+            result[into][label] = {m: _versus(per_trace[label], per_trace[ref], traces, m)
+                                   for m in _LOWER_IS_BETTER}
+    missing = [ref for ref in (BASELINE, DEFAULTS) if ref not in complete]
+    if missing:
+        result["error"] = (f"{' and '.join(missing)} did not run every promotion trace, "
+                           f"so nothing can be compared against it")
+        return result
+    eligible = [f for f in finalists
+                if f in complete and not K.check_measured(scores[f], constraints or [])]
+    if not eligible:
+        result["error"] = "no finalist ran every promotion trace within the constraints"
+        return result
+    metric = C.DSE_SCREEN_METRIC
+    winner = min(eligible, key=lambda f: (scores[f][metric], finalists.index(f)))
+    result["verdict"] = {
+        "metric": metric,
+        "winner": winner,
+        # finalists[0] is the screening winner. When promotion picks another
+        # one, the screening list was too small to rank these candidates.
+        "screening_winner_held": winner == finalists[0],
+        "tuned_beats_baseline": scores[winner][metric] < scores[BASELINE][metric],
+        "tuned_beats_defaults": scores[winner][metric] < scores[DEFAULTS][metric],
+        "defaults_beat_baseline": scores[DEFAULTS][metric] < scores[BASELINE][metric],
+    }
+    return result
+
+
+def search_running(host: str) -> bool:
+    """Whether a stage-4 search holds the search tree right now."""
+    import ray
+
+    try:
+        ray.get_actor(evolver_actor_name(host))
+        return True
+    except ValueError:
+        return False
+
+
+def promote_finalists(
+    host: str, spec: dict, budget_name: str, population: list[dict],
+    top_k: int = C.DSE_PROMOTE_TOP_K,
+    promote_list_path: Path | str = C.PROMOTE_LIST,
+) -> dict:
+    """Score the search's top_k candidates on the promotion list, next to
+    the baseline host and the untuned port, and name the winner.
+
+    The candidates are built in a fresh copy of the ported tree, the same
+    way the search built them. So the port has to be the one the search
+    ran on, and the plan in force the one it searched under: a header that
+    does not match the plan's knobs fails its static check and is not
+    promoted. The baseline is built from the pristine checkout, as
+    record_cbp_baseline builds it.
+
+    Each variant runs every trace. All the runs are submitted at once, so
+    the cluster's trace slots stay busy; the builds go one at a time,
+    because every candidate is written to the same sr_params.h."""
+    from chia.base.ChiaFunction import get
+    from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
+    from hosts.cbp2025 import adapter as cbp2025_adapter
+
+    traces = helpers.load_trace_list(promote_list_path)
+    port_plan = _port_plan(host, spec)
+    constraints = constraint_set(budget_name)
+    finalists, passed_over = select_finalists(population, spec, port_plan, constraints, top_k)
+    labels = [f"finalist_{i + 1}" for i in range(len(finalists))]
+    defaults_header = params_header(spec, port_plan, constraint_set=constraints)
+    summary = {
+        "host": host,
+        "budget": budget_name,
+        "promote_list": str(promote_list_path),
+        "traces": traces,
+        "constraints": [c.as_dict() for c in constraints],
+        "population": len(population),
+        "passed_over": passed_over,
+        "finalists": [
+            {"label": label, "id": f["id"], "iteration_found": f.get("iteration_found"),
+             "screening": {k: f["metrics"].get(k) for k in ("combined_score", *_PROMOTE_METRICS)},
+             "storage_bits": f["storage_bits"], "header": f["solution"]}
+            for label, f in zip(labels, finalists)
+        ],
+        "storage_bits": {
+            BASELINE: (port_plan.get("host_storage") or {}).get("baseline_bits"),
+            DEFAULTS: K.check_static(defaults_header, spec, port_plan, constraints)
+                       .metrics.get("storage_bits"),
+            **{label: f["storage_bits"] for label, f in zip(labels, finalists)},
+        },
+    }
+    if not traces:
+        return {**summary, "status": "no_traces", "error": f"{promote_list_path} lists no traces"}
+    if not finalists:
+        return {**summary, "status": "no_finalists",
+                "error": f"none of the {len(population)} programs qualifies: {passed_over}. "
+                         f"If they all fail the static check, the plan in force is probably "
+                         f"not the one the search ran under."}
+    if search_running(host):
+        return {**summary, "status": "search_running",
+                "error": f"a stage-4 search for {host} is running in the search tree; "
+                         f"promote after it ends"}
+
+    feature_env = _feature_env(port_plan, spec, host)
+    summary["restore"] = cbp2025_adapter.restore_host_checkout(C.CBP2025_ROOT)
+    summary["host_revision"] = cbp2025_adapter.checkout_revision()
+    search_root = cbp2025_adapter.dse_tree()
+
+    def build(root: str, header: str | None, env: dict | None):
+        sources = None if header is None else {"sr_params.h": header.encode()}
+        return get(CBP2025Node.build.options(resources={C.CBP2025_HOST_RESOURCE: 1.0})
+                   .chia_remote(root, sources, C.BUILD_TIMEOUT_S, env))
+
+    variants = [(BASELINE, C.CBP2025_ROOT, None, None),
+                (DEFAULTS, search_root, defaults_header, feature_env),
+                *[(label, search_root, f["solution"], feature_env)
+                  for label, f in zip(labels, finalists)]]
+    binaries, summary["build_failed"] = {}, {}
+    for label, root, header, env in variants:
+        result = build(root, header, env)
+        if result.success:
+            binaries[label] = (result.binary, env)
+        else:
+            summary["build_failed"][label] = result.log[-2000:]
+    if BASELINE not in binaries or DEFAULTS not in binaries:
+        return {**summary, "status": "build_failed",
+                "error": "a reference did not build: "
+                         + ", ".join(summary["build_failed"])}
+
+    refs = {
+        (label, t): CBP2025Node.run.options(resources={C.CBP2025_RESOURCE: 1.0})
+        .chia_remote(binary, f"{C.TRACE_DIR}/{t}", (), C.RUN_TIMEOUT_S, env)
+        for label, (binary, env) in binaries.items() for t in traces
+    }
+    per_trace = {label: {} for label in binaries}
+    summary["run_errors"] = {}
+    for (label, t), ref in refs.items():
+        # A worker lost mid-run (a spot preemption, say) raises here. It is
+        # one failed trace, not a reason to lose every other run's result.
+        try:
+            run = get(ref)
+        except Exception as e:  # noqa: BLE001
+            summary["run_errors"][f"{label} {t}"] = str(e)[-500:]
+            run = None
+        ok = run is not None and run.success
+        per_trace[label][t] = (cbp2025_adapter.parse_metrics(run.log) or None) if ok else None
+    comparison = compare_variants(per_trace, traces, [l for l in labels if l in binaries],
+                                  constraints)
+    summary.update(per_trace=per_trace, **comparison)
+    if "error" in comparison:
+        return {**summary, "status": "incomplete"}
+    return {**summary, "status": "promoted", "error": None}
 
 
 if __name__ == "__main__":

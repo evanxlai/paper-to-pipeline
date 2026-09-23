@@ -35,7 +35,7 @@ reason about a storage budget; that is week 3's subject.
 - [ ] Finish moving the storage budget out of the pre-DSE stages. Done: the gate's storage condition is gone and `integrate` takes a baseline key rather than a budget. Left: `distill` still passes one to `spec_checks`, whose `budget_fit` check compares the spec against an allowance and fails stage 1 closed. Then express the tracks as allowance values in the DSE constraint set.
 - [ ] Configure the EvolverNode over the sR parameters and the host budget split.
 - [ ] Run screening DSE (about 60 traces per candidate, 200 to 300 candidates).
-- [ ] Promote finalists to the full 105-trace training run.
+- [ ] Promote the top 3 finalists to `experiments/promote-16.list`: 16 training traces outside both screening lists, about 30 minutes per candidate. The full 105 take about 3.5 hours per candidate on this cluster.
 - [ ] Ablation 1: naive port vs. tuned port, both hosts, both budgets (192 KiB, 64 KiB).
 - [ ] Ablation 2: paper-only vs. paper-plus-reference distillation inputs.
 - [ ] Stretch: port a second RUNLTS feature (history-length selection or allocation throttling).

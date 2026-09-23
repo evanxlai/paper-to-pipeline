@@ -1,0 +1,41 @@
+# Stage 4's promotion list for the cbp2025 host: 16 traces.
+#
+# After the search, the few best candidates are scored again here, together
+# with the kit's default host and the port at the paper's defaults. The
+# search picked its winners on a screening list, and a winner on a few traces
+# can lose on others. This list is the check on that.
+#
+# Why not all 105. training-105.list takes about 3.5 hours per candidate on
+# this cluster's 4 trace slots, and promotion scores 3 finalists plus two
+# comparison runs. This list takes about 30 minutes per candidate, estimated
+# from the ExecTime column of the kit's reference_results_training_set.csv,
+# which matched the ~8 minutes measured for perf-4.list.
+#
+# How the traces were chosen, so the choice can be repeated or audited:
+# - None is in perf-8.list or screening-60.list. The search never saw them.
+# - The six families keep roughly their shares of the 105:
+#   int 5, web 4, infra 2, fp 2, compress 2, media 1.
+# - Within a family, the pick is random.Random(20260923).sample over the
+#   remaining traces sorted by name, families in the order above.
+# - Three traces over 800 s were left out first: compress_7 (1377 s),
+#   int_32 (992 s) and int_33 (821 s). Any one of them alone would set the
+#   finish time of the whole list.
+#
+# Sixteen traces is still a small sample. Report how many traces improved,
+# not only the mean, because one unusual trace can move a mean this small.
+int/int_25_trace.gz
+int/int_26_trace.gz
+int/int_27_trace.gz
+int/int_35_trace.gz
+int/int_36_trace.gz
+web/web_15_trace.gz
+web/web_18_trace.gz
+web/web_22_trace.gz
+web/web_23_trace.gz
+infra/infra_9_trace.gz
+infra/infra_15_trace.gz
+fp/fp_10_trace.gz
+fp/fp_11_trace.gz
+compress/compress_5_trace.gz
+compress/compress_6_trace.gz
+media/media_2_trace.gz

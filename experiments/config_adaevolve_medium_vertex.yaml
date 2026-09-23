@@ -1,0 +1,58 @@
+# A search sized to finish in an afternoon on this cluster, between the
+# 3-iteration smoke config and the 250-iteration full one. Same route as
+# config_adaevolve_smoke_vertex.yaml: the project LLM gateway, which forwards
+# to Vertex AI. See that file's header for why the model must be named
+# "google/<model>".
+#
+# How it is sized. This cluster has 4 cbp2025 trace slots. On
+# 2026-09-22 one candidate took about 8 minutes to screen on
+# experiments/perf-4.list (one wave, sR on), and each LLM proposal took 1 to
+# 2 minutes. experiments/perf-8.list is two waves, so about 16 minutes per
+# candidate that fits. A candidate that breaks a constraint is refused
+# before the build and costs only its proposal. 24 iterations is therefore
+# about 4 to 6 hours, plus about 11 minutes of preflight. More parallel
+# iterations would not help: one candidate already fills every trace slot.
+#
+# The full config's 250 iterations on screening-60.list would need about a
+# hundred times the simulator time. That needs more trace workers, not a
+# longer wait.
+
+max_iterations: 24
+file_suffix: .h
+checkpoint_interval: 1
+random_seed: 20260923
+diff_based_generation: true
+max_parallel_iterations: 1
+
+search:
+  type: adaevolve
+  database:
+    population_size: 8
+    num_islands: 1
+
+llm:
+  # Expanded by skydiscover inside the EvolverNode actor, from the
+  # environment loop/constants.py forwards. Since 2026-09-23 the driver
+  # fills both from ~/.config/p2p/gateway.env when the job's environment
+  # lacks them, so nothing has to be passed at submission.
+  api_base: ${P2P_GATEWAY_URL}
+  api_key: ${P2P_GATEWAY_TOKEN}
+  models:
+    # The one model this search has run on end to end, on this cluster.
+    - name: google/gemini-3.8-flash
+      weight: 1.0
+
+prompt:
+  system_message: >
+    You tune one params header, sr_params.h, for the sR register-value
+    statistical-corrector component and the TAGE-SC-L predictor it sits in.
+    SR_* macros size sR; HOST_* macros size the host predictor's own
+    structures. Mutate only the values. Keep every value inside the range
+    comment on its line, and write plain literals, not expressions. The
+    constraint lines at the top of the header are enforced: the evaluator
+    recomputes each candidate's storage from its values, with the formulas
+    listed at the bottom of the header, and a candidate that breaks a
+    constraint is not built and scores below every candidate that fits. Its
+    feedback lists where the bits went. Paying for sR by shrinking the host
+    structures that matter least is the interesting move, not growing
+    everything.
