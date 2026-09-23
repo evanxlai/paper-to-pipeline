@@ -118,6 +118,153 @@ def test_unit_ownership_is_prefix_scoped(spec):
     assert not unit.owns("/algorithms/1/pseudocode")
 
 
+def test_partition_merges_algorithms_that_write_the_same_state(spec):
+    """A repair to a shared field spans every writer of it, and the gate
+    applies a round's patches as one set -- so the writers have to be in one
+    reviewer's hands or only part of the repair can ever be proposed."""
+    spec["algorithms"] += [
+        {"name": "fill", "trigger": "miss",
+         "pseudocode": "victim_tag_table[PC].tag = t"},
+        {"name": "evict", "trigger": "evict",
+         "pseudocode": "victim_tag_table[PC].tag = 0"},
+    ]
+    unit = next(u for u in partition(spec) if u.owns("/algorithms/2"))
+    assert unit.owns("/algorithms/3")
+    assert unit.unit_id == "algo:fill+algo:evict"
+
+
+def test_partition_does_not_merge_on_a_shared_word(spec):
+    """Token overlap is right for attaching context and wrong for merging:
+    'weight tables' and 'usefulness tables' share a word, not a field."""
+    spec["state"] = [
+        {"name": "sr weight tables", "organization": "8", "entry_format": "w (6)",
+         "size_bits": 48, "indexing": "PC"},
+        {"name": "sr usefulness tables", "organization": "8", "entry_format": "u (6)",
+         "size_bits": 48, "indexing": "PC"},
+    ]
+    spec["algorithms"] = [
+        {"name": "train_w", "trigger": "update", "pseudocode": "sr_weight_tables[b] += 1"},
+        {"name": "train_u", "trigger": "update",
+         "pseudocode": "sr_usefulness_tables[b] += 1"},
+    ]
+    ids = {u.unit_id for u in partition(spec)}
+    assert {"algo:train_w", "algo:train_u"} <= ids
+
+
+def test_a_read_is_not_a_write(spec):
+    """Every algorithm reads the shared tables; merging on reads would put
+    the whole spec in one unit and defeat the partition."""
+    spec["algorithms"].append(
+        {"name": "peek", "trigger": "debug", "pseudocode": "x = victim_tag_table[PC]"}
+    )
+    ids = {u.unit_id for u in partition(spec)}
+    assert "algo:peek" in ids
+
+
+def test_merged_unit_carries_each_pointer_once(spec):
+    spec["algorithms"] += [
+        {"name": "fill", "trigger": "miss",
+         "pseudocode": "victim_tag_table[PC].tag = t  # of decay_window"},
+        {"name": "evict", "trigger": "evict",
+         "pseudocode": "victim_tag_table[PC].tag = 0  # of decay_window"},
+    ]
+    unit = next(u for u in partition(spec) if u.owns("/algorithms/2"))
+    assert len(unit.prefixes) == len(set(unit.prefixes))
+
+
+# ------------------------------------------------------- coupled ranges
+
+
+@pytest.fixture
+def tunable(spec):
+    """A spec whose decay_window knob is referenced, so a unit owns it."""
+    spec["algorithms"][1]["pseudocode"] = "decay_shadow[bank] -= 1  # decay_window"
+    return spec
+
+
+def couple(spec, default):
+    findings = spec_checks.run_checks(spec)
+    r = rec(unit_id=next(u.unit_id for u in partition(spec) if u.owns("/parameters/0")),
+            pointer="/parameters/0/default", verdict="CONTRADICTED",
+            quote="Each decay counter is decremented once per cycle",
+            patch={"op": "replace", "pointer": "/parameters/0/default",
+                   "value": default})
+    verify_evidence([r], PAPER)
+    return apply_patches(spec, [r], partition(spec), findings)
+
+
+def test_a_landed_default_widens_the_range_it_outgrew(tunable):
+    """The range is the DSE's search space, not a claim from the paper. No
+    verdict lets a reviewer patch it, so the pipeline moves its own bound."""
+    new, rejections = couple(tunable, 256)
+    assert not rejections
+    assert new["parameters"][0]["default"] == 256
+    assert new["parameters"][0]["range"] == "[1, 256]"
+
+
+def test_a_default_the_hardware_cannot_hold_is_still_refused(tunable):
+    """Widening admits a value the state field can store. 512 steps do not
+    fit an 8-bit counter however the search space is written."""
+    new, rejections = couple(tunable, 512)
+    assert new["parameters"][0]["default"] == 200
+    assert new["parameters"][0]["range"] == "[1, 255]"
+    assert rejections and "did not have before this round" in rejections[0]["reason"]
+
+
+def test_coupling_does_not_clear_an_inherited_range_error(tunable):
+    """A contradiction the round did not cause is not the round's to erase:
+    silently widening it would hide a defect the gate is there to fail on."""
+    tunable["parameters"][0]["range"] = "[1, 100]"
+    findings = spec_checks.run_checks(tunable)
+    assert any(f.code == "param_range" for f in findings)
+    r = rec(unit_id=next(u.unit_id for u in partition(tunable)
+                         if u.owns("/state/0")),
+            verdict="CONTRADICTED", quote="holds 256 entries of 12 bits each",
+            patch={"op": "replace", "pointer": "/state/0/size_bits", "value": 3072})
+    verify_evidence([r], PAPER)
+    new, _ = apply_patches(tunable, [r], partition(tunable), findings)
+    assert new["parameters"][0]["range"] == "[1, 100]"
+
+
+def test_coupling_keeps_the_range_modifier(tunable):
+    tunable["parameters"][0].update(default=64, range="[1, 64] pow2")
+    new, _ = couple(tunable, 128)
+    assert new["parameters"][0]["range"] == "[1, 128] pow2"
+
+
+# ------------------------------------------------------ rejection feedback
+
+
+def test_rejection_feedback_carries_the_refusing_check(spec):
+    unit = next(u for u in partition(spec) if u.owns("/parameters/0"))
+    section = spec_review._render_rejections([{
+        "unit": unit.unit_id, "pointer": "/parameters/0/default",
+        "verdict": "CONTRADICTED", "value": "256",
+        "reason": "patch introduced param_range at /parameters/0/default, which "
+                  "the spec did not have before this round",
+        "detail": "default 256 lies outside range [1, 255].",
+    }], unit)
+    assert "/parameters/0/default" in section
+    assert "default 256 lies outside range [1, 255]." in section
+    assert "EVERY edit the repair needs" in section
+
+
+def test_rejection_feedback_is_scoped_to_the_unit(spec):
+    elsewhere = [{"unit": "algo:decay", "pointer": "/algorithms/1/pseudocode",
+                  "verdict": "CONTRADICTED", "value": "x", "reason": "r"}]
+    unit = {u.unit_id: u for u in partition(spec)}["algo:predict"]
+    assert spec_review._render_rejections(elsewhere, unit) == ""
+
+
+def test_a_rejection_with_no_patch_value_is_not_fed_back(spec):
+    """Parse failures and duplicate appends are noise, not lessons."""
+    unit = {u.unit_id: u for u in partition(spec)}["algo:predict"]
+    assert spec_review._render_rejections(
+        [{"unit": "algo:predict", "pointer": "/algorithms/0/pseudocode",
+          "verdict": "CONTRADICTED", "value": None, "reason": "r"}], unit
+    ) == ""
+
+
 # ------------------------------------------------------ evidence checking
 
 
@@ -183,7 +330,8 @@ def test_out_of_scope_patch_rejected(spec):
             patch={"op": "replace", "pointer": "/algorithms/1/pseudocode", "value": "x"})
     verify_evidence([r], PAPER)
     new, rejections = apply_patches(spec, [r], units_for(spec))
-    assert new == spec and "outside the unit's scope" in rejections[0]["reason"]
+    assert new["algorithms"][1]["pseudocode"] == spec["algorithms"][1]["pseudocode"]
+    assert "outside the unit's scope" in rejections[0]["reason"]
 
 
 def test_underspecified_patch_must_add_detail(spec):
@@ -213,6 +361,33 @@ def test_conflicting_patches_are_both_dropped_and_escalated(spec):
     assert new["state"][0]["size_bits"] == 3072
     assert len(rejections) == 2
     assert any("disagreed" in q for q in new["open_questions"])
+
+
+def test_refused_contradiction_survives_as_an_open_question(spec):
+    """The quote is the strongest evidence this stage has. Losing the patch
+    must not lose the finding."""
+    r = rec(unit_id="algo:predict", verdict="CONTRADICTED",
+            claim="The table holds 256 entries, not 4.",
+            quote="holds 256 entries of 12 bits each",
+            patch={"op": "replace", "pointer": "/algorithms/1/pseudocode", "value": "x"})
+    verify_evidence([r], PAPER)
+    new, _ = apply_patches(spec, [r], units_for(spec))
+    q = "\n".join(new["open_questions"])
+    assert "Unrepaired contradiction" in q
+    assert "holds 256 entries of 12 bits each" in q
+    assert "[/algorithms/1/pseudocode]" in q
+
+
+def test_a_fabricated_contradiction_is_not_escalated(spec):
+    """Escalation rides on verified evidence, or it becomes a channel for
+    writing unsourced claims into the spec the patch gate just refused."""
+    r = rec(unit_id="algo:predict", verdict="CONTRADICTED",
+            quote="the table is flushed on every context switch",
+            patch={"op": "replace", "pointer": "/algorithms/1/pseudocode", "value": "x"})
+    verify_evidence([r], PAPER)
+    new, _ = apply_patches(spec, [r], units_for(spec))
+    assert not any("Unrepaired contradiction" in q
+                   for q in new.get("open_questions", []))
 
 
 def test_reviewers_agreeing_on_a_value_is_not_a_conflict(spec):
@@ -809,7 +984,9 @@ def test_a_literal_quote_still_supports_but_carries_its_section_caveat():
     verify_evidence([rec], HEDGED_PAPER)
     assert rec.verdict == "SUPPORTED"
     assert rec.tier == "literal"
-    assert rec.caveats == ["U1"]
+    # Both hedged notes in the section attach, the inference included: the
+    # quote is verbatim, but what the section concludes from it is not.
+    assert rec.caveats == ["I1", "U1"]
 
 
 def test_ordinary_prose_is_unaffected():
@@ -834,11 +1011,57 @@ def test_cited_ambiguities_are_carried_into_open_questions(spec):
     )
     verify_evidence([rec], HEDGED_PAPER, ann)
     out = copy.deepcopy(spec)
-    assert spec_review.carry_uncertainties(out, [rec], ann) == 1
+    assert spec_review.carry_source_notes(out, [rec], ann) == 1
     carried = [q for q in out["open_questions"] if "source U1" in q]
     assert carried and "right-aligned at bit 0" in carried[0]
     # Idempotent: a second round must not re-append the same note.
-    assert spec_review.carry_uncertainties(out, [rec], ann) == 0
+    assert spec_review.carry_source_notes(out, [rec], ann) == 0
+
+
+# A figure section that infers something and never flags it as unsettled --
+# the common case, and the one that used to leave no trace at all.
+INFERRED_ONLY_PAPER = """The predictor keeps a tag per set.
+
+[Figure 4: Digest construction.
+
+--- (a) INT registers -----------------------------------------------------
+
+LITERAL. Three bars labelled Value[5:0], lead[8:3], trail[5:0].
+
+INFERRED - the bars overlap and are combined with "+", so the three fields
+are XORed together rather than concatenated.
+]
+
+Unrelated closing prose.
+"""
+
+
+def test_an_inference_is_carried_as_an_assumption(spec):
+    """No UNCERTAIN note to ride on, and the spec still has to admit it.
+
+    This is the gap the tier existed without closing. `verify_evidence`
+    already refused a direct quote of the inference, so a reviewer could not
+    cite it -- but a reviewer citing the LITERAL bars above it landed a claim
+    that silently depends on the inference, and nothing recorded that.
+    """
+    import paper_markers
+
+    ann = paper_markers.annotate(INFERRED_ONLY_PAPER)
+    rec = Record(
+        unit_id="u", pointer="/algorithms/0/pseudocode",
+        claim="The digest combines three fields.", verdict="SUPPORTED",
+        quote="Three bars labelled Value[5:0], lead[8:3], trail[5:0].",
+    )
+    verify_evidence([rec], INFERRED_ONLY_PAPER, ann)
+    assert rec.verdict == "SUPPORTED"      # the bars really are transcribed
+    assert rec.caveats == ["I1"]
+    out = copy.deepcopy(spec)
+    assert spec_review.carry_source_notes(out, [rec], ann) == 1
+    carried = [q for q in out["open_questions"] if "source I1" in q]
+    assert carried and "XORed together" in carried[0]
+    # Stated as an assumption, not as a point the source refuses to resolve.
+    assert "INFERRED" in carried[0] and "assumption and not a fact" in carried[0]
+    assert spec_review.carry_source_notes(out, [rec], ann) == 0
 
 
 def test_an_uncited_ambiguity_is_not_carried(spec):
@@ -851,7 +1074,7 @@ def test_an_uncited_ambiguity_is_not_carried(spec):
     )
     verify_evidence([rec], HEDGED_PAPER, ann)
     out = copy.deepcopy(spec)
-    assert spec_review.carry_uncertainties(out, [rec], ann) == 0
+    assert spec_review.carry_source_notes(out, [rec], ann) == 0
 
 
 # ------------------------------------------------- ranking the knob budget
@@ -950,3 +1173,283 @@ def test_an_index_overrun_patch_is_inside_the_inconsistent_scope(spec):
     _, rejections = apply_patches(spec, [rec], units, [finding])
     assert rejections == []
     assert rec.rejected is None
+
+
+def test_a_sibling_field_is_inside_the_inconsistent_scope(spec):
+    """A check names where it *detected* the contradiction, not the only
+    place to *fix* it.
+
+    `param_range` compares a default against a range and reports
+    /parameters/0/default, but "default 256 outside [64, 255]" is a
+    disagreement between two siblings: widening the range settles it as well
+    as lowering the default, and only a reviewer holding the parameter can
+    say which side is wrong. Scoping to the flagged leaf refused the range
+    patch as "a pointer no self-consistency check flagged", so the one repair
+    the paper supports had nowhere to land.
+    """
+    s = copy.deepcopy(spec)
+    s["parameters"][0] = {
+        "name": "decay_window", "type": "int", "default": 256,
+        "range": "[64, 255] pow2", "storage_impact": "none",
+    }
+    findings = spec_checks.run_checks(s)
+    flagged = [f for f in findings if f.code == "param_range"]
+    assert [f.pointer for f in flagged] == ["/parameters/0/default"]
+
+    unit = next(u for u in partition(s) if u.owns("/parameters/0"))
+    r = rec(unit_id=unit.unit_id, pointer="/parameters/0/range",
+            verdict="INCONSISTENT", quote=None,
+            patch={"op": "replace", "pointer": "/parameters/0/range",
+                   "value": "[64, 256] pow2"})
+    new, rejections = apply_patches(s, [r], partition(s), findings)
+
+    assert rejections == [] and r.rejected is None
+    assert new["parameters"][0]["range"] == "[64, 256] pow2"
+    assert not [f for f in spec_checks.run_checks(new)
+                if f.code == "param_range"]
+
+
+def test_the_inconsistent_scope_does_not_widen_past_an_object(spec):
+    """One finding must not put every sibling entry, or the whole spec, in
+    reach of a quote-free patch.
+
+    Widening to the enclosing object is what makes the sibling repair above
+    possible; widening past it would hand a reviewer that found one bad
+    counter the right to rewrite every other one on the same authority.
+    """
+    # Parent is a list: the other state entries stay out of scope.
+    entry = spec_checks.Finding(
+        "/state/1", "storage_sum", "error", "sizes do not add up")
+    r = rec(unit_id="algo:predict", pointer="/state/0/size_bits",
+            verdict="INCONSISTENT", quote=None,
+            patch={"op": "replace", "pointer": "/state/0/size_bits",
+                   "value": 1})
+    _, rejections = apply_patches(spec, [r], partition(spec), [entry])
+    assert rejections and "no self-consistency check" in rejections[0]["reason"]
+
+    # Parent is the document root: nothing else joins the scope either.
+    top = spec_checks.Finding(
+        "/summary", "storage_sum", "error", "sizes do not add up")
+    r = rec(unit_id="algo:predict", pointer="/state/0/size_bits",
+            verdict="INCONSISTENT", quote=None,
+            patch={"op": "replace", "pointer": "/state/0/size_bits",
+                   "value": 1})
+    _, rejections = apply_patches(spec, [r], partition(spec), [top])
+    assert rejections and "no self-consistency check" in rejections[0]["reason"]
+
+
+# -------------------------------- a patch that trades one error for another
+
+
+def test_a_patch_that_introduces_an_error_is_dropped_not_the_round(spec):
+    """The fixes in a round must survive the regression beside them.
+
+    One observed round landed the correct widening of /parameters/0's range
+    and, from another reviewer, a cut of total_storage_bits to the figure the
+    paper's table prints -- correct about the paper, but the spec also
+    declares checkpoint state that figure excludes. Errors went 1 -> 1, so the
+    round was rejected wholesale and the run failed closed carrying the very
+    contradiction three reviewers had just fixed.
+    """
+    s = copy.deepcopy(spec)
+    s["parameters"][0]["default"] = 256            # param_range, 1 error
+
+    findings = spec_checks.run_checks(s)
+    assert [f.code for f in findings if f.severity == "error"] == ["param_range"]
+
+    fix = rec(unit_id=next(u.unit_id for u in partition(s)
+                           if u.owns("/parameters/0")),
+              pointer="/parameters/0/range", verdict="INCONSISTENT", quote=None,
+              patch={"op": "replace", "pointer": "/parameters/0/range",
+                     "value": "[1, 256]"})
+    regress = rec(unit_id="global", pointer="/resource_accounting/total_storage_bits",
+                  verdict="CONTRADICTED", quote="q", evidence_ok=True,
+                  patch={"op": "replace",
+                         "pointer": "/resource_accounting/total_storage_bits",
+                         "value": 1})
+
+    new, rejections = apply_patches(
+        s, [fix, regress], partition(s), findings)
+
+    assert fix.rejected is None
+    assert new["parameters"][0]["range"] == "[1, 256]"
+    assert new["resource_accounting"]["total_storage_bits"] == \
+        s["resource_accounting"]["total_storage_bits"]
+    assert [r["pointer"] for r in rejections] == \
+        ["/resource_accounting/total_storage_bits"]
+    assert "introduced storage_sum" in rejections[0]["reason"]
+    assert not [f for f in spec_checks.run_checks(new) if f.severity == "error"]
+
+
+def test_the_whole_object_goes_when_one_of_its_fields_regresses(spec):
+    """A total and the breakdown explaining it are one statement in two
+    fields. Dropping only the field a check happens to name would leave the
+    other still asserting the number just rejected."""
+    s = copy.deepcopy(spec)
+    findings = spec_checks.run_checks(s)
+
+    total = rec(unit_id="global", pointer="/resource_accounting/total_storage_bits",
+                verdict="CONTRADICTED", quote="q", evidence_ok=True,
+                patch={"op": "replace",
+                       "pointer": "/resource_accounting/total_storage_bits",
+                       "value": 1})
+    breakdown = rec(unit_id="global", pointer="/resource_accounting/storage_breakdown",
+                    verdict="CONTRADICTED", quote="q", evidence_ok=True,
+                    patch={"op": "add",
+                           "pointer": "/resource_accounting/storage_breakdown",
+                           "value": "everything accounts to 1 bit"})
+
+    new, rejections = apply_patches(s, [total, breakdown], partition(s), findings)
+
+    assert {r["pointer"] for r in rejections} == {
+        "/resource_accounting/total_storage_bits",
+        "/resource_accounting/storage_breakdown",
+    }
+    assert "storage_breakdown" not in new["resource_accounting"]
+
+
+def test_an_unattributable_regression_is_left_to_the_round_gate(spec):
+    """Dropping has to earn it. A patch the enclosing-object rule cannot tie
+    to the new error stands, and `is_worse` rejects the round instead -- a
+    half-repaired round is worse than a visibly rejected one."""
+    s = copy.deepcopy(spec)
+    findings = spec_checks.run_checks(s)
+
+    # Shrinking a state entry breaks the total, which lives elsewhere.
+    r = rec(unit_id="algo:predict", pointer="/state/0/size_bits",
+            verdict="CONTRADICTED", quote="q", evidence_ok=True,
+            patch={"op": "replace", "pointer": "/state/0/size_bits", "value": 8})
+
+    new, rejections = apply_patches(s, [r], partition(s), findings)
+
+    assert rejections == [] and new["state"][0]["size_bits"] == 8
+    assert spec_checks.is_worse(findings, spec_checks.run_checks(new))
+
+
+# ----------------------------------- ranking a capped knob budget by evidence
+
+
+def test_a_corroborated_ambiguity_outranks_an_uncorroborated_one(spec, monkeypatch):
+    """A check that found the hole unasked is evidence the ambiguity matters.
+
+    The sR run spent all six slots on decay bookkeeping and a tie-break rule
+    while `update`'s invented usefulness-training rule got none -- and
+    `_check_carried_state` had already flagged that very element for reading
+    digests nothing produces. On an unmarked source the `declared` key is
+    uniformly false, so without this the rank collapses to a bare consensus
+    count and arrival order decides.
+    """
+    import constants as C
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 1)
+    quiet = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                claim="tie-break", open_question="how are ties broken?",
+                enum_candidates=["first", "lowest"])
+    flagged = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+                  claim="training rule", open_question="what trains the UT?",
+                  enum_candidates=["agreement", "always"])
+    findings = [spec_checks.Finding("/algorithms/1/pseudocode",
+                                    "unproduced_context", "warn", "m")]
+
+    out = promote_unsupported(spec, [quiet, flagged], None, findings)
+    knobs = [p for p in out["parameters"] if p["type"] == "enum"]
+    assert [k["resolves"] for k in knobs] == ["/algorithms/1/pseudocode"]
+    # The loser is deferred, not dropped.
+    assert len(out["open_questions"]) == 2
+
+    # Without the findings the order is the arrival order again.
+    plain = promote_unsupported(spec, [quiet, flagged])
+    assert [p["resolves"] for p in plain["parameters"]
+            if p["type"] == "enum"] == ["/algorithms/0/pseudocode"]
+
+
+def test_info_findings_do_not_rank(spec, monkeypatch):
+    """`info` informs a reviewer; letting it rank puts the loosest parser
+    in charge of a budget."""
+    import constants as C
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 1)
+    first = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                claim="a", open_question="qa", enum_candidates=["x", "y"])
+    second = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+                 claim="b", open_question="qb", enum_candidates=["p", "q"])
+    findings = [spec_checks.Finding("/algorithms/1/pseudocode",
+                                    "undefined_helper", "info", "m")]
+    out = promote_unsupported(spec, [first, second], None, findings)
+    assert [p["resolves"] for p in out["parameters"]
+            if p["type"] == "enum"] == ["/algorithms/0/pseudocode"]
+
+
+def test_declared_ambiguity_still_outranks_corroboration(spec, monkeypatch):
+    """A source that refuses to resolve a point is the strongest evidence."""
+    import constants as C
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 1)
+    declared = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                   claim="alignment", open_question="U1 leaves alignment open",
+                   enum_candidates=["right", "left"])
+    corroborated = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+                       claim="other", open_question="qb",
+                       enum_candidates=["p", "q"])
+    findings = [spec_checks.Finding("/algorithms/1/pseudocode",
+                                    "unproduced_context", "warn", "m")]
+    out = promote_unsupported(spec, [declared, corroborated], {"U1"}, findings)
+    assert [p["resolves"] for p in out["parameters"]
+            if p["type"] == "enum"] == ["/algorithms/0/pseudocode"]
+
+
+def test_a_refused_question_outranks_an_unnoticed_one(spec, monkeypatch):
+    """Both tiers are declared ambiguities; they are not worth the same slot.
+
+    An UNCERTAIN note names the fork and declines to pick. An INFERRED one
+    picked already and only admits where the pick came from, so it is the
+    weaker claim on a budget both are competing for.
+    """
+    import constants as C
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 1)
+    refused = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                  claim="alignment", open_question="U1 leaves alignment open",
+                  enum_candidates=["right", "left"])
+    inferred = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+                   claim="fold", open_question="I1 reads the bars as XORed",
+                   enum_candidates=["xor", "concat"])
+    out = promote_unsupported(spec, [inferred, refused], {"U1", "I1"}, None)
+    assert [p["resolves"] for p in out["parameters"]
+            if p["type"] == "enum"] == ["/algorithms/0/pseudocode"]
+
+
+def test_an_inference_still_outranks_an_ambiguity_nobody_declared(spec,
+                                                                  monkeypatch):
+    import constants as C
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 1)
+    inferred = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                   claim="fold", open_question="I1 reads the bars as XORed",
+                   enum_candidates=["xor", "concat"])
+    noticed = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+                  claim="other", open_question="a reviewer wondered",
+                  enum_candidates=["p", "q"])
+    out = promote_unsupported(spec, [noticed, inferred], {"U1", "I1"}, None)
+    assert [p["resolves"] for p in out["parameters"]
+            if p["type"] == "enum"] == ["/algorithms/0/pseudocode"]
+
+
+# ------------------------------------- what is not a claim about the paper
+
+
+def test_a_parameter_range_is_marked_as_this_pipeline_s_invention(spec):
+    """The distiller is told to invent a range for every knob.
+
+    Rendered as bare JSON, `"range": "[4, 8]"` is indistinguishable from a
+    transcribed fact, and reviewers spent a third of the sR round arguing that
+    the paper does not state it -- which is true of every range in the
+    document.
+    """
+    units = {u.unit_id: u for u in partition(spec)}
+    rendered = [spec_review._render_unit(u) for u in units.values()]
+    param_views = [r for r in rendered if '"range"' in r]
+    assert param_views, "no unit carried a parameter"
+    for view in param_views:
+        assert "_not_paper_claims" in view
+        assert "not the paper" in view
+
+
+def test_non_parameter_elements_are_not_annotated(spec):
+    element = {"pointer": "/state/0", "value": spec["state"][0]}
+    assert spec_review._annotate_invented(element) == element

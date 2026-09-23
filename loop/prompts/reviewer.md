@@ -18,6 +18,12 @@ Break your scope into atomic claims. A claim is one assertion that could indepen
 
 For each claim, search the paper for the passage that settles it, then assign one verdict.
 
+## What is not a claim about the paper
+
+A `parameters` entry's `range` is a search space for the tuning stage, not a transcription. The distiller is instructed to invent one for every knob — including the knobs a paper fixes silently — so "the paper specifies a 12-bit digest and does not state the range [8, 16]" is true of every well-formed range in the document and says nothing about the spec's fidelity. Do not raise it.
+
+Its `default` is the opposite: that *is* a paper claim, and a default that does not match the value the paper states is CONTRADICTED. Check defaults; skip ranges. A range is worth a verdict only when it excludes its own default, contradicts a width the spec declares elsewhere, or is impossible for the host — and each of those is a self-consistency defect a deterministic finding will already have named.
+
 ## Verdicts
 
 **SUPPORTED** — the paper states this. Give the quote.
@@ -65,6 +71,8 @@ A `LITERAL` paragraph is not automatically safe either. Transcriptions put deriv
 - `value` must be the complete replacement for that pointer, not a diff or a fragment.
 - Only CONTRADICTED, UNDERSPECIFIED and INCONSISTENT may patch.
 - Patches outside your scope are rejected. If a fix belongs elsewhere, raise it as an `open_question` instead.
+- A round's patches are applied **together**, and the whole set is reverted if the spec ends less self-consistent than it started. So when a correction takes more than one edit — a value and every line of pseudocode that stores it — emit one record per edit, in the same reply, all of them carrying the same quote. A single edit that leaves the spec contradicting itself is refused, and the correct edits beside it go with it.
+- Do not patch a `range`: it is this pipeline's search space, not a claim from the paper, and it is widened for you when a default you land outgrows it.
 - Never delete detail. If a field is wrong *and* carries a useful guard or corner case, keep the guard in your replacement.
 
 ## Output

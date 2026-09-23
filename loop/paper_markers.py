@@ -28,10 +28,21 @@ Two granularities matter, and they are not the same:
   UNCERTAIN paragraph cannot establish what the paper says, and code can
   enforce that without judgement.
 * A *section* (one `--- (b) FP registers ---` division of a figure block)
-  carries the ambiguity. An UNCERTAIN note can retract a number printed two
-  paragraphs above it inside a LITERAL block -- in Figure 6(b) it retracts a
-  whole derived column -- so relevance of a note is scoped to its section,
+  carries the ambiguity. A note can retract a number printed two paragraphs
+  above it inside a LITERAL block -- in Figure 6(b) an UNCERTAIN note retracts
+  a whole derived column -- so relevance of a note is scoped to its section,
   not to its own paragraph.
+
+Both hedged tiers raise a note, because both describe something the paper
+does not state, and the difference between them is how loudly the source says
+so rather than whether the spec would be guessing. An UNCERTAIN paragraph
+declares the ambiguity and names the alternatives; an INFERRED paragraph
+quietly resolves it and says only in passing that the resolution was read off
+a drawing. The second is the more dangerous of the two downstream: Figure 6(a)
+grades "the three fields are XORed together" INFERRED, and an implementation
+that takes it as settled produces every integer digest value in the design and
+passes every test it is given. Notes are tagged `U1`, `U2`, ... and `I1`,
+`I2`, ... so a reader -- model or human -- can tell which kind it is holding.
 """
 
 from __future__ import annotations
@@ -52,8 +63,15 @@ CROSSCHECK = "crosscheck"
 INFERRED = "inferred"
 UNCERTAIN = "uncertain"
 
-# Only these two cannot settle a claim about what the paper says.
+# Only these two cannot settle a claim about what the paper says. Both also
+# raise a note: see the module docstring on why INFERRED needs one.
 HEDGED_TIERS = (INFERRED, UNCERTAIN)
+
+_NOTE_PREFIX = {UNCERTAIN: "U", INFERRED: "I"}
+# How a note is referred to once it has left this module -- in a reviewer's
+# prose, in an open question, in a spec. Defined here so the promotion ranking
+# and the note ids cannot drift apart.
+NOTE_ID_RE = re.compile(r"\b[UI]\d+\b")
 
 _TIER_BY_MARKER = {
     "LITERAL": LITERAL, "CROSS-CHECK": CROSSCHECK,
@@ -69,13 +87,24 @@ _SECTION_RE = re.compile(r"^---+\s*(.*?)\s*-*$")
 _MARKER_RE = re.compile(
     r"^(LITERAL|CROSS-CHECK|INFERRED|UNCERTAIN)\b\s*[-.:]?\s*(.*)$"
 )
+# A note's text begins at its own marker line, so the word is otherwise
+# repeated in every rendering: "**I1** (INFERRED, Figure 2): INFERRED The SC
+# output ...". The tier is carried on the Note now, so drop it from the body.
+_LEADING_MARKER_RE = re.compile(
+    r"^(?:LITERAL|CROSS-CHECK|INFERRED|UNCERTAIN)\b\s*[-.:]?\s*"
+)
 
 
 @dataclass(frozen=True)
 class Note:
-    """One UNCERTAIN paragraph: an ambiguity the source refuses to resolve."""
+    """One hedged paragraph: something the source declines to state as fact.
+
+    `tier` is UNCERTAIN when the source refuses to resolve the point at all,
+    and INFERRED when it resolved the point by reading a figure's layout.
+    """
 
     note_id: str
+    tier: str
     block: str
     section: str
     text: str
@@ -146,7 +175,8 @@ class Annotation:
         out = []
         for n in self.notes:
             body = " ".join(n.text.split())
-            out.append(f"- **{n.note_id}** ({n.where}): {body}")
+            where = f", {n.where}" if n.where else ""
+            out.append(f"- **{n.note_id}** ({n.tier.upper()}{where}): {body}")
         return "\n".join(out)
 
 
@@ -188,7 +218,7 @@ def annotate(text: str) -> Annotation:
     tier = PROSE
     start = 0
     offset = 0
-    n_uncertain = 0
+    counts = {UNCERTAIN: 0, INFERRED: 0}
     note_start = 0
 
     def close(at: int) -> None:
@@ -198,12 +228,12 @@ def annotate(text: str) -> Annotation:
         start = at
 
     def close_note(at: int) -> None:
-        nonlocal n_uncertain
-        if tier != UNCERTAIN:
+        if tier not in HEDGED_TIERS:
             return
-        n_uncertain += 1
-        notes.append(Note(f"U{n_uncertain}", block, section,
-                          text[note_start:at]))
+        counts[tier] += 1
+        body = _LEADING_MARKER_RE.sub("", text[note_start:at], count=1)
+        notes.append(Note(f"{_NOTE_PREFIX[tier]}{counts[tier]}", tier,
+                          block, section, body))
 
     for line in text.splitlines(keepends=True):
         bare = line.rstrip("\n")
@@ -234,3 +264,46 @@ def annotate(text: str) -> Annotation:
     close(offset)
     return Annotation([s for s in spans if s.tier != PROSE or s.block],
                       notes, text)
+
+# A transcription block the source opened but graded nowhere. Anything read
+# out of such a block is treated as the paper's own prose, which is only safe
+# when the block really is verbatim.
+_TRANSCRIPTION_RE = re.compile(r"^\[(?:Figure|Table)\s", re.I | re.M)
+
+
+class UngradedSource(RuntimeError):
+    """A figure-bearing source text that carries no provenance markers."""
+
+
+def require_markers(text: str, ann: "Annotation", where: str = "<source>") -> None:
+    """Refuse a source that transcribes figures and grades none of them.
+
+    The markers are not decoration. `verify_evidence` needs them to refuse a
+    quote lifted out of an INFERRED or UNCERTAIN paragraph, and the review
+    stage's promotion ranking needs them to spend a capped knob budget on the
+    ambiguities the source itself declares. An ungraded input yields no notes,
+    so both degrade to no-ops -- silently, because a paper with no figures to
+    transcribe is a legitimate input and must stay one.
+
+    So the trigger is the contradiction rather than the absence: a text that
+    opens figure or table transcription blocks and grades none of them has
+    almost certainly lost its annotations. That is what happened between this
+    module being written and the run that shipped the sR floating-point digest
+    alignment as a fact -- the marked source said in as many words that the
+    alignment was read off the drawing, and the text the run actually read had
+    been replaced by an unmarked extraction.
+    """
+    if ann.notes or any(s.tier != PROSE for s in ann.spans):
+        return
+    blocks = _TRANSCRIPTION_RE.findall(text or "")
+    if not blocks:
+        return
+    raise UngradedSource(
+        f"{where}: {len(blocks)} figure/table transcription block(s), none of "
+        f"them graded. The provenance layer is inert for this input: "
+        f"hedged-evidence rejection cannot fire and the knob budget cannot be "
+        f"ranked by declared ambiguity, so a reading of a drawing will reach "
+        f"the integration agents as something the paper states. Add LITERAL / "
+        f"CROSS-CHECK / INFERRED / UNCERTAIN markers to the transcriptions, or "
+        f"set P2P_REQUIRE_SOURCE_MARKERS=0 to accept an ungraded source."
+    )

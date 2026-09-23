@@ -197,6 +197,39 @@ def test_pow2_modifier_enforced(spec):
     assert "param_range" in codes(run_checks(spec))
 
 
+def test_a_json_boolean_default_matches_its_lowercase_choices(spec):
+    """The defect: `"default": true` against `"choices: true | false"`.
+
+    str(True) is "True", so a correctly typed bool knob failed at `error`.
+    A review round spent all three of its landed patches on this and
+    "fixed" it by retyping the boolean as the string "true".
+    """
+    spec["parameters"][0]["range"] = "choices: true | false"
+    spec["parameters"][0]["default"] = True
+    assert "param_range" not in codes(run_checks(spec))
+    spec["parameters"][0]["default"] = "true"
+    assert "param_range" not in codes(run_checks(spec))
+
+
+def test_a_choice_default_is_matched_by_value_not_spelling(spec):
+    spec["parameters"][0]["range"] = "choices: 1 | 2 | 4"
+    spec["parameters"][0]["default"] = 1.0
+    assert "param_range" not in codes(run_checks(spec))
+    spec["parameters"][0]["range"] = "choices: XOR_FOLD | CONCAT"
+    spec["parameters"][0]["default"] = "xor_fold"
+    assert "param_range" not in codes(run_checks(spec))
+
+
+def test_a_default_outside_its_choices_is_still_an_error(spec):
+    """What the check is for, and what the tolerances must not silence."""
+    spec["parameters"][0]["range"] = "choices: true | false"
+    spec["parameters"][0]["default"] = "maybe"
+    assert "param_range" in codes(run_checks(spec))
+    spec["parameters"][0]["range"] = "choices: 1 | 2 | 4"
+    spec["parameters"][0]["default"] = 3
+    assert "param_range" in codes(run_checks(spec))
+
+
 def test_default_that_does_not_fit_its_field(spec):
     """The defect that survived two distillation runs unflagged."""
     spec["parameters"][0]["default"] = 300      # more steps than 8 bits spans
@@ -348,6 +381,42 @@ def test_is_worse_allows_trading_warnings_for_a_fix(spec):
     fixed = copy.deepcopy(spec)
     fixed["parameters"][0]["range"] = "unparseable"           # 1 warn
     assert not spec_checks.is_worse(run_checks(broken), run_checks(fixed))
+
+
+def test_is_worse_on_an_error_swapped_for_a_different_error(spec):
+    """One error traded for another is not a round that held its ground.
+
+    Counting alone, 1 -> 1 reads as no change, and a round that cleared
+    `param_range` while breaking `storage_sum` went straight through this
+    gate. It was then rejected downstream by the rule that guards quote-free
+    patching -- which blamed the three patches that had done the fixing,
+    discarded the round, and left the spec with the error it arrived with.
+    """
+    before = copy.deepcopy(spec)
+    before["parameters"][0]["default"] = 256          # param_range
+    after = copy.deepcopy(spec)
+    after["resource_accounting"]["total_storage_bits"] = 1   # storage_sum
+
+    b, a = run_checks(before), run_checks(after)
+    assert spec_checks.severity_counts(b)["error"] == 1
+    assert spec_checks.severity_counts(a)["error"] == 1
+    assert spec_checks.is_worse(b, a)
+    assert [f.code for f in spec_checks.new_errors(b, a)] == ["storage_sum"]
+
+
+def test_a_reworded_message_is_not_a_new_error(spec):
+    """A round rewrites the numbers a message quotes, so identity is
+    (code, pointer) -- otherwise every patch looks like it fixed something and
+    broke something in the same place."""
+    before = copy.deepcopy(spec)
+    before["resource_accounting"]["total_storage_bits"] = 1
+    after = copy.deepcopy(spec)
+    after["resource_accounting"]["total_storage_bits"] = 2
+
+    b, a = run_checks(before), run_checks(after)
+    assert b[0].message != a[0].message
+    assert spec_checks.new_errors(b, a) == []
+    assert not spec_checks.is_worse(b, a)
 
 
 # ------------------------------------------- pseudocode surface reading
@@ -776,3 +845,669 @@ def test_a_shared_generic_token_does_not_excuse_a_different_name():
     found = _carried(spec)
     assert [f.code for f in found] == ["unproduced_context"]
     assert "recorded_digest" in found[0].message
+
+
+# ------------------------------------------ unit-test arithmetic closure
+
+
+def _arith(spec):
+    return [f for f in run_checks(spec) if f.code == "arith_mismatch"]
+
+
+def one_test(given="given", expect="expect"):
+    return {
+        "feature_name": "vtag",
+        "source": {"paper_title": "t", "inputs_used": "paper_only"},
+        "summary": "s",
+        "state": [], "algorithms": [], "host_interfaces": [],
+        "resource_accounting": {"total_storage_bits": 0},
+        "parameters": [],
+        "unit_tests": [{"name": "t", "given": given, "expect": expect}],
+    }
+
+
+def test_wrong_decimal_restatement_is_an_error():
+    """The defect this check exists for: 0xBBB is 3003, not 2999."""
+    f = _arith(one_test(expect="Digest = (0xB << 8) | (0xB << 4) | 0xB "
+                               "= 0xBBB (decimal 2999)."))
+    assert len(f) == 1
+    assert f[0].severity == "error"
+    assert f[0].pointer == "/unit_tests/0/expect"
+    assert "3003" in f[0].message and "2999" in f[0].message
+
+
+def test_wrong_equality_chain_is_an_error():
+    f = _arith(one_test(expect="Digest = 0x000 ^ 0x1F8 ^ 0x03F = 0x1C8."))
+    assert [x.severity for x in f] == ["error"]
+
+
+def test_correct_arithmetic_is_silent():
+    assert _arith(one_test(
+        given="4-bit condition code 0b1011 (0xB).",
+        expect="Digest = 0x000 ^ 0x1F8 ^ 0x03F = 0x1C7 (decimal 455), and "
+               "lead_count (57) << 3 = 0x1C8.",
+    )) == []
+
+
+def test_signed_restatement_of_a_fixed_width_literal_is_silent():
+    """`0xFFFFFFFFFFFFFFFE (-2)` is a correct two's-complement restatement.
+
+    Reading only the unsigned value turns every negative test vector into an
+    error, and at this severity that fails the whole stage closed.
+    """
+    assert _arith(one_test(given="64-bit value 0xFFFFFFFFFFFFFFFE (-2).")) == []
+
+
+def test_caret_as_an_exponent_is_not_decided():
+    """`2^11 = 2048` is an exponent to a paper and XOR to Python.
+
+    With no radix literal beside the caret the claim is undecidable, and
+    guessing XOR would report a correct storage figure as a contradiction.
+    """
+    assert _arith(one_test(expect="The table holds 2^11 = 2048 entries.")) == []
+
+
+def test_bit_position_parenthetical_is_not_a_restatement():
+    assert _arith(one_test(expect="0x40 (bit 6) is the highest set bit.")) == []
+
+
+def test_unit_suffix_does_not_block_a_sum():
+    f = _arith(one_test(expect="total = 43008 + 9360 + 1495 = 53864 bits."))
+    assert len(f) == 1 and f[0].severity == "error"
+    assert _arith(one_test(
+        expect="total = 43008 + 9360 + 1495 = 53863 bits (6.575 KiB).")) == []
+
+
+def test_rounding_expressions_are_left_alone():
+    """A multiplier with a rounding rule this evaluator does not model."""
+    assert _arith(one_test(expect="Bank 0 outputs floor(4 * 2.5) = +10.")) == []
+    assert _arith(one_test(expect="Bank 0 outputs floor(4 * 2.5) = +11.")) == []
+
+
+def test_a_conjunction_does_not_chain_two_assignments():
+    """The defect: "decay_ctr = 255 and valid = 1" is two assignments.
+
+    Reading "and valid" as the unit of 255 left that 255 facing the 1 of the
+    other assignment. A whole review round spent its one landed patch
+    rewording a test to dodge this, and three more units proposed the same
+    reword and were rejected as duplicates.
+    """
+    assert _arith(one_test(
+        given="Register R0 is written at cycle 0 with decay_ctr = 255 "
+              "and valid = 1.")) == []
+    assert _arith(one_test(
+        given="R0 is written with valid = 1 and decay_ctr = 255.")) == []
+    assert _arith(one_test(
+        expect="entry = 0 or valid = 1.")) == []
+
+
+def test_a_unit_is_still_stripped_beside_a_conjunction():
+    """Only the tail that carries the conjunction goes undecided."""
+    assert _arith(one_test(
+        expect="total = 43008 + 9360 + 1495 = 53863 bits and the entry "
+               "is valid.")) == []
+    f = _arith(one_test(expect="sum = 1 + 1 = 3 bits, and valid = 1."))
+    assert len(f) == 1 and f[0].severity == "error"
+
+
+def test_comparisons_are_not_equality_claims():
+    assert _arith(one_test(
+        expect="After 1st decode, decay_ctr == 1, then decay_ctr == 0.")) == []
+
+
+def test_arith_mismatch_is_a_self_consistency_code():
+    """Without this the only fitting verdict has no licence to patch.
+
+    The paper says nothing about a decimal restatement, so CONTRADICTED has no
+    quote and UNSUPPORTED may not patch; INCONSISTENT is the verb, and it is
+    accepted only at a pointer a self-consistency check named.
+    """
+    import spec_review
+    assert "arith_mismatch" in spec_review._SELF_CONSISTENCY_CODES
+
+
+# ------------------------------------------------- pseudocode comments
+
+
+def _ctx(body):
+    spec = one_test()
+    spec["algorithms"] = [{"name": "a", "trigger": "t", "pseudocode": body}]
+    return sorted(f.code for f in run_checks(spec)
+                  if f.code in ("unproduced_context", "cross_algorithm_local",
+                                "undefined_helper"))
+
+
+def test_prose_in_comments_is_not_dataflow():
+    """Commented figure transcription used to read as eight free variables."""
+    assert _ctx(
+        "def digest(val):\n"
+        "    # Value[5:0] at [11:6], lead_count at [8:3]\n"
+        "    # LSUM = sB + sG + sP + sC + sI + sL + sS + sT\n"
+        "    # Format determined by MSBs/instruction type\n"
+        "    # Right-aligned in 12-bit digest, restore pre-speculative tag\n"
+        "    return val & 0xFFF\n"
+    ) == []
+
+
+def test_a_real_free_variable_still_reports():
+    assert "unproduced_context" in _ctx(
+        "def digest(val):\n"
+        "    if fp_format == 'FP16':  # a comment does not hide this\n"
+        "        return val >> 13\n"
+    )
+
+
+def test_signature_default_binds_the_parameter():
+    """`def tick(n=1)` binds n; the default used to break the name match."""
+    assert _ctx(
+        "def tick(num_decoded=1):\n"
+        "    return num_decoded - 1\n"
+    ) == []
+
+
+def test_keywords_are_not_undefined_helpers():
+    assert _ctx(
+        "def f(v):\n"
+        "    if (v >> 63) & 1:\n"
+        "        return (v)\n"
+    ) == []
+
+
+# --------------------------------------------- carried state vs the budget
+
+
+def _budget(spec):
+    return [f for f in run_checks(spec) if f.code == "unbudgeted_carried_state"]
+
+
+def carried_spec(accounting_text, body):
+    spec = one_test()
+    spec["algorithms"] = [{"name": "update", "trigger": "resolve",
+                           "pseudocode": body}]
+    spec["resource_accounting"] = {
+        "total_storage_bits": 100,
+        "storage_breakdown": accounting_text,
+    }
+    return spec
+
+
+def test_unbudgeted_per_branch_structure_reports_at_the_accounting():
+    """The two halves of this defect live in different review units.
+
+    `partition` gives the algorithm to one reviewer and resource_accounting to
+    another, so the finding has to land at the pointer the accounting reviewer
+    owns or nobody can act on it.
+    """
+    f = _budget(carried_spec(
+        "Tables: 43008 bits. Register status table: 1495 bits.",
+        "def update(pc):\n    d = checkpointed_digests[r]\n    return d\n"))
+    assert len(f) == 1
+    assert f[0].pointer == "/resource_accounting/storage_breakdown"
+    assert "checkpointed_digests" in f[0].message
+
+
+def test_a_budgeted_structure_is_silent():
+    assert _budget(carried_spec(
+        "Checkpointed digests: 780 bits per branch. Tables: 43008 bits.",
+        "def update(pc):\n    d = checkpointed_digests[r]\n    return d\n")) == []
+
+
+def test_a_shared_word_does_not_count_as_budgeted():
+    """"Digest generation requires counter trees" budgets no digest table."""
+    assert len(_budget(carried_spec(
+        "Digest generation requires counter trees. Tables: 43008 bits.",
+        "def update(pc):\n    d = checkpointed_digests[r]\n    return d\n"))) == 1
+
+
+def test_a_scalar_is_not_storage():
+    """A decision handed to an algorithm is not a table somebody must build."""
+    assert _budget(carried_spec(
+        "Tables: 43008 bits.",
+        "def digest(v):\n    if fp_format == 1:\n        return v\n")) == []
+
+
+# ------------------------------------- a threshold that cannot be reached
+
+
+def _unreachable(entry_format, body):
+    spec = one_test()
+    spec["state"] = [{"name": "tbl", "organization": "65 entries",
+                      "entry_format": entry_format, "size_bits": 8}]
+    spec["algorithms"] = [{"name": "tick", "trigger": "decode", "pseudocode": body}]
+    return [f for f in run_checks(spec) if f.code == "unreachable_literal_compare"]
+
+
+def test_a_threshold_above_the_declared_field_width_is_an_error():
+    """The live bug this exists for.
+
+    An 8-bit counter incremented from 0 wraps or saturates at 255, so
+    `>= 256` is never true and the paper's 256-instruction decay never fires.
+    Nothing is assigned out of range, so the assignment scan sees nothing.
+    """
+    f = _unreachable("valid: 1 bit, decay_counter: 8 bits",
+                     "t[r].decay_counter += 1\nif t[r].decay_counter >= 256:\n"
+                     "    t[r].valid = 0")
+    assert len(f) == 1
+    assert f[0].severity == "error"
+    assert "never be true" in f[0].message
+
+
+@pytest.mark.parametrize("body,fires", [
+    ("if t[r].decay_counter > 255:\n    pass", True),     # needs 256
+    ("if t[r].decay_counter == 300:\n    pass", True),
+    ("if t[r].decay_counter >= 255:\n    pass", False),   # the top value
+    ("if t[r].decay_counter > 100:\n    pass", False),
+    ("if t[r].decay_counter < 256:\n    pass", False),    # always true, milder
+    ("if t[r].other_field >= 4096:\n    pass", False),    # not a declared field
+    ("if (v >> 63) & 1 == 1:\n    pass", False),          # a bit test
+    ("for i in range(65):\n    pass", False),             # a loop bound
+])
+def test_only_unreachable_comparisons_report(body, fires):
+    got = bool(_unreachable("decay_counter: 8 bits", body))
+    assert got is fires
+
+
+def test_a_countdown_counter_is_silent():
+    """Initialising to the ceiling and expiring at 0 is the correct encoding,
+    and it is what the fix message recommends."""
+    assert _unreachable(
+        "decay_counter: 8 bits",
+        "t[r].decay_counter = 255\nif t[r].decay_counter == 0:\n    pass") == []
+
+
+def test_a_wide_enough_field_is_silent():
+    assert _unreachable("decay_counter: 9 bits",
+                        "if t[r].decay_counter >= 256:\n    pass") == []
+
+
+def test_unreachable_compare_is_a_self_consistency_code():
+    import spec_review
+    assert "unreachable_literal_compare" in spec_review._SELF_CONSISTENCY_CODES
+
+
+# --------------------------------- a per-branch carry nobody budgeted for
+
+
+def _carry_spec(reader_trigger, body, breakdown="Tables: 43008 bits.",
+                hosts=None):
+    spec = one_test()
+    spec["algorithms"] = [
+        {"name": "predict", "trigger": "prediction lookup",
+         "pseudocode": "s = 0\nreturn s"},
+        {"name": "update", "trigger": reader_trigger, "pseudocode": body},
+    ]
+    spec["host_interfaces"] = hosts or [{"need": "n", "description": "d"}]
+    spec["resource_accounting"] = {"total_storage_bits": 100,
+                                   "storage_breakdown": breakdown}
+    return spec
+
+
+def _budgetf(spec):
+    return [f for f in run_checks(spec) if f.code == "unbudgeted_carried_state"]
+
+
+def test_a_dotted_carry_read_after_prediction_is_reported():
+    """`pred_info.*` read at branch resolution had to be held since predict.
+
+    The earlier version of this check only looked at bare subscripted names,
+    so a saved record reached as `pred_info.bank_wt_sum` was invisible.
+    """
+    f = _budgetf(_carry_spec(
+        "Branch resolution or retirement / SC training",
+        "d = pred_info.reg_digest_at_pred\nw = pred_info.bank_wt_sum\nreturn d + w"))
+    assert len(f) == 1
+    assert f[0].pointer == "/resource_accounting/storage_breakdown"
+    # One record, one decision -- both fields in a single finding.
+    assert "pred_info.bank_wt_sum" in f[0].message
+    assert "pred_info.reg_digest_at_pred" in f[0].message
+
+
+def test_a_decode_stage_signal_is_not_carried_storage():
+    """`inst.writes_register` is available where it is read, so nothing holds
+    it. Word overlap cannot tell it from a saved record -- both share
+    "register" with any host interface that mentions registers -- so the
+    reader's own trigger is what decides."""
+    assert _budgetf(_carry_spec(
+        "Instruction decode / rename stage for each decoded instruction",
+        "if inst.writes_register:\n    return 1\nreturn 0")) == []
+
+
+def test_declaring_a_host_interface_does_not_remove_it_from_the_budget():
+    """At iso-storage the baseline does not need the latch, so moving it
+    across the interface understates the feature."""
+    f = _budgetf(_carry_spec(
+        "Branch resolution",
+        "d = pred_info.saved_digest\nreturn d",
+        hosts=[{"need": "checkpointed register mask",
+                "description": "At prediction time the available registers "
+                               "must be saved in branch prediction state."}]))
+    assert len(f) == 1
+    assert "host interface does not settle it" in f[0].message
+
+
+def test_a_budgeted_carry_is_silent():
+    assert _budgetf(_carry_spec(
+        "Branch resolution",
+        "d = pred_info.saved_digest\nreturn d",
+        breakdown="pred_info checkpoint: 780 bits per branch. Tables: 43008 bits.",
+    )) == []
+
+
+def test_a_container_method_is_not_a_saved_field():
+    """`avail.get(b, [])` is the dialect, not a record somebody must size."""
+    assert _budgetf(_carry_spec(
+        "Branch resolution",
+        "regs = avail.get(b, [])\nreturn regs")) == []
+
+
+def test_a_bare_scalar_is_still_not_storage():
+    assert _budgetf(_carry_spec(
+        "Branch resolution", "if fp_format == 1:\n    return 1\nreturn 0")) == []
+
+
+# ------------------------------------- `^` is XOR or a power; try both
+
+
+def test_xor_over_decimal_operands_is_decided():
+    """The blind spot this closes.
+
+    A guard meant to stop `2^11 = 2048` being read as XOR refused any caret
+    with no `0x` beside it -- and a real spec wrote its digest chains over
+    decimal operands, so two wrong expected values went through as clean.
+    """
+    f = _arith(one_test(
+        expect="Digest computed as (15 << 6) ^ (60 << 3) ^ 4 "
+               "= 960 ^ 480 ^ 4 = 1444 (0x5A4), masked to 12 bits."))
+    assert len(f) == 1 and f[0].severity == "error"
+    assert "548" in f[0].message and "1444" in f[0].message
+
+
+def test_an_exponent_reading_that_holds_keeps_it_quiet():
+    """No context guessing: `2^11` is 9 as XOR and 2048 as a power, and one
+    reading holding is enough to withdraw the claim."""
+    assert _arith(one_test(expect="2^11 = 2048")) == []
+    assert _arith(one_test(expect="The table holds 2^11 = 2048 entries.")) == []
+    assert _arith(one_test(
+        expect="Storage is 6 x (2^7 + 2^8 + 2^9) x 8 = 43008 bits.")) == []
+
+
+def test_a_claim_false_under_every_reading_reports():
+    assert _arith(one_test(expect="2^11 = 2047")) != []
+
+
+def test_a_radix_restatement_does_not_block_the_chain():
+    """"= 1444 (0x5A4)" parses as two expressions; the parenthetical has to
+    come off before the final term can be read at all."""
+    import spec_checks as sc
+    assert sc._literal_arith("1444 (0x5A4)") is None
+    assert sc._arith_readings(" 960 ^ 480 ^ 4 ") == [548]
+    assert _arith(one_test(expect="digest = 960 ^ 480 ^ 4 = 548 (0x224)")) == []
+
+
+def test_a_real_subexpression_is_not_stripped_as_a_restatement():
+    """`(15 << 6)` and `min(count, 63)` must survive the restatement strip,
+    or the evaluator decides a claim nobody made."""
+    import spec_checks as sc
+    readings = sc._arith_readings("(15 << 6) ^ 4")
+    assert readings[0] == 964                 # the direct reading comes first
+    assert 960 ** 4 in readings               # the power reading is also real
+    assert sc._literal_arith("min(count, 63) & 0x3F") is None
+
+
+def test_extra_readings_make_the_check_quieter_not_louder():
+    """A coincidental power match withdraws the claim, and that is the
+    intended direction: this severity fails the stage closed, so a missed
+    slip costs a round while a false one costs a correct spec."""
+    # 2 XOR 3 is 1, but 2**3 is 8, so the claim holds under one reading.
+    assert _arith(one_test(expect="mask = 2 ^ 3 = 8")) == []
+
+
+def test_a_huge_exponent_is_refused_rather_than_computed():
+    """`960 ** 480 ** 4` must not be evaluated. The power reading drops out
+    and the XOR reading decides the claim on its own."""
+    import spec_checks as sc
+    assert sc._arith_readings("960 ^ 480 ^ 4") == [548]
+
+
+# ---------------------------- a span parameter stored without its countdown
+
+
+def _span(spec):
+    return [f for f in run_checks(spec) if f.code == "span_stored_directly"]
+
+
+def test_span_parameter_stored_directly_is_an_error(spec):
+    """The sR decay defect, third appearance and first time caught.
+
+    `unrepresentable_default` waives a default of 2^B against a B-bit field
+    because a counter really can span 2^B steps -- as a countdown. Nothing
+    checked that the body encodes it that way, and a spec that stores the
+    span directly truncates it to 0: the digest is invalidated one decode
+    after it becomes valid, and the whole feature is inert.
+    """
+    spec["parameters"][0]["default"] = 256
+    spec["parameters"][0]["range"] = "[1, 1024]"
+    spec["algorithms"][1]["pseudocode"] += "\ndecay_ctr = decay_window"
+    f = _span(spec)
+    assert len(f) == 1
+    assert f[0].severity == "error"
+    assert f[0].pointer == "/algorithms/1/pseudocode"
+    assert "256" in f[0].message and "255" in f[0].message
+    assert "truncates to 0" in f[0].message
+
+
+def test_the_countdown_encoding_is_silent(spec):
+    """`- 1` is the whole difference between inert and correct."""
+    spec["parameters"][0]["default"] = 256
+    spec["parameters"][0]["range"] = "[1, 1024]"
+    spec["algorithms"][1]["pseudocode"] += "\ndecay_ctr = decay_window - 1"
+    assert _span(spec) == []
+
+
+def test_a_parameter_that_fits_is_stored_freely(spec):
+    """Only the waived span is in question. 200 into 8 bits is just a store."""
+    spec["algorithms"][1]["pseudocode"] += "\ndecay_ctr = decay_window"
+    assert _span(spec) == []
+
+
+def test_an_oversized_default_stays_with_the_parameter_check(spec):
+    """Above 2^B the default is wrong whatever the body does, and
+    `unrepresentable_default` owns it. Reporting both would put two errors on
+    one defect and send a reviewer to the pointer that does not fix it."""
+    spec["parameters"][0]["default"] = 512
+    spec["parameters"][0]["range"] = "[1, 1024]"
+    spec["algorithms"][1]["pseudocode"] += "\ndecay_ctr = decay_window"
+    assert _span(spec) == []
+    assert [f for f in run_checks(spec) if f.code == "unrepresentable_default"]
+
+
+def test_a_non_parameter_right_hand_side_is_not_a_span(spec):
+    """`decay_ctr = other_field` says nothing about a default."""
+    spec["parameters"][0]["default"] = 256
+    spec["parameters"][0]["range"] = "[1, 1024]"
+    spec["algorithms"][1]["pseudocode"] += "\ndecay_ctr = refill_value"
+    assert _span(spec) == []
+
+
+def test_a_field_qualified_target_is_still_the_field(spec):
+    """Specs write the store through the table: `tbl[r].decay_ctr = knob`."""
+    spec["parameters"][0]["default"] = 256
+    spec["parameters"][0]["range"] = "[1, 1024]"
+    spec["algorithms"][1]["pseudocode"] += (
+        "\nregister_status_table[dst].decay_ctr = decay_window")
+    assert len(_span(spec)) == 1
+
+
+def test_span_stored_directly_is_a_self_consistency_code():
+    """The paper names the span and never the encoding, so CONTRADICTED has
+    no quote and UNSUPPORTED may not patch. Without this the reviewer
+    diagnoses it correctly and the patch is refused."""
+    import spec_review
+    assert "span_stored_directly" in spec_review._SELF_CONSISTENCY_CODES
+
+
+# ------------------------- an index bounded by the field it is read out of
+
+
+def _bounds(spec):
+    return [f for f in run_checks(spec) if f.code == "index_exceeds_dimension"]
+
+
+def test_index_bounded_by_the_field_it_is_read_from(spec):
+    """The update side of the recurring per-bank-vector defect.
+
+    `predict` builds its register list at runtime, so no bound is derivable
+    from the body and the check stayed silent through four runs. `update`
+    reads the same index out of a latch field whose declared range the spec
+    prints -- and that is enough to decide it.
+    """
+    spec["state"][0]["organization"] = (
+        "4 banks; each bank tracks 12 logical registers, sub-table W0")
+    spec["state"][0]["entry_format"] = "vector of 12 x 6-bit weights per bank"
+    spec["state"].append({
+        "name": "inflight latches",
+        "organization": "32 entries",
+        "entry_format": "{ sampled_valid: 1 bit, sampled_reg_id: 7 bits (0..47) }",
+        "size_bits": 256,
+        "indexing": "branch tag",
+    })
+    spec["algorithms"][0]["pseudocode"] = (
+        "r_upd = latch.bank[b].sampled_reg_id\n"
+        "x = W0[idx][r_upd]"
+    )
+    f = _bounds(spec)
+    assert len(f) == 1 and f[0].severity == "error"
+    assert "reaches 47" in f[0].message and "12 element" in f[0].message
+
+
+def test_a_field_range_that_fits_the_dimension_is_clean(spec):
+    spec["state"][0]["organization"] = (
+        "4 banks; each bank tracks 12 logical registers, sub-table W0")
+    spec["state"][0]["entry_format"] = "vector of 12 x 6-bit weights per bank"
+    spec["state"].append({
+        "name": "inflight latches",
+        "organization": "32 entries",
+        "entry_format": "{ sampled_slot: 4 bits (0..11) }",
+        "size_bits": 128,
+        "indexing": "branch tag",
+    })
+    spec["algorithms"][0]["pseudocode"] = (
+        "r_upd = latch.bank[b].sampled_slot\n"
+        "x = W0[idx][r_upd]"
+    )
+    assert _bounds(spec) == []
+
+
+def test_field_ranges_come_only_from_entry_format():
+    """A range in `organization` describes the structure, not one field.
+    Attributing it to whichever name precedes it invents a bound."""
+    import spec_checks as sc
+    assert sc._declared_field_ranges({"state": [{
+        "organization": "banks 0..7 of registers",
+        "entry_format": "{ slot: 4 bits (0..11) }",
+    }]}) == {"slot": 11}
+
+
+def test_a_width_is_not_a_range():
+    """`tag (12)` is twelve bits wide, not a value reaching 12."""
+    import spec_checks as sc
+    assert sc._declared_field_ranges(
+        {"state": [{"entry_format": "valid (1), tag (12), ctr (3)"}]}) == {}
+
+
+# ------------------------------- a branch ordered behind a guard implying it
+
+
+def _dead(spec):
+    return [f for f in run_checks(spec) if f.code == "unreachable_branch_guard"]
+
+
+def _fp(spec, body):
+    spec["algorithms"][0]["pseudocode"] = body
+    return _dead(spec)
+
+
+def test_shorter_prefix_first_makes_the_longer_arm_dead(spec):
+    """The sR FP classifier: every FP32 NaN-boxed value has its top 16 bits
+    set too, so the FP16 arm swallows all of them."""
+    f = _fp(spec, (
+        "if (v >> 48) == 0xFFFF:\n"
+        "  digest = 1\n"
+        "else if (v >> 32) == 0xFFFFFFFF:\n"
+        "  digest = 2\n"
+        "else:\n"
+        "  digest = 3"
+    ))
+    assert len(f) == 1 and f[0].severity == "error"
+    assert "0xffffffff" in f[0].message and "0xffff" in f[0].message
+
+
+def test_longer_prefix_first_is_the_correct_order(spec):
+    """The fix, which must not still read as an error afterwards."""
+    assert _fp(spec, (
+        "if (v >> 32) == 0xFFFFFFFF:\n"
+        "  digest = 2\n"
+        "else if (v >> 48) == 0xFFFF:\n"
+        "  digest = 1"
+    )) == []
+
+
+def test_disjoint_prefixes_are_reachable(spec):
+    """0xE0 >> 4 is 0xE, not 0xF, so neither guard implies the other."""
+    assert _fp(spec, (
+        "if (v >> 60) == 0xF:\n"
+        "  digest = 1\n"
+        "else if (v >> 56) == 0xE0:\n"
+        "  digest = 2"
+    )) == []
+
+
+def test_guards_on_different_variables_do_not_interact(spec):
+    assert _fp(spec, (
+        "if (v >> 48) == 0xFFFF:\n"
+        "  digest = 1\n"
+        "else if (w >> 32) == 0xFFFFFFFF:\n"
+        "  digest = 2"
+    )) == []
+
+
+def test_a_nested_chain_inside_an_else_if_arm_is_still_read(spec):
+    """Chains nest, and the sR classifier sits inside the `else if` arm of an
+    outer one. Walking only the outermost chain skips every guard that
+    matters."""
+    f = _fp(spec, (
+        "if reg_id <= 31:\n"
+        "  digest = 0\n"
+        "else if reg_id <= 63:\n"
+        "  if (v >> 48) == 0xFFFF:\n"
+        "    digest = 1\n"
+        "  else if (v >> 32) == 0xFFFFFFFF:\n"
+        "    digest = 2\n"
+        "else:\n"
+        "  digest = 3"
+    ))
+    assert len(f) == 1
+
+
+def test_an_identical_guard_repeated_is_dead(spec):
+    assert len(_fp(spec, (
+        "if (v >> 48) == 0xFFFF:\n"
+        "  digest = 1\n"
+        "else if (v >> 48) == 0xFFFF:\n"
+        "  digest = 2"
+    ))) == 1
+
+
+def test_separate_chains_do_not_subsume_each_other(spec):
+    """Two sibling `if`s with no `else` are both reachable."""
+    assert _fp(spec, (
+        "if (v >> 48) == 0xFFFF:\n"
+        "  digest = 1\n"
+        "if (v >> 32) == 0xFFFFFFFF:\n"
+        "  digest = 2"
+    )) == []
+
+
+def test_new_codes_are_self_consistency_codes():
+    import spec_review
+    assert "unreachable_branch_guard" in spec_review._SELF_CONSISTENCY_CODES

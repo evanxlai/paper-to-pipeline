@@ -186,6 +186,87 @@ def _elem(spec, pointer):
     return {"pointer": pointer, "value": ptr_get(spec, pointer)}
 
 
+# An assignment target, allowing subscripts and field access to interleave:
+# `reg_status_table[r].valid = 0` and `wt[b].WT0[i] += 1` both name the
+# structure being stored into. spec_checks' own target pattern stops at the
+# first `]`, which is right for the bare-name flow analysis it does there and
+# loses exactly the stores that matter here.
+_STORE_TARGET_RE = re.compile(
+    r"^\s*([A-Za-z_]\w*)(?:\s*\[[^\[\]]*\]|\s*\.\w+)*\s*(?:[-+*/|&^]|<<|>>)?=(?!=)"
+)
+
+
+def _norm_ident(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+# Below this, a containment match is noise: `v = victim_tag_table[PC]` binds a
+# local named `v`, and "v" is a substring of "victimtagtable", so a rule that
+# accepts any containment reads every local as a store into the table it was
+# read from -- which merges every algorithm that touches the structure at all
+# and dissolves the partition.
+_MIN_STORE_MATCH_CHARS = 6
+
+
+def _same_structure(state_name: str, root: str) -> bool:
+    """Does an assignment target name the state entry, allowing for the
+    abbreviations pseudocode uses (`decay_shadow` for "decay shadow
+    counters")? Normalized equality, or containment with enough characters
+    behind it to mean something."""
+    if not state_name or not root:
+        return False
+    if state_name == root:
+        return True
+    short, long_ = sorted((state_name, root), key=len)
+    return len(short) >= _MIN_STORE_MATCH_CHARS and short in long_
+
+
+def _written_state(spec: dict) -> list[set[int]]:
+    """Per algorithm, the indices of the state entries its pseudocode writes.
+
+    Matched by normalized identifier, not by the token overlap the rest of
+    `partition` uses. Overlap is the right rule for "which state does this
+    algorithm talk about", where a false positive costs a reviewer nothing
+    but some extra context; it is the wrong rule for "which algorithms must
+    be reviewed together", where `sr_weight_tables` and
+    `sr_usefulness_tables` share the word "table" and would collapse the
+    whole partition into one unit.
+    """
+    names = [_norm_ident(s.get("name", "")) for s in (spec.get("state") or [])]
+    out: list[set[int]] = []
+    for a in (spec.get("algorithms") or []):
+        mine: set[int] = set()
+        body = spec_checks.strip_comments(a.get("pseudocode", ""))
+        for line in body.splitlines():
+            for st in line.split(";"):
+                m = _STORE_TARGET_RE.match(st)
+                if not m:
+                    continue
+                root = _norm_ident(m.group(1))
+                for i, n in enumerate(names):
+                    if _same_structure(n, root):
+                        mine.add(i)
+        out.append(mine)
+    return out
+
+
+def _merge_units(a: ReviewUnit, b: ReviewUnit) -> ReviewUnit:
+    """One unit covering both, carrying each pointer once.
+
+    Units share elements -- two algorithms that read the same table each
+    attach it -- so concatenating their element lists shows a reviewer the
+    same JSON twice and inflates the size key the cap merge sorts on.
+    """
+    seen: set[str] = set()
+    elements = []
+    for e in a.elements + b.elements:
+        if e["pointer"] in seen:
+            continue
+        seen.add(e["pointer"])
+        elements.append(e)
+    return ReviewUnit(f"{a.unit_id}+{b.unit_id}", "algorithm", elements)
+
+
 def partition(spec: dict, max_units: int | None = None) -> list[ReviewUnit]:
     """Split a spec into mechanism-shaped review units.
 
@@ -238,6 +319,26 @@ def partition(spec: dict, max_units: int | None = None) -> list[ReviewUnit]:
 
         units.append(ReviewUnit(f"algo:{a.get('name', ai)}", "algorithm", elements))
 
+    # Algorithms that store into the same state entry are reviewed together.
+    # A defect in a shared field is rarely confined to one of them -- the
+    # decay counter `decode` loads is the one `complete` reloads -- and the
+    # gate applies a round's patches as a set, reverting all of them if the
+    # spec ends less self-consistent than it started. So a reviewer holding
+    # half the writers can only ever propose half the edit, and the half
+    # lands as a regression. One observed run needed four coordinated edits
+    # to fix a countdown encoding, three inside one unit and the fourth in
+    # the next; the round was discarded whole, twice.
+    writers = _written_state(spec)
+    home = list(range(len(units)))          # algorithm index -> unit slot
+    slots: list[ReviewUnit | None] = list(units)
+    for si in range(len(state)):
+        group = sorted({home[ai] for ai, w in enumerate(writers) if si in w})
+        for other in group[1:]:
+            slots[group[0]] = _merge_units(slots[group[0]], slots[other])
+            slots[other] = None
+            home = [group[0] if h == other else h for h in home]
+    units = [u for u in slots if u is not None]
+
     globals_ = [_elem(spec, f"/{k}") for k in _GLOBAL_KEYS if k in spec]
     if globals_:
         units.append(ReviewUnit("global", "global", globals_))
@@ -255,9 +356,7 @@ def partition(spec: dict, max_units: int | None = None) -> list[ReviewUnit]:
     while len(units) > cap:
         units.sort(key=lambda u: len(u.elements))
         a, b = units.pop(0), units.pop(0)
-        units.append(
-            ReviewUnit(f"{a.unit_id}+{b.unit_id}", "algorithm", a.elements + b.elements)
-        )
+        units.append(_merge_units(a, b))
     return units
 
 
@@ -293,6 +392,26 @@ _SELF_CONSISTENCY_CODES = frozenset({
     # check that had in fact flagged exactly that pointer. The run then failed
     # closed at the final gate with the defect intact.
     "index_exceeds_dimension",
+    # A test whose own arithmetic does not close is the same kind of defect,
+    # and it is the kind no reviewer can fix without this: the paper says
+    # nothing about a decimal restatement, so CONTRADICTED has no quote to
+    # offer and UNSUPPORTED forbids patching. Seven reviewers read
+    # `0xBBB (decimal 2999)` and returned SUPPORTED because the half the
+    # paper does settle was right.
+    "arith_mismatch",
+    # An unreachable threshold against a field width the spec itself declares
+    # is the same arithmetic, reached through a comparison instead of a store.
+    "unreachable_literal_compare",
+    # And the third way to reach it: a span parameter stored into the field
+    # without the countdown encoding that makes the span fit. The paper names
+    # the span (256 instructions) but never the encoding, so CONTRADICTED has
+    # no quote to offer and only INCONSISTENT can license the patch.
+    "span_stored_directly",
+    # A branch ordered behind a guard that subsumes it is dead code the spec
+    # wrote against itself. The paper names the three FP formats but never
+    # the discriminating bit patterns, so there is no quote to contradict --
+    # the contradiction is between two lines of the spec's own pseudocode.
+    "unreachable_branch_guard",
 })
 
 
@@ -441,23 +560,45 @@ def verify_evidence(
             )
 
 
-def carry_uncertainties(
+# What each kind of note obliges the spec to admit, once it is carried.
+_NOTE_DUTY = {
+    paper_markers.UNCERTAIN: (
+        "the input marks this UNCERTAIN, so it must not be resolved by "
+        "assumption: "
+    ),
+    paper_markers.INFERRED: (
+        "the input marks this INFERRED -- a reading of the figure's layout "
+        "that the paper never states -- so whatever the spec derives from it "
+        "is an assumption and not a fact: "
+    ),
+}
+
+
+def carry_source_notes(
     spec: dict, records: list[Record], annotation: "paper_markers.Annotation",
 ) -> int:
-    """Record every declared ambiguity the spec actually leans on.
+    """Record every hedged point of the source the spec actually leans on.
 
     The source's own convention says an UNCERTAIN note must be "carried
     forward as an open question", not resolved by guessing. Leaving that to a
     model is what failed: three rounds of reviewers never mentioned the notes,
     because nothing pointed at them. Code can do it instead, and does it here.
 
+    INFERRED notes are carried on the same footing even though the source
+    never asks for it, because an unflagged inference is the worse of the two
+    failures. An UNCERTAIN point at least arrives in the spec looking
+    unfinished; an INFERRED one arrives looking settled, gets implemented, and
+    passes every test written from the same reading. Figure 6(a)'s "the three
+    fields are XORed together" is graded a reading of the drawing and sets
+    every integer digest value in the design.
+
     Relevance is decided by citation, not by topic modelling, which keeps the
     rule feature-agnostic: a note is carried when some verified quote this
     round was drawn from the same figure section. A spec that never cites
     Figure 4 does not inherit Figure 4's ambiguities. The unit is the section
-    rather than the paragraph on purpose -- an UNCERTAIN note routinely
-    retracts a number printed above it inside a LITERAL block, as Figure 6(b)
-    does to a whole derived column.
+    rather than the paragraph on purpose -- a note routinely retracts a number
+    printed above it inside a LITERAL block, as Figure 6(b) does to a whole
+    derived column.
     """
     cited: set[tuple[str, str]] = set()
     for r in records:
@@ -465,14 +606,23 @@ def carry_uncertainties(
         if span is not None and span.block:
             cited.add((span.block, span.section))
     carried = 0
-    for note in annotation.notes:
+    # UNCERTAIN first, document order within each tier. A section can hedge
+    # one point from both ends -- infer an alignment, then retract it three
+    # lines down -- and `_append_open_question` folds same-topic questions
+    # together, so whichever is carried first is the wording the spec keeps.
+    # The UNCERTAIN one is the better of the two to keep: it names the
+    # alternative reading, where the INFERRED one only says its own reading
+    # came from a drawing.
+    ordered = sorted(annotation.notes,
+                     key=lambda n: n.tier != paper_markers.UNCERTAIN)
+    for note in ordered:
         if (note.block, note.section) not in cited:
             continue
         before = len(spec.get("open_questions") or [])
         _append_open_question(
             spec,
-            f"[source {note.note_id}: {note.where}] the input marks this "
-            f"UNCERTAIN, so it must not be resolved by assumption: "
+            f"[source {note.note_id}: {note.where}] "
+            + _NOTE_DUTY[note.tier]
             + " ".join(note.text.split()),
         )
         carried += len(spec.get("open_questions") or []) > before
@@ -482,26 +632,216 @@ def carry_uncertainties(
 # ------------------------------------------------------------ patch merging
 
 
-def _self_consistency_scope(findings: list[Finding] | None) -> set[str]:
-    """Pointers a self-consistency check actually named this round."""
-    return {f.pointer for f in (findings or [])
-            if f.code in _SELF_CONSISTENCY_CODES}
+def _enclosing_object(spec: dict, pointer: str) -> str:
+    """The object whose fields a contradiction at *pointer* is between.
+
+    Widening stops at the enclosing object: a list parent would name every
+    sibling entry -- every parameter, every algorithm -- off a single
+    finding, and the document root would name the whole spec. A pointer with
+    no object parent is its own enclosure.
+    """
+    parent = pointer.rsplit("/", 1)[0]
+    return parent if parent and isinstance(ptr_get(spec, parent), dict) else pointer
+
+
+def _overlaps(pointer: str, region: str) -> bool:
+    """Does *pointer* address something inside *region*, or contain it?"""
+    return (pointer == region or pointer.startswith(region + "/")
+            or region.startswith(pointer + "/"))
+
+
+def _self_consistency_scope(
+    spec: dict, findings: list[Finding] | None
+) -> set[str]:
+    """Pointers an INCONSISTENT patch may act on this round.
+
+    A check names where a contradiction was *detected*, which is rarely the
+    only place it can be *fixed*. `param_range` reports
+    /parameters/0/default because that is the field it compared, but "default
+    256 outside [64, 255]" is a disagreement between two siblings and widening
+    /parameters/0/range settles it just as well -- only a reviewer holding the
+    parameter can say which side is wrong. Scoping to the flagged leaf refused
+    that repair and left the round with nowhere to put the fix.
+
+    So the enclosing object joins the scope, bounded as `_enclosing_object`
+    describes.
+    """
+    scope: set[str] = set()
+    for f in (findings or []):
+        if f.code not in _SELF_CONSISTENCY_CODES:
+            continue
+        scope.add(f.pointer)
+        scope.add(_enclosing_object(spec, f.pointer))
+    return scope
+
+
+def _apply_to(spec: dict, records: list[Record]) -> tuple[dict, list]:
+    """A fresh copy of *spec* with every record's patch applied.
+
+    Adds that append to the same array must not renumber each other, so
+    replaces go first and adds last. Returns the copy and the records whose
+    pointer would not resolve, paired with why.
+    """
+    out = copy.deepcopy(spec)
+    failed = []
+    for r in sorted(records,
+                    key=lambda x: (x.patch["op"] == "add", x.patch["pointer"])):
+        try:
+            ptr_apply(out, r.patch["pointer"], r.patch["value"], r.patch["op"])
+        except Exception as e:  # malformed pointer, bad index, ...
+            failed.append((r, e))
+    return out, failed
+
+
+def _num(v):
+    """A range bound as the spec writes it: 256, not 256.0."""
+    return int(v) if float(v).is_integer() else v
+
+
+def _couple_param_ranges(
+    doc: dict, findings: list[Finding], budget_bits: int | None
+) -> dict:
+    """Widen a search range that a landed default has just outgrown.
+
+    `range` is this pipeline's own field -- the DSE's search space, and
+    `_render_unit` marks it to reviewers as not a paper claim -- so a
+    reviewer correcting a default *from* the paper should not have to patch
+    it. Under the verdicts available it largely cannot: CONTRADICTED needs a
+    quote and the paper says nothing about our search space, while
+    INCONSISTENT is bounded to pointers a check flagged before the round,
+    which for a spec that starts clean is nothing at all. The one edit no
+    verdict could make was the mechanical one, and the correct patch beside
+    it was reverted for the error it left behind.
+
+    So the pipeline maintains its own field. The bound moves only to admit a
+    default that is otherwise sound: if the value does not fit the state
+    field that stores it, `unrepresentable_default` fires at the same pointer
+    and nothing is widened -- a knob that overruns the hardware is a real
+    defect and stays one.
+    """
+    before = {(f.code, f.pointer) for f in findings if f.severity == "error"}
+    after = spec_checks.run_checks(doc, budget_bits)
+    # The value has to fit the hardware before the search space is asked to
+    # admit it; these two findings share a pointer and only one of them is
+    # ours to settle.
+    unfit = {g.pointer for g in after if g.code == "unrepresentable_default"}
+    for f in after:
+        if f.severity != "error" or f.code != "param_range":
+            continue
+        if f.pointer in unfit:
+            continue
+        if (f.code, f.pointer) in before or not f.pointer.endswith("/default"):
+            continue
+        base = f.pointer.rsplit("/", 1)[0]
+        param = ptr_get(doc, base)
+        if not isinstance(param, dict):
+            continue
+        default = param.get("default")
+        if isinstance(default, bool) or not isinstance(default, (int, float)):
+            continue
+        parsed = spec_checks.parse_range(param.get("range"))
+        if not parsed or parsed[0] != "interval":
+            continue
+        _, lo, hi, mods = parsed
+        if lo <= default <= hi:
+            continue          # pow2 or some other modifier, not the bound
+        lo, hi = (default, hi) if default < lo else (lo, default)
+        param["range"] = (f"[{_num(lo)}, {_num(hi)}]"
+                          + (f" {mods}" if mods else ""))
+    return doc
+
+
+def _drop_regressing_patches(
+    spec: dict, patched: dict, landed: list[Record],
+    findings: list[Finding], budget_bits: int | None,
+) -> tuple[dict, list[tuple[Record, Finding]]]:
+    """Re-apply the round without the patches that introduced a new error.
+
+    A patch that clears one contradiction by creating another is not a fix --
+    but it must not cost the round the patches that were. One observed round
+    landed three correct patches widening /parameters/0's range to admit its
+    own default, plus one that cut /resource_accounting/total_storage_bits to
+    the figure the paper's table prints. The second was right about the paper
+    and wrong about the spec, which also declares 43008 bits of checkpoint
+    state that figure excludes. Errors went 1 -> 1, and the whole round --
+    correct patches included -- was discarded.
+
+    Attribution is by enclosing object rather than by leaving each patch out
+    in turn. A total and the breakdown that explains it are one statement
+    spread over two fields; dropping only whichever of them a check happens to
+    name leaves the other still asserting the number just rejected.
+
+    The rebuild has to earn it: unless it actually reduces the introduced
+    errors, nothing is dropped and the round-level gate decides. A regression
+    this cannot attribute is left standing and visible rather than
+    half-repaired.
+    """
+    # The coupling has to earn its place the same way the rebuild below does.
+    # Applied unconditionally it clears the `param_range` that is often the
+    # only error attributable to the patch that caused it -- leaving errors
+    # attributable to nobody, which drops nothing and costs the round every
+    # patch instead of one. So: keep the widened doc when it settles the
+    # round completely, and otherwise judge the round on the doc as patched.
+    def settled(doc: dict) -> tuple[dict, list[Finding]]:
+        coupled = _couple_param_ranges(
+            copy.deepcopy(doc), findings, budget_bits)
+        left = spec_checks.new_errors(
+            findings, spec_checks.run_checks(coupled, budget_bits))
+        if not left:
+            return coupled, []
+        return doc, spec_checks.new_errors(
+            findings, spec_checks.run_checks(doc, budget_bits))
+
+    patched, introduced = settled(patched)
+    if not introduced:
+        return patched, []
+
+    culprit_of: dict[int, Finding] = {}
+    for f in introduced:
+        region = _enclosing_object(patched, f.pointer)
+        for r in landed:
+            if _overlaps(r.patch["pointer"], region):
+                culprit_of.setdefault(id(r), f)
+    if not culprit_of:
+        return patched, []
+
+    rebuilt, _ = _apply_to(spec, [r for r in landed if id(r) not in culprit_of])
+    rebuilt, still = settled(rebuilt)
+    if len(still) >= len(introduced):
+        return patched, []
+    return rebuilt, [(r, culprit_of[id(r)]) for r in landed if id(r) in culprit_of]
+
+
+def _patch_digest(patch: dict | None, limit: int = 400) -> str | None:
+    """The value a refused patch proposed, short enough to quote in a prompt."""
+    if not isinstance(patch, dict):
+        return None
+    text = json.dumps(patch.get("value"), default=str)
+    return text if len(text) <= limit else text[:limit] + " ...[truncated]"
 
 
 def apply_patches(
     spec: dict, records: list[Record], units: list[ReviewUnit],
-    findings: list[Finding] | None = None,
+    findings: list[Finding] | None = None, budget_bits: int | None = None,
 ) -> tuple[dict, list[dict]]:
     """Apply surviving patches deterministically. Returns (new_spec, rejections)."""
     by_unit = {u.unit_id: u for u in units}
-    inconsistent_scope = _self_consistency_scope(findings)
+    inconsistent_scope = _self_consistency_scope(spec, findings)
     rejections: list[dict] = []
     candidates: list[Record] = []
 
-    def reject(rec: Record, why: str) -> None:
+    def reject(rec: Record, why: str, detail: str | None = None) -> None:
         rec.rejected = why
-        rejections.append({"unit": rec.unit_id, "pointer": rec.pointer,
-                           "verdict": rec.verdict, "reason": why})
+        entry = {"unit": rec.unit_id, "pointer": rec.pointer,
+                 "verdict": rec.verdict, "reason": why,
+                 "value": _patch_digest(rec.patch)}
+        # What the refusing check actually said. The reason names its code and
+        # its pointer; the message is the half that says what would satisfy it
+        # ("write target = pname - 1, or widen the field"), and it is the half
+        # the next round needs.
+        if detail:
+            entry["detail"] = detail
+        rejections.append(entry)
 
     for r in records:
         if not r.patch:
@@ -514,12 +854,10 @@ def apply_patches(
             continue
         if r.verdict == "INCONSISTENT":
             # Quote-free patching is a large hole to open, so it is bounded to
-            # exactly the pointers a deterministic check flagged. Without this
-            # the verdict degrades into "rewrite anything, cite nothing".
+            # the objects a deterministic check flagged. Without this the
+            # verdict degrades into "rewrite anything, cite nothing".
             target = str(r.patch.get("pointer") or r.pointer)
-            if not any(target == p or target.startswith(p + "/")
-                       or p.startswith(target + "/")
-                       for p in inconsistent_scope):
+            if not any(_overlaps(target, p) for p in inconsistent_scope):
                 reject(r, "INCONSISTENT patch at a pointer no self-consistency "
                           "check flagged")
                 continue
@@ -580,7 +918,6 @@ def apply_patches(
         else:
             grouped.setdefault(r.patch["pointer"], []).append(r)
 
-    new_spec = copy.deepcopy(spec)
     conflicts: list[str] = []
     applied: list[Record] = []
     for pointer, group in sorted(grouped.items()):
@@ -614,16 +951,45 @@ def apply_patches(
         seen.add(key)
         applied.append(r)
 
-    # Adds that append to the same array must not renumber each other, so
-    # apply replaces first and adds last.
-    for r in sorted(applied, key=lambda x: (x.patch["op"] == "add", x.patch["pointer"])):
-        try:
-            ptr_apply(new_spec, r.patch["pointer"], r.patch["value"], r.patch["op"])
-        except Exception as e:  # malformed pointer, bad index, ...
-            reject(r, f"patch failed to apply: {e}")
+    new_spec, failed = _apply_to(spec, applied)
+    for r, e in failed:
+        reject(r, f"patch failed to apply: {e}")
+
+    # Without a baseline there is no way to tell a regression from a defect
+    # the round inherited, so the whole comparison is skipped rather than
+    # guessed at.
+    if findings is not None:
+        new_spec, reverted = _drop_regressing_patches(
+            spec, new_spec, [r for r in applied if r.rejected is None],
+            findings, budget_bits,
+        )
+        for r, f in reverted:
+            reject(r, f"patch introduced {f.code} at {f.pointer}, which the "
+                      f"spec did not have before this round", detail=f.message)
 
     for c in conflicts:
         _append_open_question(new_spec, c)
+
+    # A CONTRADICTED record with verified evidence is the strongest thing this
+    # stage produces: a verbatim quote from the paper saying the spec is
+    # wrong. When its patch cannot land the finding used to vanish with it,
+    # and the spec went on to the integration agents asserting the very thing
+    # the paper contradicts, with nothing recorded anywhere. Landing the fix
+    # is the reviewer's job and the gate's; surviving the failure to land it
+    # is this. The question is tagged with the pointer the patch aimed at, so
+    # the next round dedups against it rather than re-asking.
+    for r in records:
+        if r.verdict != "CONTRADICTED" or not r.rejected or not r.evidence_ok:
+            continue
+        where = str((r.patch or {}).get("pointer") or r.pointer)
+        quote = " ".join((r.quote or "").split())
+        _append_open_question(
+            new_spec,
+            f"Unrepaired contradiction: {r.claim} The paper says: \"{quote}\" "
+            f"The correction was refused by code ({r.rejected}), so this "
+            f"field still says what it said -- resolve it before implementing.",
+            where,
+        )
     return new_spec, rejections
 
 
@@ -756,7 +1122,9 @@ def _candidate_key(cands) -> frozenset:
     )
 
 
-def _promotion_rank(rec: Record, consensus: dict, notes: set) -> tuple:
+def _promotion_rank(
+    rec: Record, consensus: dict, notes: set, flagged: set | None = None,
+) -> tuple:
     """How much a knob slot is worth spending on this ambiguity.
 
     The cap is a real budget -- every knob is a dimension the evolver has to
@@ -770,15 +1138,33 @@ def _promotion_rank(rec: Record, consensus: dict, notes: set) -> tuple:
     resolve outranks one a reviewer merely noticed, and one that several
     reviewers independently reduced to the same candidate set outranks a
     one-off.
+
+    Between those two sits code corroboration. A deterministic check that
+    already flagged the same element found the hole without being asked, so an
+    ambiguity there is load-bearing rather than merely noticeable: in the sR
+    run the cap was spent on decay bookkeeping and a tie-break rule while
+    `update`'s invented usefulness-training rule -- whose pointer
+    `_check_carried_state` had flagged for reading digests nothing produces --
+    got no slot at all. This key is also what keeps the ordering meaningful on
+    an unmarked source, where `declared` is uniformly false and the rank
+    otherwise collapses to a bare consensus count.
     """
     text = f"{rec.open_question or ''} {rec.claim or ''} {rec.why or ''}"
-    declared = bool(notes and re.findall(r"\bU\d+\b", text) and
-                    set(re.findall(r"\bU\d+\b", text)) & notes)
-    return (-int(declared), -consensus.get(_candidate_key(rec.enum_candidates), 0))
+    # Both hedged tiers count as declared, but not equally: an UNCERTAIN note
+    # names the fork and refuses to pick, while an INFERRED one has already
+    # picked and only admits where the pick came from. The first is a question
+    # the source is asking, the second a question it did not notice it was
+    # answering, so the first gets the slot when they compete.
+    cited = set(paper_markers.NOTE_ID_RE.findall(text)) & set(notes or ())
+    declared = max((2 if n.startswith("U") else 1 for n in cited), default=0)
+    corroborated = _element_pointer(rec.pointer) in (flagged or set())
+    return (-declared, -int(corroborated),
+            -consensus.get(_candidate_key(rec.enum_candidates), 0))
 
 
 def promote_unsupported(
     spec: dict, records: list[Record], source_notes: set | None = None,
+    findings: list[Finding] | None = None,
 ) -> dict:
     """Turn UNSUPPORTED verdicts into open questions and DSE enum knobs.
 
@@ -794,6 +1180,12 @@ def promote_unsupported(
     """
     out = copy.deepcopy(spec)
     notes = set(source_notes or ())
+    # Elements the deterministic checks independently flagged this round.
+    # `info` is excluded: it exists to inform a reviewer, not to rank one.
+    flagged = {
+        _element_pointer(f.pointer) for f in (findings or [])
+        if f.severity in ("error", "warn")
+    }
     # Consensus is counted over every UNSUPPORTED record, including those at
     # pointers no knob can resolve: a reviewer raising the same fork against a
     # unit test is still a second reviewer raising that fork.
@@ -846,7 +1238,8 @@ def promote_unsupported(
 
     minted: set = set()
     for r in sorted(promotable,
-                    key=lambda rec: _promotion_rank(rec, consensus, notes)):
+                    key=lambda rec: _promotion_rank(
+                        rec, consensus, notes, flagged)):
         if promoted >= C.REVIEW_MAX_PROMOTED:
             break
         key = _candidate_key(r.enum_candidates)
@@ -880,6 +1273,17 @@ def _enum_name(rec: Record, taken: set) -> str:
     while name in taken:
         name, n = f"{base}_{n}", n + 1
     return name
+
+
+def review_knobs(spec: dict) -> int:
+    """How many knobs this stage has minted, across every round so far.
+
+    Reads the provenance marker `promote_unsupported` writes, which is also
+    what the spec-wide cap counts, so "did this round mint anything" and "is
+    the budget spent" stay the same question.
+    """
+    return sum(1 for p in (spec.get("parameters") or [])
+               if str(p.get("origin", "")).startswith("review:"))
 
 
 # ------------------------------------------------------- regression differ
@@ -942,9 +1346,28 @@ def _findings_for(findings: list[Finding], unit: ReviewUnit) -> list[Finding]:
     return [f for f in findings if unit.owns(f.pointer)]
 
 
+# Fields whose content is this pipeline's own invention rather than a reading
+# of the paper. Marking them inline is what the prose exemption in reviewer.md
+# cannot do on its own: the reviewer sees the element as JSON, and an
+# unannotated `"range": "[8, 16]"` looks exactly like a transcribed fact.
+_INVENTED_FIELDS = {"range": "search space set by this pipeline, not the paper"}
+
+
+def _annotate_invented(element: dict) -> dict:
+    value = element.get("value")
+    if not isinstance(value, dict):
+        return element
+    marks = {k: why for k, why in _INVENTED_FIELDS.items() if k in value}
+    if not marks:
+        return element
+    return {**element, "_not_paper_claims": marks}
+
+
 def _render_unit(unit: ReviewUnit) -> str:
     return json.dumps(
-        {"unit_id": unit.unit_id, "elements": unit.elements}, indent=2, default=str
+        {"unit_id": unit.unit_id,
+         "elements": [_annotate_invented(e) for e in unit.elements]},
+        indent=2, default=str,
     )
 
 
@@ -963,14 +1386,60 @@ def _render_caveats(ann: "paper_markers.Annotation") -> str:
         "copied from the figure, `INFERRED` is a reading of the layout that "
         "the paper never states, and `UNCERTAIN` marks a point the source "
         "says must be carried forward as an open question rather than "
-        "resolved by guessing. Every `UNCERTAIN` note in the whole input is "
-        "listed here:\n\n"
+        "resolved by guessing. Every `UNCERTAIN` note (`U1`, `U2`, ...) and "
+        "every `INFERRED` one (`I1`, `I2`, ...) in the whole input is listed "
+        "here, tagged with which it is:\n\n"
         + body
         + "\n\nBefore returning SUPPORTED, check this list. If a note bears "
         "on your claim, the verdict is UNSUPPORTED however definite the "
         "surrounding transcription looks -- including a `LITERAL` block, "
         "whose derived columns a note in the same figure section may retract. "
+        "An `INFERRED` note reads as settled and is not: it states a "
+        "conclusion and then says the conclusion was read off a drawing, so "
+        "treat the conclusion as one candidate rather than as the answer. "
         "Give `enum_candidates` naming the readings the note lists."
+    )
+
+
+def _render_rejections(rejections: list[dict], unit: ReviewUnit) -> str:
+    """Last round's refused patches in this unit's scope, as a prompt section.
+
+    A reviewer that cannot see why its patch was refused proposes the same
+    patch again. The sR decay-interval correction was re-derived in the round
+    after the one that rejected it, same pointer, same value, same quote, and
+    refused again for the same reason -- two rounds spent on a fix that was
+    right about the paper and incomplete about the spec. What the gate knows
+    and the reviewer does not is the refusing check's message, which names
+    the other fields that have to move with it.
+
+    Scoped by pointer rather than by unit id, because unit ids are derived
+    from the partition and the partition changes between rounds.
+    """
+    mine = [r for r in rejections
+            if r.get("value") and unit.owns(str(r.get("pointer") or ""))]
+    if not mine:
+        return ""
+    lines = [
+        f"- {r['pointer']} ({r.get('verdict')}) proposed: {r['value']}\n"
+        f"  refused: {r.get('reason')}"
+        + (f"\n  the check that refused it says: {r['detail']}"
+           if r.get("detail") else "")
+        for r in mine
+    ]
+    return (
+        "\n\n## Patches refused last round in this scope\n\n"
+        + "\n".join(lines)
+        + "\n\nThese were refused by code, not by another reviewer. A patch "
+        "refused for introducing a new error was incomplete, not wrong: the "
+        "gate applies a round's patches as one set and reverts the set if "
+        "the spec ends less self-consistent than it started. If you still "
+        "believe the finding, emit EVERY edit the repair needs as its own "
+        "record this round -- the parameter default, the range that bounds "
+        "it, and each line of pseudocode that stores it -- so the spec is "
+        "consistent once all of them are applied together. Re-proposing the "
+        "same single edit will be refused the same way. If the elements you "
+        "were given do not contain every field the repair needs, say which "
+        "field is missing in `why` and return the verdict without a patch."
     )
 
 
@@ -1004,12 +1473,13 @@ def chunk_text(text: str, limit: int) -> list[str]:
 def review_spec(
     dump, spec: dict, paper_text: str, budget_bits: int | None = None
 ) -> tuple[dict, dict]:
-    """Run review rounds until the spec stops changing. Returns (spec, summary).
+    """Run review rounds until the spec stops improving. Returns (spec, summary).
 
     Rounds matter because resolving one ambiguity spawns the next: fixing the
     scope of a mechanism immediately raises the question of what controls it,
     and a single pass answers the second by assumption. The loop stops when a
-    round lands no patches, a round is rejected, or the cap is reached.
+    round lands no patch and mints no knob, a round is rejected, or the cap is
+    reached.
     """
     from llm import load_prompt, make_llm, submit_llm, collect_llm  # lazy: needs chia
 
@@ -1017,14 +1487,39 @@ def review_spec(
     # Parsed once: the grading is a property of the source, not of a round.
     ann = paper_markers.annotate(paper_text)
     caveats = _render_caveats(ann)
+    # When a round's only unfinished business is a reviewer whose call died,
+    # the next round is that unit's retry -- not a re-derivation of the
+    # answers every other unit already gave. Carried across iterations rather
+    # than recomputed, because `partition` reads the spec and the spec cannot
+    # know which backend call came back empty.
+    #
+    # One observed round lost a single unit to an empty response and spent the
+    # next hour re-reviewing all nine to get it back, with the retry queued
+    # behind seven reviews that returned the same verdicts as before.
+    retry_only: set[str] | None = None
+    # Carried into the next round's prompts so a reviewer sees why the gate
+    # refused its last patch, instead of re-deriving it unchanged.
+    prev_rejections: list[dict] = []
+
     summary["source_ambiguities"] = [
-        {"id": n.note_id, "where": n.where, "text": " ".join(n.text.split())}
+        {"id": n.note_id, "tier": n.tier, "where": n.where,
+         "text": " ".join(n.text.split())}
         for n in ann.notes
     ]
 
     for rnd in range(C.REVIEW_ROUNDS):
         findings = spec_checks.run_checks(spec, budget_bits)
         units = partition(spec)
+        retrying = retry_only
+        if retrying:
+            scoped = [u for u in units if u.unit_id in retrying]
+            # A unit id can legitimately vanish between rounds: minted knobs
+            # change which unit owns which parameter, and `orphan` exists only
+            # while something is unreferenced. Falling back to the full
+            # partition is the safe direction to fail -- reviewing too much
+            # costs time, reviewing nothing would let the run report a spec as
+            # fully reviewed when the failed unit never was.
+            units = scoped or units
 
         # One fresh session per unit. Reviewers never see the distiller's
         # transcript: independence from its reasoning is the whole point.
@@ -1039,13 +1534,21 @@ def review_spec(
                 f"\n\n## Elements under review\n\n```json\n{_render_unit(unit)}\n```"
                 f"\n\n## Deterministic findings in this scope\n\n"
                 f"{_render_findings(_findings_for(findings, unit))}"
+                f"{_render_rejections(prev_rejections, unit)}"
                 f"{caveats}"
                 f"\n\n## The paper\n\n{paper_text}"
             )
             llm = make_llm(C.LLM_BACKEND, [], resume=False)
             jobs.append((unit.unit_id, llm, submit_llm(llm, prompt, [])))
 
-        for ci, chunk in enumerate(chunk_text(paper_text, C.COVERAGE_CHUNK_CHARS)):
+        # Coverage reads the whole spec against the whole paper, so it is the
+        # most expensive single call in a round and the least unit-scoped.
+        # A retry round re-runs it only if coverage is itself what failed.
+        chunks = (
+            [] if retrying and not any(u.startswith("coverage") for u in retrying)
+            else chunk_text(paper_text, C.COVERAGE_CHUNK_CHARS)
+        )
+        for ci, chunk in enumerate(chunks):
             prompt = load_prompt(
                 "coverage.md", feature_name=C.FEATURE_NAME
             ) + (
@@ -1088,10 +1591,11 @@ def review_spec(
             parse_errors += errs
 
         verify_evidence(records, paper_text, ann)
-        candidate, rejections = apply_patches(spec, records, units, findings)
+        candidate, rejections = apply_patches(
+            spec, records, units, findings, budget_bits)
         candidate = promote_unsupported(
-            candidate, records, {n.note_id for n in ann.notes})
-        carried = carry_uncertainties(candidate, records, ann)
+            candidate, records, {n.note_id for n in ann.notes}, findings)
+        carried = carry_source_notes(candidate, records, ann)
 
         new_findings = spec_checks.run_checks(candidate, budget_bits)
         uncovered = uncovered_regressions(spec, candidate, records)
@@ -1118,7 +1622,7 @@ def review_spec(
             "hedged_evidence": sum(
                 1 for r in records if r.tier in paper_markers.HEDGED_TIERS
             ),
-            "carried_uncertainties": carried,
+            "carried_source_notes": carried,
             "regressions": [f.as_dict() for f in uncovered],
             "schema_errors": schema_errs,
             "verdicts": _verdict_counts(records),
@@ -1142,22 +1646,64 @@ def review_spec(
                 f"{errors_after})"
             )
 
+        # What this round actually accomplished: a patch that rewrote a field,
+        # or a knob minted for an ambiguity. A later round can build on
+        # either. Appending an open question cannot be progress -- and it is
+        # the one thing EVERY round does, once per UNSUPPORTED record, so the
+        # old `candidate != spec` test never went False and the round cap
+        # rather than convergence ended every run. One observed round cost an
+        # hour, landed no patch, left all three check counts identical, and
+        # added ten lines of prose; the loop then started another.
+        #
+        # The knob cap is spec-wide, so `knobs_minted` is permanently zero
+        # once it is spent. From that point the loop stops at the first round
+        # that lands no patch, which is what this function has always claimed
+        # to do.
+        patched = sum(1 for r in records if r.patch and not r.rejected)
+        minted = review_knobs(candidate) - review_knobs(spec)
+
+        if reject_reason:
+            stop_reason = f"round rejected: {reject_reason}"
+        elif quota_exhausted:
+            stop_reason = "backend quota exhausted"
+        elif not patched and not minted and not failed_units:
+            # A failed unit is not convergence: it was never reviewed, so the
+            # next round is its retry.
+            stop_reason = "converged: no patch landed and no knob was minted"
+        else:
+            stop_reason = None
+
         round_log["accepted"] = reject_reason is None
         round_log["reject_reason"] = reject_reason
+        round_log["patches_landed"] = patched
+        round_log["knobs_minted"] = minted
+        round_log["stop_reason"] = stop_reason
+        round_log["retry_of"] = sorted(retrying) if retrying else None
         dump.json(f"review_round{rnd}.json", round_log)
         summary["rounds"].append({k: round_log[k] for k in (
             "round", "units", "failed_units", "quota_exhausted",
             "checks_before", "checks_after", "inconsistent_patches",
-            "hedged_evidence", "carried_uncertainties",
-            "verdicts", "accepted", "reject_reason"
+            "hedged_evidence", "carried_source_notes",
+            "verdicts", "accepted", "reject_reason",
+            "patches_landed", "knobs_minted", "stop_reason", "retry_of",
         )})
 
+        # A rejected round is discarded, not adopted: its candidate never
+        # becomes the spec.
         if reject_reason:
             break
-        changed = candidate != spec
         spec = candidate
-        if quota_exhausted or (not changed and not failed_units):
+        if stop_reason:
             break
+        prev_rejections = rejections
+
+        # The next round is a scoped retry only when nothing else is left to
+        # do. A round that landed a patch or minted a knob changed the spec
+        # under every unit, so the round after it has to be a full one.
+        retry_only = (
+            set(failed_units) if failed_units and not patched and not minted
+            else None
+        )
 
     # A unit whose reviewer died was never checked, and a spec that reaches the
     # integration agents unmarked looks identical either way. Rolling the round

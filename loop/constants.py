@@ -304,10 +304,10 @@ NUM_INTEGRATION_ATTEMPTS = int(os.environ.get("P2P_INTEGRATION_ATTEMPTS", "6"))
 # the integration agents. Off-switchable so ablation 2 can measure what the
 # stage is worth (distill-only vs distill+review, same yardstick).
 SPEC_REVIEW = os.environ.get("P2P_SPEC_REVIEW", "1") == "1"
-REVIEW_ROUNDS = int(os.environ.get("P2P_REVIEW_ROUNDS", "3"))
+REVIEW_ROUNDS = int(os.environ.get("P2P_REVIEW_ROUNDS", "2"))
 # One reviewer per spec unit; merge the smallest units past this many, so a
 # spec with a long algorithm list cannot fan out without bound.
-REVIEW_MAX_UNITS = int(os.environ.get("P2P_REVIEW_MAX_UNITS", "12"))
+REVIEW_MAX_UNITS = int(os.environ.get("P2P_REVIEW_MAX_UNITS", "5"))
 # A string field that keeps less than this fraction of its length counts as a
 # regression and must be justified by a patch.
 REGRESSION_RATIO = float(os.environ.get("P2P_REGRESSION_RATIO", "0.4"))
@@ -333,6 +333,16 @@ REVIEW_QUESTION_SIMILARITY = float(
 # way it already fails closed on a schema error. Set to 1 only to inspect a
 # known-bad spec deliberately.
 SPEC_ALLOW_ERRORS = os.environ.get("P2P_SPEC_ALLOW_ERRORS", "0") == "1"
+# The provenance layer (loop/paper_markers.py) only does anything for a source
+# that grades its own figure transcriptions. An unmarked input silently
+# disables all of it -- hedged-evidence rejection never fires, and the
+# promotion ranking's "the source declares this ambiguous" key is uniformly
+# false -- while every stage still reports success. That is how the sR
+# floating-point digest alignment shipped as a fact: the marked transcription
+# said in as many words that it was read off the drawing, and the text the run
+# actually read had been replaced with an unmarked one. Fail loudly instead;
+# set to 0 for a genuinely prose-only paper with no figure transcriptions.
+REQUIRE_SOURCE_MARKERS = os.environ.get("P2P_REQUIRE_SOURCE_MARKERS", "1") == "1"
 # Coverage runs one call per chunk; papers under this size take a single call.
 COVERAGE_CHUNK_CHARS = int(os.environ.get("P2P_COVERAGE_CHUNK_CHARS", "60000"))
 BUILD_TIMEOUT_S = int(os.environ.get("P2P_BUILD_TIMEOUT", "1800"))

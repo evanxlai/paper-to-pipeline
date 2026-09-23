@@ -1,0 +1,15 @@
+#!/bin/sh
+# Workaround wrapper -- put this dir first on PATH for 'chia up' only.
+#
+# chia's SSHClient builds 'ssh -o ConnectTimeout=30 ...' and probes a fresh
+# node with run("echo ok", timeout=30). A still-booting GCP VM black-holes the
+# TCP connect, so ssh burns the full 30s and the subprocess timeout fires
+# first. run() turns that into SSHError, which wait_for_ssh() does not catch
+# (it only catches subprocess.TimeoutExpired) -- so the retry loop aborts on
+# the very first probe and the node is reported as setup FAILED.
+#
+# ssh uses the FIRST value it sees for a given option, so prepending a short
+# ConnectTimeout here beats chia's 30 without editing chia. The probe now
+# fails cleanly inside ssh, wait_for_ssh() retries normally, and the node's
+# ssh_timeout budget in cluster.yaml is actually honoured.
+exec /usr/bin/ssh -o ConnectTimeout=8 "$@"

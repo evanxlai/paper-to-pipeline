@@ -121,13 +121,19 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
     # reading them inline is what did not happen, and the resulting guess
     # then rode three review rounds as an established fact.
     ann = paper_markers.annotate(paper)
+    if C.REQUIRE_SOURCE_MARKERS:
+        paper_markers.require_markers(paper, ann, C.PAPER_TEXT_PATH)
     notes = ann.render_notes()
     caveats = (
         "\n\n## Declared ambiguities in the source\n\n"
-        "Each of these is a point the input marks `UNCERTAIN`: the figure is "
-        "genuinely ambiguous there. Choose a default so the spec stays "
-        "implementable, but record the alternative in `open_questions`, and "
-        "do not describe either reading as something the paper states.\n\n"
+        "Each of these is a point the input declines to state as fact. A "
+        "`U` note marks a figure the input calls genuinely ambiguous. An `I` "
+        "note marks a reading of a figure's layout that the paper never puts "
+        "into words -- it will read as settled, because it states its "
+        "conclusion and only then says where the conclusion came from. "
+        "Either way: choose a default so the spec stays implementable, but "
+        "record the alternative in `open_questions`, and do not describe "
+        "either reading as something the paper states.\n\n"
         + notes
     ) if notes else ""
     prompt = (
