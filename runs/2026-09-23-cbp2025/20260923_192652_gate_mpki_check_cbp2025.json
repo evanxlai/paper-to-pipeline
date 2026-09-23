@@ -1,0 +1,24 @@
+{
+  "plan_revision": 1,
+  "port_root": "/home/laievan/cbp2025_port",
+  "passed": true,
+  "reasons": [],
+  "warnings": [],
+  "performance": [
+    {
+      "id": "perf_cycwppki",
+      "metric": "brmispki_50perc_amean",
+      "direction": "decrease",
+      "baseline": 5.093525,
+      "measured": 5.059425000000001,
+      "relative_improvement": 0.006694774247696574,
+      "block_passed": true,
+      "warn_passed": true,
+      "reason": "",
+      "warning": "",
+      "n_traces": 4,
+      "failed_traces": [],
+      "log_tail": ""
+    }
+  ]
+}

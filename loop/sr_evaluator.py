@@ -30,8 +30,10 @@ reasons -- the second one non-obvious and load-bearing:
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import os
+import time
 
 import constants as C
 import constraints as K
@@ -96,6 +98,25 @@ def infeasible_score(report: "K.CandidateReport", constraints: list) -> float:
     return min(score, 0.99)
 
 
+def candidate_key(program_solution: str) -> str:
+    """What the compiler sees in a header, as a short hash: every line with its
+    `//` comment removed and its whitespace collapsed, blank lines dropped.
+
+    Two headers with the same key compile the same source, and this simulator
+    is deterministic, so they score the same. The key is the code and not the
+    parsed knob values, because constraints.parse_header skips every line that
+    is not a SR_/HOST_ #define, and a proposal that adds any other line builds
+    something else under the same values. Two keys that differ only in a way
+    the compiler ignores just cost a second screening, which is the safe way
+    to be wrong."""
+    lines = []
+    for line in (program_solution or "").splitlines():
+        code = " ".join(line.split("//", 1)[0].split())
+        if code:
+            lines.append(code)
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()[:16]
+
+
 class SRParamsEvaluator(ChiaEvaluator):
     def __init__(
         self,
@@ -129,6 +150,19 @@ class SRParamsEvaluator(ChiaEvaluator):
         self._port_plan = port_plan or {}
         self._constraints = [K.Constraint(c["metric"], c["comparison"], c["allowance"],
                                           c.get("name", "")) for c in constraints or []]
+        # Candidates this search has already screened, by candidate_key. On
+        # 2026-09-23, 7 of 24 iterations re-proposed a header the search had
+        # scored, and each one spent about 18 minutes of trace slots to learn
+        # nothing. Per instance, so per search: a new search can run on a
+        # different port or trace list, where the same header scores
+        # differently. The instance lives in the EvolverNode actor, so this
+        # fills as the search goes.
+        self._screened: dict = {}
+        # One JSON line per evaluation, repeats included, with the full
+        # header. The search's own database keeps only its population, so a
+        # candidate it dropped is otherwise gone with its header.
+        self.candidates_log = os.path.join(
+            output_dir, f"candidates_{time.strftime('%Y%m%d_%H%M%S')}.jsonl")
         super().__init__(
             build_fn=self._build,
             run_fn=self._run,
@@ -137,6 +171,57 @@ class SRParamsEvaluator(ChiaEvaluator):
             output_dir=output_dir,
             timeout=run_timeout_s,
         )
+
+    async def evaluate_program(self, program_solution: str, program_id: str = ""):
+        """Screen a candidate, unless this search already screened the same code.
+
+        A repeat is not built or run. It comes back as a failed attempt, which
+        is how skydiscover treats a build failure: combined_score 0 and an
+        `error` artifact. That keeps it out of the population, where a copy
+        would take one of the few slots, and skydiscover retries the iteration
+        with the error text in the next prompt. So the proposer hears at once
+        that it repeated itself, and which earlier program it matched."""
+        key = candidate_key(program_solution)
+        first = self._screened.get(key)
+        if first is not None:
+            metrics = first["metrics"]
+            message = (
+                f"Repeat: this header is the same code as program {first['id']}, which "
+                f"this search already built and screened ({C.DSE_SCREEN_METRIC} "
+                f"{metrics.get(C.DSE_SCREEN_METRIC)}, storage_bits "
+                f"{metrics.get('storage_bits')}). It was not built or run again. Change "
+                f"at least one value to a setting this search has not tried.")
+            print(f"[sr_evaluator] {program_id or 'candidate'}: repeat of {first['id']}, "
+                  f"skipped the build and {len(self._screening_traces)} trace runs")
+            result = EvaluationResult(
+                metrics={"combined_score": 0.0},
+                artifacts={"failure_stage": "repeat", "error": message,
+                           "repeat_of": first["id"]})
+            self._record(program_id, key, program_solution, result, repeat_of=first["id"])
+            return result
+        result = await super().evaluate_program(program_solution, program_id)
+        # Only a candidate that was screened in full. A refusal or a build
+        # failure costs little to redo, and a run failure can be a worker
+        # that died, which the next attempt would not repeat.
+        if C.DSE_SCREEN_METRIC in (result.metrics or {}):
+            self._screened[key] = {"id": program_id, "metrics": dict(result.metrics)}
+        self._record(program_id, key, program_solution, result)
+        return result
+
+    def _record(self, program_id, key, program_solution, result, repeat_of=None):
+        entry = {
+            "ts": time.time(), "program_id": program_id, "key": key,
+            "repeat_of": repeat_of,
+            "failure_stage": (result.artifacts or {}).get("failure_stage"),
+            "metrics": {k: v for k, v in (result.metrics or {}).items()
+                        if isinstance(v, (int, float))},
+            "header": program_solution,
+        }
+        try:
+            with open(self.candidates_log, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError as e:  # evidence only; never worth ending a search over
+            print(f"[sr_evaluator] could not write {self.candidates_log}: {e}")
 
     def _build(self, program_solution: str):
         # program_solution is the evolver's mutated sr_params.h content;

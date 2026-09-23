@@ -177,6 +177,19 @@ The search runs in `~/cbp2025_dse`. The stage copies the ported tree there
 as it starts. The evolver overwrites `sr_params.h` on every iteration,
 and the port the gate promoted has to stay on disk as the gate saw it.
 
+The search does not screen the same candidate twice. If a proposal compiles
+to the same code as a candidate this search already screened, it is not
+built or run. The evolver gets it back as a failed attempt that names the
+earlier candidate and its MPKI. Then it proposes again within the same
+iteration. A repeat costs one LLM call, not about 18 minutes of trace slots.
+On 2026-09-23, 7 of 24 iterations were repeats. The summary's `candidates`
+entry counts them.
+
+Every candidate the search screens goes into
+`out/dse/cbp2025/candidates_<time>.jsonl`, with its full header and its
+metrics. The search's own database keeps only a small population. Without
+this log, a candidate the population dropped is gone, header and all.
+
 ### 6. Promote, about 2.5 hours
 
 ```bash
@@ -201,16 +214,21 @@ Where the finalists come from:
 - **In the same job as the search.** Add `promote` to `--stage`, for
   example `--stage dse promote`. No `--promote-from` is needed.
 - **After a finished search.** `--promote-from` takes that job's
-  `summary.json`, or an adaevolve output directory that holds
-  `checkpoints/`. A search run before promotion existed has no population in
-  its summary, so point at its checkpoints instead. They sit under
+  `summary.json`, its `out/dse/cbp2025/candidates_<time>.jsonl`, or an
+  adaevolve output directory that holds `checkpoints/`. The first two hold
+  every candidate the search screened. Checkpoints hold only the ones the
+  population kept. A search run before 2026-09-23 evening has no candidates
+  log, so point at its checkpoints instead. They sit under
   `/tmp/ray/session_latest` on the node that ran the evolver, and a Ray
   restart deletes them, so copy them out first.
 
+Finalists are ranked by screening MPKI, the same metric the search ranks
+by and that G5 judges.
+
 What the stage refuses, and why:
 
-- A candidate is a finalist only if screening built and scored it, and its
-  header still passes every static constraint. The same knob values count
+- To be a finalist, a candidate must be built and scored by screening, and
+  its header must still pass every static constraint. The same knob values count
   once. The defaults are never a finalist, because they run anyway.
 - It uses the plan in force and the port on disk. Both must be the ones the
   search ran with. Otherwise every header fails the static check, and the

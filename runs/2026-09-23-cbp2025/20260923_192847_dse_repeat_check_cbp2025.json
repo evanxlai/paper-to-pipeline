@@ -1,0 +1,31 @@
+{
+  "first": {
+    "seconds": 28.5,
+    "metrics": {
+      "combined_score": 578.9717461787865,
+      "n": 2,
+      "brmispki_50perc_amean": 0.7272000000000001,
+      "cycwppki_50perc_amean": 49.1763,
+      "ipc_50perc_amean": 4.02365,
+      "storage_bits": 524206.0
+    },
+    "failure_stage": null
+  },
+  "again": {
+    "seconds": 0.001,
+    "metrics": {
+      "combined_score": 0.0
+    },
+    "artifacts": {
+      "failure_stage": "repeat",
+      "error": "Repeat: this header is the same code as program check-1, which this search already built and screened (brmispki_50perc_amean 0.7272000000000001, storage_bits 524206.0). It was not built or run again. Change at least one value to a setting this search has not tried.",
+      "repeat_of": "check-1"
+    }
+  },
+  "candidates": {
+    "log": "/home/laievan/chia-hackathon/paper-to-pipeline/out/dse/cbp2025/candidates_20260923_192818.jsonl",
+    "evaluations": 2,
+    "screened": 1,
+    "repeats_skipped": 1
+  }
+}

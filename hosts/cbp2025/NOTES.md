@@ -287,7 +287,7 @@ The loop's stats adapter reports three names. A test plan `metric_keys` list mus
 
 Across several traces these are arithmetic means, which matches `scripts/trace_exec_training_list.py`. Across one trace they are that trace's own values. So a single `./cbp` correctness command and a 60-trace sweep produce the same key names.
 
-The paper's headline claim is about CycWpPKI. The checkout also holds `reference_results_training_set.csv`, the per-trace baseline numbers the contest published.
+The paper's headline claim is about CycWpPKI. This host ranks by MPKI all the same. `brmispki_50perc_amean` is the ranking metric: stage 4 screens and promotes on it, and a test plan's `performance[]` entries must use it, with direction `decrease` (`plan_checks.RANKING_METRIC`). CycWPPKI and IPC stay in `metric_keys` and are still reported. The checkout also holds `reference_results_training_set.csv`, the per-trace baseline numbers the contest published.
 
 One trap in how a test plan uses those numbers. An `existing_regression`
 entry whose `matches_clean_tree` pattern is a measurement row is a demand

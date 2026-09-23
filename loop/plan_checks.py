@@ -3,7 +3,9 @@
 Same philosophy as the verify gate and as the spec checks: no LLM opinion
 decides whether a plan is complete. Everything here is plain code comparing
 two documents the planner already wrote against the spec it planned from, so
-nothing below is keyed to a feature, a predictor, or a particular host.
+nothing below is keyed to a feature, a predictor, or a particular host. The
+one exception is RANKING_METRIC, which names the metric each host's stage 4
+ranks by, because G5 has to judge that same metric.
 
 The central obligation is coverage. Every `state` element, `algorithms` entry,
 `parameters` entry, `host_interfaces` need and `unit_tests` entry in the spec
@@ -46,6 +48,16 @@ from pathlib import Path
 # hedge word is. A plan's off_path and a spec's unit test fail the same way
 # when they lean on "correctly" instead of naming the mechanism.
 from spec_checks import Finding, _HEDGE_RE, tokens
+
+import constants as C
+
+# The metric every stage ranks a host's candidates by, per host. Stage 4's
+# search, its finalist choice and its verdict use C.DSE_SCREEN_METRIC (MPKI
+# on cbp2025), so the gate's G5 has to judge the same one: a port promoted
+# on CycWPPKI and then tuned on MPKI answers two different questions and
+# can pass one while failing the other. Hosts not listed here (gem5 today)
+# have no stage 4 yet, so their plans choose freely.
+RANKING_METRIC = {"cbp2025": C.DSE_SCREEN_METRIC}
 
 # ------------------------------------------------------------------ pointers
 
@@ -923,6 +935,34 @@ def _check_baseline_pointers(tests: dict, baseline: dict) -> list[Finding]:
     return out
 
 
+def _check_ranking_metric(tests: dict) -> list[Finding]:
+    """Every performance entry judges the host's ranking metric, lower is
+    better. CycWPPKI and IPC stay in metric_keys and are still reported;
+    they decide nothing."""
+    want = RANKING_METRIC.get(tests.get("host"))
+    if want is None:
+        return []
+    out: list[Finding] = []
+    for i, entry in enumerate(tests.get("performance") or []):
+        entry = entry or {}
+        at = f"/tests/performance/{i}"
+        if entry.get("metric") != want:
+            out.append(Finding(
+                f"{at}/metric", "not_ranking_metric", "error",
+                f"'{entry.get('metric')}' is not {want}. Stage 4 ranks every candidate "
+                f"on this host by {want}, so G5 has to judge the same metric: a port "
+                f"that passes on another one is then tuned for something G5 never "
+                f"checked. Use {want} with direction 'decrease'.",
+            ))
+        elif entry.get("direction") != "decrease":
+            out.append(Finding(
+                f"{at}/direction", "ranking_metric_direction", "error",
+                f"{want} is a misprediction rate, so lower is better and the direction "
+                f"is 'decrease', not {entry.get('direction')!r}.",
+            ))
+    return out
+
+
 def run_checks(
     spec: dict, port_plan: dict, test_plan: dict, host_root=None, baseline=None,
     repo_root=None, host_storage_bits: int | None = None,
@@ -944,6 +984,7 @@ def run_checks(
     findings += _check_enable_knob(spec, port_plan, test_plan)
     findings += _check_pair(spec, port_plan, test_plan)
     findings += _check_test_plan(test_plan)
+    findings += _check_ranking_metric(test_plan)
     findings += _check_hooks_used(port_plan)
     findings += _check_budget_language(port_plan, test_plan)
     findings += _check_risks(port_plan)

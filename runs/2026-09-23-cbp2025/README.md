@@ -159,3 +159,38 @@ What this result does not settle:
   the `perf-8` traces.
 - **The port hard-codes the ×2.5 multiplier**, so that dimension was never
   searched.
+
+## After the verdict: repeats skipped, and G5 on MPKI
+
+Two changes came out of this run. Three short cluster jobs check them.
+
+**Stage 4 skips repeats.** A proposal that compiles to the same code as a
+candidate this search already screened is not built or run. The evolver
+gets it back as a failed attempt that names the earlier candidate and its
+MPKI, and it proposes again in the same iteration. Every evaluation now goes
+to a candidates log with its full header. Promotion ranks every screened
+candidate from that log by MPKI, not only the ones the population kept.
+
+- `20260923_192847_dse_repeat_check_cbp2025.json`: the real evaluator,
+  outside the evolver. One header was built and screened on the two sample
+  traces in 28.5 s. The same header with another comment came back in
+  0.001 s as a repeat, with no build.
+- `20260923_192912_dse_smoke_summary.json` and
+  `20260923_192912_dse_smoke_candidates.jsonl`: a 3-iteration search through
+  the real evolver, on the two sample traces. In iteration 2 the LLM's first
+  proposal repeated iteration 1. It was skipped, and the retry was new. The
+  summary counts 5 evaluations: the seed (over the allowance), 3 screened, 1
+  repeat. Its population holds all 3 screened candidates, though the
+  evolver's own database kept 2.
+
+**G5 judges MPKI.** On cbp2025, every performance entry in a test plan must
+use `brmispki_50perc_amean`, the metric stage 4 ranks by
+(`plan_checks.RANKING_METRIC`). The plan in force is now revision 1:
+`plan/sr.cbp2025.tests.rev1.json` is the stage 2 test plan with G5 moved to
+MPKI, and the port plan is unchanged.
+
+- `20260923_192652_gate_mpki_check_cbp2025.json`: the gate, run once on the
+  promoted port under revision 1. Every check passes. G5 on `perf-4`: MPKI
+  5.0935 with sR off, 5.0594 with sR on, 0.67% lower. This is the first
+  measured size of this port's G5 gain. The gate itself records no numbers
+  for a pass.

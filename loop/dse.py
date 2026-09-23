@@ -418,9 +418,50 @@ def search_outcome(result) -> tuple[str, str | None]:
     best candidate reads as a result when it is not one."""
     if result.terminal_status in DSE_OK and result.iteration_count <= 1:
         return "no_candidates", ("the search scored only its seed program: no "
-                                 "proposal came back from the LLM. The "
-                                 "EvolverNode's log says why.")
+                                 "proposal came back from the LLM, or every one "
+                                 "repeated the seed. The EvolverNode's log and the "
+                                 "candidates log say which.")
     return result.terminal_status, result.error_message
+
+
+def read_candidates_log(path: Path | str) -> list[dict]:
+    """Every candidate a search screened in full, from the evaluator's own log
+    (sr_evaluator.SRParamsEvaluator.candidates_log), as program entries.
+
+    This is the only complete record. The search's database keeps a small
+    population and drops the rest, header and all: on 2026-09-23 the one
+    candidate that grew sR and led on CycWPPKI was dropped, and it could not
+    be promoted. Repeats are left out, because each one is a copy of an
+    earlier entry. A missing log reads as no candidates."""
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError:
+        return []
+    out = []
+    for n, line in enumerate(lines):
+        row = json.loads(line)
+        if row.get("repeat_of") or C.DSE_SCREEN_METRIC not in (row.get("metrics") or {}):
+            continue
+        out.append({"id": row.get("program_id") or row.get("key"), "iteration_found": None,
+                    "evaluation": n, "solution": row.get("header") or "",
+                    "metrics": dict(row.get("metrics") or {})})
+    return out
+
+
+def candidates_summary(path: Path | str) -> dict:
+    """How many proposals the search evaluated, and how many it skipped as
+    repeats of a candidate it had already screened."""
+    try:
+        rows = [json.loads(l) for l in Path(path).read_text().splitlines()]
+    except OSError:
+        return {"log": str(path), "missing": True}
+    return {
+        "log": str(path),
+        "evaluations": len(rows),
+        "screened": sum(1 for r in rows if not r.get("repeat_of")
+                        and C.DSE_SCREEN_METRIC in (r.get("metrics") or {})),
+        "repeats_skipped": sum(1 for r in rows if r.get("repeat_of")),
+    }
 
 
 def evolver_actor_name(host: str) -> str:
@@ -548,8 +589,15 @@ def run_dse(
         "best_storage": {"feasible": best.ok, "metrics": best.metrics,
                          "breakdown": best.breakdown},
         "iterations": result.iteration_count,
-        # What promote_finalists picks from, in this job or a later one.
-        "population": [_program_entry(p) for p in result.population or []],
+        "candidates": candidates_summary(evaluator.candidates_log),
+        # What promote_finalists picks from, in this job or a later one:
+        # every candidate the search screened, not only the population it
+        # kept. The database's own record wins where both have a program,
+        # because it carries iteration_found.
+        "population": list({
+            **{p["id"]: p for p in read_candidates_log(evaluator.candidates_log)},
+            **{p.get("id"): _program_entry(p) for p in result.population or []},
+        }.values()),
         "status": status,
         "error": error,
     }
@@ -581,8 +629,10 @@ def _program_entry(p: dict) -> dict:
 def load_population(path: Path | str, host: str | None = None) -> list[dict]:
     """The programs a finished search scored, read back from disk.
 
-    `path` is one of three things:
+    `path` is one of four things:
     - a job's summary.json, whose dse[] entries carry `population`;
+    - the evaluator's candidates_<time>.jsonl, which holds every candidate
+      the search screened (read_candidates_log), the most complete of the four;
     - an adaevolve output directory, which holds checkpoints/checkpoint_<N>/;
     - one checkpoint_<N> directory, which holds programs/.
 
@@ -593,6 +643,8 @@ def load_population(path: Path | str, host: str | None = None) -> list[dict]:
     path = Path(path)
     if not path.exists():
         raise SystemExit(f"{path} does not exist, so there is no search to promote from")
+    if path.is_file() and path.suffix == ".jsonl":
+        return read_candidates_log(path)
     if path.is_file():
         doc = json.loads(path.read_text())
         runs = [d for d in doc.get("dse") or [] if host is None or d.get("host") == host]
@@ -614,8 +666,14 @@ def _knob_key(report: "K.CandidateReport") -> tuple:
 
 
 def _screen_rank(p: dict) -> tuple:
-    """Best first: the search's own fitness, then the earlier find."""
-    return -float(p["metrics"].get("combined_score") or 0.0), p.get("iteration_found") or 0
+    """Best first: the lower screening MPKI, then the earlier find.
+
+    MPKI itself, not the search's combined_score. The two give the same
+    order, since combined_score is 1000 / (1 + MPKI), but every stage ranks
+    by C.DSE_SCREEN_METRIC and this says so. Only candidates that carry it
+    get here (select_finalists)."""
+    return (float(p["metrics"][C.DSE_SCREEN_METRIC]), p.get("iteration_found") or 0,
+            p.get("evaluation") or 0)
 
 
 def select_finalists(

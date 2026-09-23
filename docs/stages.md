@@ -192,7 +192,7 @@ suite.
 | G2 | with the feature knob off, metrics equal the recorded baseline — reported as the results of the test plan's `feature_off_baseline` entries, so the plan owns which workloads and which tolerance |
 | G3 | the test plan's other `correctness[]` entries pass |
 | G4 | with the feature knob on, the smoke traces complete without error |
-| G5 | the test plan's `performance[]` entries pass their `block_threshold`, and every trace they declare completes — an entry scored on the traces that survived is a number about a different trace set than the plan asked for |
+| G5 | the test plan's `performance[]` entries pass their `block_threshold`, and every trace they declare completes — an entry scored on the traces that survived is a number about a different trace set than the plan asked for. On a host with a ranking metric (`plan_checks.RANKING_METRIC`; MPKI on cbp2025), every entry judges that metric, the one stage 4 ranks by |
 
 There is no storage condition. See the rule at the top.
 
