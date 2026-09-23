@@ -1,0 +1,113 @@
+{
+  "feature_name": "sr",
+  "host": "cbp2025",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+  "metric_keys": [
+    "brmispki_50perc_amean",
+    "cycwppki_50perc_amean",
+    "ipc_50perc_amean"
+  ],
+  "smoke": {
+    "traces": [
+      "sample_traces/int/sample_int_trace.gz",
+      "sample_traces/fp/sample_fp_trace.gz"
+    ],
+    "run": {
+      "mode": "command_per_trace",
+      "command_template": "./cbp {trace}"
+    },
+    "timeout_seconds": 300
+  },
+  "correctness": [
+    {
+      "id": "run_int_trace",
+      "kind": "existing_regression",
+      "description": "Runs the sample int trace to verify the predictor doesn't crash.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "both",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997301 instrs "
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": " Read 997301 instrs "
+      }
+    },
+    {
+      "id": "baseline_int_trace",
+      "kind": "feature_off_baseline",
+      "description": "Verifies the off path is bit-identical to the baseline.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "unit_digest_int",
+      "kind": "spec_unit_test",
+      "description": "Tests INT digest generation.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/0",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "digest_generation_int: PASS"
+      }
+    },
+    {
+      "id": "unit_decay",
+      "kind": "spec_unit_test",
+      "description": "Tests digest decay mechanism.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/1",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "decay_mechanism: PASS"
+      }
+    },
+    {
+      "id": "unit_most_useful",
+      "kind": "spec_unit_test",
+      "description": "Tests selecting the most useful register.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/2",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "most_useful_selection: PASS"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_cycwppki",
+      "description": "Check for claimed improvement in CycWPPKI.",
+      "metric": "cycwppki_50perc_amean",
+      "direction": "decrease",
+      "trace_list": "experiments/perf-4.list",
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": [
+          {
+            "metric": "ipc_50perc_amean",
+            "direction": "increase",
+            "max_relative_regression": 0.01
+          }
+        ]
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.01,
+        "claim_source": "/summary"
+      }
+    }
+  ]
+}

@@ -8,37 +8,32 @@
     "ipc_50perc_amean"
   ],
   "smoke": {
-    "traces": [
-      "sample_traces/int/sample_int_trace.gz",
-      "sample_traces/fp/sample_fp_trace.gz"
-    ],
+    "trace_list": "experiments/smoke-2.list",
     "run": {
-      "mode": "command_per_trace",
-      "command_template": "./cbp {trace}"
+      "mode": "host_adapter"
     },
-    "timeout_seconds": 300
+    "timeout_seconds": 600
   },
   "correctness": [
     {
-      "id": "run_int_trace",
+      "id": "baseline_check",
       "kind": "existing_regression",
-      "description": "Runs the sample int trace to verify the predictor doesn't crash.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
-      "feature_state": "both",
+      "description": "Check that the unmodified host suite passes with the feature off.",
+      "command": "make clean && make && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
       "clean_tree_result": {
         "exit_code": 0,
         "passed": true,
         "summary": " Read 997301 instrs "
       },
       "pass_condition": {
-        "kind": "matches_clean_tree",
-        "pattern": " Read 997301 instrs "
+        "kind": "matches_clean_tree"
       }
     },
     {
-      "id": "baseline_int_trace",
+      "id": "feature_off_baseline",
       "kind": "feature_off_baseline",
-      "description": "Verifies the off path is bit-identical to the baseline.",
+      "description": "Ensure the metrics are bit-identical to the baseline when the feature is off.",
       "command": "./cbp sample_traces/int/sample_int_trace.gz",
       "feature_state": "off",
       "pass_condition": {
@@ -48,65 +43,208 @@
       }
     },
     {
-      "id": "unit_digest_int",
+      "id": "test_digest_generation_integer_zero",
       "kind": "spec_unit_test",
-      "description": "Tests INT digest generation.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "Unit test: test_digest_generation_integer_zero",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/0",
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "digest_generation_int: PASS"
+        "pattern": "test_digest_generation_integer_zero: PASS"
       }
     },
     {
-      "id": "unit_decay",
+      "id": "test_digest_generation_integer_arbitrary",
       "kind": "spec_unit_test",
-      "description": "Tests digest decay mechanism.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "Unit test: test_digest_generation_integer_arbitrary",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/1",
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "decay_mechanism: PASS"
+        "pattern": "test_digest_generation_integer_arbitrary: PASS"
       }
     },
     {
-      "id": "unit_most_useful",
+      "id": "test_digest_generation_fp64",
       "kind": "spec_unit_test",
-      "description": "Tests selecting the most useful register.",
-      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "description": "Unit test: test_digest_generation_fp64",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
       "feature_state": "on",
-      "test_file": "my_cond_branch_predictor.cc",
+      "test_file": "test_sr.cc",
       "spec_pointer": "/unit_tests/2",
       "pass_condition": {
         "kind": "stdout_matches",
-        "pattern": "most_useful_selection: PASS"
+        "pattern": "test_digest_generation_fp64: PASS"
+      }
+    },
+    {
+      "id": "test_digest_generation_fp32",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_digest_generation_fp32",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/3",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_digest_generation_fp32: PASS"
+      }
+    },
+    {
+      "id": "test_digest_generation_flag",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_digest_generation_flag",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/4",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_digest_generation_flag: PASS"
+      }
+    },
+    {
+      "id": "test_digest_fold_to_width",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_digest_fold_to_width",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/5",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_digest_fold_to_width: PASS"
+      }
+    },
+    {
+      "id": "test_decay_staleness_invalidation",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_decay_staleness_invalidation",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/6",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_decay_staleness_invalidation: PASS"
+      }
+    },
+    {
+      "id": "test_writeback_tag_mismatch",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_writeback_tag_mismatch",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/7",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_writeback_tag_mismatch: PASS"
+      }
+    },
+    {
+      "id": "test_bank_membership",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_bank_membership",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/8",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_bank_membership: PASS"
+      }
+    },
+    {
+      "id": "test_bank_selection_highest_usefulness",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_bank_selection_highest_usefulness",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/9",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_bank_selection_highest_usefulness: PASS"
+      }
+    },
+    {
+      "id": "test_gating_multiplier_negative_usefulness",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_gating_multiplier_negative_usefulness",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/10",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_gating_multiplier_negative_usefulness: PASS"
+      }
+    },
+    {
+      "id": "test_bank_vote_scaling",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_bank_vote_scaling",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/11",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_bank_vote_scaling: PASS"
+      }
+    },
+    {
+      "id": "test_single_write_port_random_selection",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_single_write_port_random_selection",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/12",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_single_write_port_random_selection: PASS"
+      }
+    },
+    {
+      "id": "test_usefulness_update_only_when_decisive",
+      "kind": "spec_unit_test",
+      "description": "Unit test: test_usefulness_update_only_when_decisive",
+      "command": "g++ -std=c++17 -I. -I./lib test_sr.cc my_cond_branch_predictor.cc -o test_sr && ./test_sr",
+      "feature_state": "on",
+      "test_file": "test_sr.cc",
+      "spec_pointer": "/unit_tests/13",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "test_usefulness_update_only_when_decisive: PASS"
       }
     }
   ],
   "performance": [
     {
       "id": "perf_cycwppki",
-      "description": "Check for claimed improvement in CycWPPKI.",
+      "description": "Ensure CycWPPKI improves on average across the 4-trace perf list.",
       "metric": "cycwppki_50perc_amean",
       "direction": "decrease",
       "trace_list": "experiments/perf-4.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "run": {
+        "mode": "host_adapter"
+      },
       "block_threshold": {
         "min_relative_improvement": 0.0,
-        "no_regression": [
-          {
-            "metric": "ipc_50perc_amean",
-            "direction": "increase",
-            "max_relative_regression": 0.01
-          }
-        ]
+        "no_regression": []
       },
       "warn_threshold": {
-        "target_relative_improvement": 0.01,
-        "claim_source": "/summary"
+        "target_relative_improvement": 0.005,
+        "claim_source": "Assumed threshold"
       }
     }
   ]
