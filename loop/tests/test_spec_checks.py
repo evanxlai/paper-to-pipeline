@@ -950,6 +950,35 @@ def test_a_unit_is_still_stripped_beside_a_conjunction():
     assert len(f) == 1 and f[0].severity == "error"
 
 
+def test_an_inclusive_range_and_its_count_is_not_a_restatement():
+    """`slots 0-8 (9 registers)` is a range and its size, not 8 restated as 9.
+
+    The regex reaches over the hyphen and matches the tail of the range, so
+    the parenthetical looked like a restatement of `8`. It never fired on a
+    model-written spec and fired immediately on a hand-refined one, at
+    `error`, which fails the distill stage closed on correct English.
+    """
+    assert _arith(one_test(
+        expect="Bank 0 holds R0, R8, ..., R64 at slots 0-8 (9 registers). "
+               "Bank 1 holds R1, R9, ..., R57 at slots 0-7 (8 registers).")) == []
+
+
+def test_a_range_whose_count_is_wrong_is_still_a_mismatch():
+    f = _arith(one_test(expect="Bank 0 holds slots 0-8 (10 registers)."))
+    assert len(f) == 1 and f[0].severity == "error"
+
+
+def test_a_subtraction_restated_beside_itself_is_silent():
+    """The other reading of `L-N (M)`, and the paper's prose uses both."""
+    assert _arith(one_test(expect="The high field spans 8-3 (5) bits.")) == []
+
+
+def test_a_hex_restatement_still_closes_over_a_hyphen():
+    """The motivating case must survive the range exemption."""
+    f = _arith(one_test(expect="Digest 0xBBB (decimal 2999) is written."))
+    assert len(f) == 1 and f[0].severity == "error"
+
+
 def test_comparisons_are_not_equality_claims():
     assert _arith(one_test(
         expect="After 1st decode, decay_ctr == 1, then decay_ctr == 0.")) == []

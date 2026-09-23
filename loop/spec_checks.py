@@ -802,6 +802,35 @@ def _agrees(left: list, right: list) -> bool:
     return any(r in _signed_readings("", l) for l in left for r in right)
 
 
+# A number reached over a hyphen is the tail of `L-N`, and the parenthetical
+# beside it restates the pair, not that tail alone. `_RESTATEMENT_RE`'s
+# lookbehind blocks a word character before the number but not a hyphen, so
+# `slots 0-8 (9 registers)` read as "8, restated as 9" and reported a
+# contradiction in a sentence that is simply correct English. It cost nothing
+# on a model-written spec, whose bank tests happened to be phrased otherwise,
+# and fired the moment a hand-refined one used the ordinary idiom -- at
+# `error`, which fails the whole stage closed.
+_RANGE_LEFT_RE = re.compile(r"(?<![\w.])(\d+)\s*-\s*$")
+
+
+def _pair_readings(raw: str, m: "re.Match") -> set:
+    """Values `L-N (M ...)` can legitimately restate, for the `L-N` before *m*.
+
+    Two readings, and the paper's prose uses both: an inclusive range, whose
+    restatement is the count `|N - L| + 1`, and a subtraction, whose
+    restatement is `L - N`. Neither is decidable from the text, so both are
+    accepted -- a count that matches neither is still a contradiction.
+    """
+    lead = _RANGE_LEFT_RE.search(raw[:m.start()])
+    if not lead:
+        return set()
+    try:
+        lo, hi = int(lead.group(1)), int(m.group(1))
+    except ValueError:      # a hex tail is not a range bound
+        return set()
+    return {abs(hi - lo) + 1, lo - hi}
+
+
 def _arith_claims(text: str):
     """Yield (shown, stated, computed) for every decidable claim in *text*."""
     raw = text or ""
@@ -819,6 +848,8 @@ def _arith_claims(text: str):
         if not left or not right:
             continue
         if right[0] in _signed_readings(m.group(1), left[0]):
+            continue
+        if right[0] in _pair_readings(raw, m):
             continue
         if not _agrees(left, right):
             yield m.group(0), right[0], left[0]
