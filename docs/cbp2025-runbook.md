@@ -165,7 +165,7 @@ travel through `--runtime-env-json`:
 | config | iterations | time on this cluster |
 | --- | --- | --- |
 | `config_adaevolve_smoke_vertex.yaml` | 3 | about 40 minutes |
-| `config_adaevolve_medium_vertex.yaml` | 24 | about 4 to 6 hours on `perf-8.list` |
+| `config_adaevolve_medium_vertex.yaml` | 24 | 8 hours on `perf-8.list`, measured |
 | `config_adaevolve.yaml` (default) | 250 | days, and it needs more trace workers |
 
 `--screening-list` picks the traces each candidate is scored on. The

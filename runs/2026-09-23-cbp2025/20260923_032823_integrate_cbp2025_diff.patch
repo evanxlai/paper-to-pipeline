@@ -1,0 +1,2090 @@
+--- diffstat ---
+ PORT_NOTES.md                      |   2 +
+ cbp2016_tage_sc_l.h                |  58 +++++---
+ cond_branch_predictor_interface.cc |  14 ++
+ fix_all.py                         |  79 ++++++++++
+ fix_decay.py                       |  37 +++++
+ fix_decay2.py                      |  34 +++++
+ fix_h.py                           | 109 ++++++++++++++
+ fix_tage.py                        |  19 +++
+ fix_test.py                        | 145 +++++++++++++++++++
+ fix_test_logic.py                  |  29 ++++
+ fix_vis.py                         |   9 ++
+ gen_test.py                        | 170 ++++++++++++++++++++++
+ my_cond_branch_predictor.cc        |   3 +
+ my_cond_branch_predictor.h         | 286 ++++++++++++++++++++++++++++++++++++-
+ patch_host_knobs.py                |  35 +++++
+ patch_interface.py                 |  42 ++++++
+ patch_sr_update.py                 |  25 ++++
+ patch_tage.py                      |  67 +++++++++
+ patch_tage2.py                     |  32 +++++
+ rewrite_h.py                       | 277 +++++++++++++++++++++++++++++++++++
+ sr_params.h                        |  34 +++++
+ test_sr.cc                         | 139 ++++++++++++++++++
+ update_h.py                        |  38 +++++
+ update_h2.py                       |  32 +++++
+ update_test.py                     |   9 ++
+ 25 files changed, 1696 insertions(+), 28 deletions(-)
+--- patch ---
+diff --git a/PORT_NOTES.md b/PORT_NOTES.md
+new file mode 100644
+index 0000000..63b6c04
+--- /dev/null
++++ b/PORT_NOTES.md
+@@ -0,0 +1,2 @@
++- Instruction IDs will not wrap cleanly like a fixed-size ROB tag, but truncation to rob_tag_bits will mimic aliasing.
++- sR will not see wrong-path execution or flushes, slightly altering register digest staleness compared to a real pipeline.
+diff --git a/cbp2016_tage_sc_l.h b/cbp2016_tage_sc_l.h
+index 00eebcb..fcf43b4 100644
+--- a/cbp2016_tage_sc_l.h
++++ b/cbp2016_tage_sc_l.h
+@@ -1,3 +1,4 @@
++#include "sr_params.h"
+ #ifndef _TAGE_PREDICTOR_H_
+ #define _TAGE_PREDICTOR_H_
+ 
+@@ -14,7 +15,7 @@
+ 
+ 
+ //parameters of the loop predictor
+-#define LOGL 5
++#define LOGL HOST_LOGL
+ #define WIDTHNBITERLOOP 10  // we predict only loops with less than 1K iterations
+ #define LOOPTAG 10      //tag width in the loop predictor
+ 
+@@ -39,10 +40,10 @@
+ 
+ //The statistical corrector components
+ 
+-#define PERCWIDTH 6     //Statistical corrector  counter width 5 -> 6 : 0.6 %
++#define PERCWIDTH HOST_PERCWIDTH     //Statistical corrector  counter width 5 -> 6 : 0.6 %
+ //The three BIAS tables in the SC component
+ //We play with the TAGE  confidence here, with the number of the hitting bank
+-#define LOGBIAS 8
++#define LOGBIAS HOST_LOGBIAS
+ int8_t Bias[(1 << LOGBIAS)];
+ int8_t BiasSK[(1 << LOGBIAS)];
+ int8_t BiasBank[(1 << LOGBIAS)];
+@@ -51,14 +52,14 @@ int8_t BiasBank[(1 << LOGBIAS)];
+ 
+ // IMLI-SIC -> Micro 2015  paper: a big disappointment on  CBP2016 traces
+ #ifdef IMLI
+-#define LOGINB 8        // 128-entry
++#define LOGINB HOST_LOGINB        // 128-entry
+ #define INB 1
+ int Im[INB] = { 8 };
+ int8_t IGEHLA[INB][(1 << LOGINB)] = { {0} };
+ 
+ int8_t *IGEHL[INB];
+ 
+-#define LOGIMNB 9       // 2 * 256-entry
++#define LOGIMNB HOST_LOGIMNB       // 2 * 256-entry
+ #define IMNB 2
+ 
+ int IMm[IMNB] = { 10, 4 };
+@@ -69,7 +70,7 @@ int8_t *IMGEHL[IMNB];
+ #endif
+ 
+ //global branch GEHL
+-#define LOGGNB 10       // 1 1K + 2 * 512-entry tables
++#define LOGGNB HOST_LOGGNB       // 1 1K + 2 * 512-entry tables
+ #define GNB 3
+ int Gm[GNB] = { 40, 24, 10 };
+ int8_t GGEHLA[GNB][(1 << LOGGNB)] = { {0} };
+@@ -78,14 +79,14 @@ int8_t *GGEHL[GNB];
+ 
+ //variation on global branch history
+ #define PNB 3
+-#define LOGPNB 9        // 1 512 + 2 * 256-entry tables
++#define LOGPNB HOST_LOGPNB        // 1 512 + 2 * 256-entry tables
+ int Pm[PNB] = { 25, 16, 9 };
+ int8_t PGEHLA[PNB][(1 << LOGPNB)] = { {0} };
+ 
+ int8_t *PGEHL[PNB];
+ 
+ //first local history
+-#define LOGLNB  10      // 1 1K + 2 * 512-entry tables
++#define LOGLNB HOST_LOGLNB      // 1 1K + 2 * 512-entry tables
+ #define LNB 3
+ int Lm[LNB] = { 11, 6, 3 };
+ int8_t LGEHLA[LNB][(1 << LOGLNB)] = { {0} };
+@@ -95,7 +96,7 @@ int8_t *LGEHL[LNB];
+ #define NLOCAL (1<<LOGLOCAL)
+ 
+ // second local history
+-#define LOGSNB 9        // 1 512 + 2 * 256-entry tables
++#define LOGSNB HOST_LOGSNB        // 1 512 + 2 * 256-entry tables
+ #define SNB 3
+ int Sm[SNB] = { 16, 11, 6 };
+ int8_t SGEHLA[SNB][(1 << LOGSNB)] = { {0} };
+@@ -105,7 +106,7 @@ int8_t *SGEHL[SNB];
+ #define NSECLOCAL (1<<LOGSECLOCAL)  //Number of second local histories
+ 
+ //third local history
+-#define LOGTNB 10       // 2 * 512-entry tables
++#define LOGTNB HOST_LOGTNB       // 2 * 512-entry tables
+ #define TNB 2
+ int Tm[TNB] = { 9, 4 };
+ int8_t TGEHLA[TNB][(1 << LOGTNB)] = { {0} };
+@@ -138,7 +139,7 @@ int8_t WP[(1 << LOGSIZEUPS)];
+ int8_t WI[(1 << LOGSIZEUPS)];
+ int8_t WIM[(1 << LOGSIZEUPS)];
+ int8_t WB[(1 << LOGSIZEUPS)];
+-#define EWIDTH 6
++#define EWIDTH HOST_EWIDTH
+ int LSUM;
+ 
+ // The two counters used to choose between TAGE and SC on Low Conf SC
+@@ -191,8 +192,8 @@ class gentry            // TAGE global table entry
+ 
+ #define NHIST 36        // twice the number of different histories
+ 
+-#define NBANKLOW 10     // number of banks in the shared bank-interleaved for the low history lengths
+-#define NBANKHIGH 20        // number of banks in the shared bank-interleaved for the  history lengths
++#define NBANKLOW HOST_NBANKLOW     // number of banks in the shared bank-interleaved for the low history lengths
++#define NBANKHIGH HOST_NBANKHIGH        // number of banks in the shared bank-interleaved for the  history lengths
+ 
+ int SizeTable[NHIST + 1];
+ 
+@@ -209,8 +210,8 @@ int SizeTable[NHIST + 1];
+ #define MAXHIST 3000
+ 
+ 
+-#define LOGG 10         /* logsize of the  banks in the  tagged TAGE tables */
+-#define TBITS 8         //minimum width of the tags  (low history lengths), +4 for high history lengths
++#define LOGG HOST_LOGG         /* logsize of the  banks in the  tagged TAGE tables */
++#define TBITS HOST_TBITS         //minimum width of the tags  (low history lengths), +4 for high history lengths
+ 
+ 
+ bool NOSKIP[NHIST + 1];     // to manage the associativity for different history lengths
+@@ -218,13 +219,13 @@ bool NOSKIP[NHIST + 1];     // to manage the associativity for different history
+ 
+ 
+ #define NNN 1           // number of extra entries allocated on a TAGE misprediction (1+NNN)
+-#define HYSTSHIFT 2     // bimodal hysteresis shared by 4 entries
+-#define LOGB 13         // log of number of entries in bimodal predictor
++#define HYSTSHIFT HOST_HYSTSHIFT     // bimodal hysteresis shared by 4 entries
++#define LOGB HOST_LOGB         // log of number of entries in bimodal predictor
+ 
+ 
+ #define PHISTWIDTH 27       // width of the path history used in TAGE
+-#define UWIDTH 1        // u counter width on TAGE (2 bits not worth the effort for a 512 Kbits predictor 0.2 %)
+-#define CWIDTH 3        // predictor counter width on the TAGE tagged tables
++#define UWIDTH HOST_UWIDTH        // u counter width on TAGE (2 bits not worth the effort for a 512 Kbits predictor 0.2 %)
++#define CWIDTH HOST_CWIDTH        // predictor counter width on the TAGE tagged tables
+ 
+ 
+ //the counter(s) to chose between longest match and alternate prediction on TAGE when weak counters
+@@ -454,6 +455,7 @@ int predictorsize ()
+ // There are a couple of other hooks that aren't used in the current implementation, but are available to exploit:
+ // * notify_instr_decode 
+ // * notify_instr_commit
++#include "my_cond_branch_predictor.h"
+ class CBP2016_TAGE_SC_L
+ {
+     public:
+@@ -1071,6 +1073,13 @@ class CBP2016_TAGE_SC_L
+             LSUM += Gpredict (PC, hist_to_use.IMHIST[(hist_to_use.IMLIcount)], IMm, IMGEHL, IMNB, LOGIMNB, WIM);
+             LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);
+ #endif
++            if (cond_predictor_impl.sr_enabled) {
++                if (pred_time_predict) {
++                    LSUM += cond_predictor_impl.sr_predict_at_pred(seq_no, piece, PC);
++                } else {
++                    LSUM += cond_predictor_impl.sr_predict_at_update(seq_no, piece, PC);
++                }
++            }
+             bool SCPRED = (LSUM >= 0);
+             //just  an heuristic if the respective contribution of component groups can be multiplied by 2 or not
+             THRES = (updatethreshold>>3)+Pupdatethreshold[INDUPD]
+@@ -1241,11 +1250,11 @@ class CBP2016_TAGE_SC_L
+             //    assert(false);
+             //} 
+             // remove checkpointed hist
+-            update(PC, resolveDir, pred_taken, nextPC, pred_time_history);
++            update(PC, resolveDir, pred_taken, nextPC, pred_time_history, seq_no, piece);
+             pred_time_histories.erase(pred_hist_key);
+         }
+ 
+-        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)
++        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no, uint8_t piece)
+         {
+ #ifdef SC
+ #ifdef LOOPPREDICTOR
+@@ -1263,6 +1272,10 @@ class CBP2016_TAGE_SC_L
+             }
+ #endif
+ 
++            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.sr_predict_at_update(seq_no, piece, PC);
++            }
++
+             bool SCPRED = (LSUM >= 0);
+             if (pred_inter != SCPRED)
+             {
+@@ -1284,6 +1297,9 @@ class CBP2016_TAGE_SC_L
+ 
+             if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
+             {
++                if (cond_predictor_impl.sr_enabled) {
++                    cond_predictor_impl.sr_update(seq_no, piece, PC, resolveDir, LSUM);
++                }
+                 {
+                     if (SCPRED != resolveDir)
+                     {
+diff --git a/cond_branch_predictor_interface.cc b/cond_branch_predictor_interface.cc
+index b189157..1661419 100644
+--- a/cond_branch_predictor_interface.cc
++++ b/cond_branch_predictor_interface.cc
+@@ -115,6 +115,11 @@ void spec_update(uint64_t seq_no, uint8_t piece, uint64_t pc, InstClass inst_cla
+ // For the sample predictor implementation, we do not leverage decode information
+ void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
+ {
++    int dest_reg = -1;
++    if (_decode_info.dst_reg_info.has_value()) {
++        dest_reg = _decode_info.dst_reg_info.value();
++    }
++    cond_predictor_impl.on_instruction_decode(dest_reg, cond_predictor_impl.get_unique_inst_id(seq_no, piece));
+ }
+ 
+ //
+@@ -137,6 +142,15 @@ void notify_agen_complete(uint64_t seq_no, uint8_t piece, uint64_t pc, const Dec
+ // At the moment, we do not consider updating any other structure, but the contestants are allowed to  update any other predictor state.
+ void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
+ {
++    if (_exec_info.dst_reg_value.has_value() && _exec_info.dec_info.dst_reg_info.has_value()) {
++        uint64_t dst_reg = _exec_info.dec_info.dst_reg_info.value();
++        uint64_t val = _exec_info.dst_reg_value.value();
++        int reg_type = 0;
++        if (dst_reg < 32) reg_type = 0;
++        else if (dst_reg < 64) reg_type = 1;
++        else if (dst_reg == 64) reg_type = 2;
++        cond_predictor_impl.on_instruction_writeback(dst_reg, cond_predictor_impl.get_unique_inst_id(seq_no, piece), val, reg_type);
++    }
+     const bool is_branch = is_br(_exec_info.dec_info.insn_class);
+     if(is_branch)
+     {
+diff --git a/fix_all.py b/fix_all.py
+new file mode 100644
+index 0000000..486d9e3
+--- /dev/null
++++ b/fix_all.py
+@@ -0,0 +1,79 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++# Fix sr_predict_at_pred
++old_pred = """        int sr_predict_at_pred(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            return sr_predict(pc, active_hist.sr_snap, active_hist.sr_bank_contrib);
++        }"""
++new_pred = """        int sr_predict_at_pred(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) {
++                pred_time_histories.emplace(pred_hist_key, active_hist);
++            }
++            return sr_predict(pc, active_hist.sr_snap, pred_time_histories.at(pred_hist_key).sr_bank_contrib);
++        }"""
++content = content.replace(old_pred, new_pred)
++
++# Fix predict
++old_predict = """        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
++        {
++            active_hist.tage_pred = tage_pred;
++            snapshot_status_table(active_hist.sr_snap);
++            // checkpoint current hist
++            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
++            return pred_taken;
++        }"""
++new_predict = """        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
++        {
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) != pred_time_histories.end()) {
++                pred_time_histories.at(pred_hist_key).tage_pred = tage_pred;
++            } else {
++                active_hist.tage_pred = tage_pred;
++                snapshot_status_table(active_hist.sr_snap);
++                pred_time_histories.emplace(pred_hist_key, active_hist);
++            }
++            return tage_pred;
++        }"""
++if old_predict in content:
++    content = content.replace(old_predict, new_predict)
++else:
++    # try the version without snapshot_status_table if it wasn't replaced properly earlier
++    old_predict2 = """        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
++        {
++            active_hist.tage_pred = tage_pred;
++            // checkpoint current hist
++            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
++            return pred_taken;
++        }"""
++    content = content.replace(old_predict2, new_predict)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    content = f.read()
++
++old_tage = """            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.sr_predict_at_update(seq_no, piece, PC);
++            }
++            bool SCPRED = (LSUM >= 0);"""
++
++new_tage = """            if (cond_predictor_impl.sr_enabled) {
++                if (pred_time_predict) {
++                    LSUM += cond_predictor_impl.sr_predict_at_pred(seq_no, piece, PC);
++                } else {
++                    LSUM += cond_predictor_impl.sr_predict_at_update(seq_no, piece, PC);
++                }
++            }
++            bool SCPRED = (LSUM >= 0);"""
++content = content.replace(old_tage, new_tage)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(content)
+diff --git a/fix_decay.py b/fix_decay.py
+new file mode 100644
+index 0000000..4865c4b
+--- /dev/null
++++ b/fix_decay.py
+@@ -0,0 +1,37 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++orig_decode = """        void on_instruction_decode(int dest_reg, uint64_t rob_tag) {
++            for (int r = 0; r <= 64; ++r) {
++                if (reg_status[r].valid) {
++                    if (reg_status[r].decay_ctr == 0) {
++                        reg_status[r].valid = false;
++                    } else {
++                        reg_status[r].decay_ctr--;
++                    }
++                }
++            }"""
++
++new_decode = """        void on_instruction_decode(int dest_reg, uint64_t rob_tag) {
++            for (int r = 0; r <= 64; ++r) {
++                if (reg_status[r].valid) {
++                    if (reg_status[r].decay_ctr > 0) {
++                        reg_status[r].decay_ctr--;
++                        if (reg_status[r].decay_ctr == 0) {
++                            reg_status[r].valid = false;
++                        }
++                    } else {
++                        reg_status[r].valid = false;
++                    }
++                }
++            }"""
++
++if orig_decode in content:
++    content = content.replace(orig_decode, new_decode)
++    with open('my_cond_branch_predictor.h', 'w') as f:
++        f.write(content)
++    print("Fixed decay")
++else:
++    print("Could not find decode block")
+diff --git a/fix_decay2.py b/fix_decay2.py
+new file mode 100644
+index 0000000..861c6d1
+--- /dev/null
++++ b/fix_decay2.py
+@@ -0,0 +1,34 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++orig_decode = """        void on_instruction_decode(int dest_reg, uint64_t rob_tag) {
++            for (int r = 0; r <= 64; ++r) {
++                if (reg_status[r].valid) {
++                    if (reg_status[r].decay_ctr > 0) {
++                        reg_status[r].decay_ctr--;
++                        if (reg_status[r].decay_ctr == 0) {
++                            reg_status[r].valid = false;
++                        }
++                    } else {
++                        reg_status[r].valid = false;
++                    }
++                }
++            }"""
++
++new_decode = """        void on_instruction_decode(int dest_reg, uint64_t rob_tag) {
++            for (int r = 0; r <= 64; ++r) {
++                if (reg_status[r].valid) {
++                    if (reg_status[r].decay_ctr == 0) {
++                        reg_status[r].valid = false;
++                    } else {
++                        reg_status[r].decay_ctr--;
++                    }
++                }
++            }"""
++
++if orig_decode in content:
++    content = content.replace(orig_decode, new_decode)
++    with open('my_cond_branch_predictor.h', 'w') as f:
++        f.write(content)
+diff --git a/fix_h.py b/fix_h.py
+new file mode 100644
+index 0000000..90ab863
+--- /dev/null
++++ b/fix_h.py
+@@ -0,0 +1,109 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++old_sr_predict = """        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) const {"""
++
++new_sr_predict = """        int sr_predict(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            auto& snap = active_hist.sr_snap;
++            auto& bank_contrib = active_hist.sr_bank_contrib;
++            int sr_total = 0;"""
++
++content = content.replace(old_sr_predict, new_sr_predict)
++
++# Also fix the return type of sr_predict and any const qualifier
++# Wait, sr_predict in old was:
++# int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) const {
++# Let's replace the whole method to be safe.
++
++old_method = """        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) const {
++            int sr_total = 0;
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int best_reg = -1;
++                int max_useful = 0;
++                for (int r = b; r <= 64; r += SR_NUM_BANKS) {
++                    if (snap[r].valid) {
++                        int s = r / SR_NUM_BANKS;
++                        int useful_sum = 0;
++                        for (int t = 0; t < 3; ++t) {
++                            int u = ut_idx(t, pc);
++                            useful_sum += ut[b][t][u][s];
++                        }
++                        if (best_reg < 0 || useful_sum > max_useful) {
++                            max_useful = useful_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                bank_contrib[b] = 0;
++                if (best_reg >= 0 && max_useful >= SR_USEFULNESS_THRESHOLD) {
++                    uint32_t d = snap[best_reg].digest;
++                    int p = 0;
++                    
++                    int w0 = wt_idx(0, pc, d);
++                    p += (2 * wt0[b][w0] + 1);
++                    
++                    int w1 = wt_idx(1, pc, d);
++                    p += (2 * wt1[b][w1] + 1);
++                    
++                    int w2 = wt_idx(2, pc, d);
++                    p += (2 * wt2[b][w2] + 1);
++                    
++                    bank_contrib[b] = (int)(p * SR_MULTIPLIER_USEFUL); // trunc toward zero
++                }
++                sr_total += bank_contrib[b];
++            }
++            return sr_total;
++        }"""
++
++new_method = """        int sr_predict(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            auto& snap = active_hist.sr_snap;
++            auto& bank_contrib = active_hist.sr_bank_contrib;
++
++            int sr_total = 0;
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int best_reg = -1;
++                int max_useful = 0;
++                for (int r = b; r <= 64; r += SR_NUM_BANKS) {
++                    if (snap[r].valid) {
++                        int s = r / SR_NUM_BANKS;
++                        int useful_sum = 0;
++                        for (int t = 0; t < 3; ++t) {
++                            int u = ut_idx(t, pc);
++                            useful_sum += ut[b][t][u][s];
++                        }
++                        if (best_reg < 0 || useful_sum > max_useful) {
++                            max_useful = useful_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                bank_contrib[b] = 0;
++                if (best_reg >= 0 && max_useful >= SR_USEFULNESS_THRESHOLD) {
++                    uint32_t d = snap[best_reg].digest;
++                    int p = 0;
++                    
++                    int w0 = wt_idx(0, pc, d);
++                    p += (2 * wt0[b][w0] + 1);
++                    
++                    int w1 = wt_idx(1, pc, d);
++                    p += (2 * wt1[b][w1] + 1);
++                    
++                    int w2 = wt_idx(2, pc, d);
++                    p += (2 * wt2[b][w2] + 1);
++                    
++                    bank_contrib[b] = (int)(p * SR_MULTIPLIER_USEFUL); // trunc toward zero
++                }
++                sr_total += bank_contrib[b];
++            }
++            return sr_total;
++        }"""
++
++content = content.replace(old_method, new_method)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
++
+diff --git a/fix_tage.py b/fix_tage.py
+new file mode 100644
+index 0000000..d63f961
+--- /dev/null
++++ b/fix_tage.py
+@@ -0,0 +1,19 @@
++import sys
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    content = f.read()
++
++if '#include "my_cond_branch_predictor.h"' not in content:
++    content = content.replace('class CBP2016_TAGE_SC_L', '#include "my_cond_branch_predictor.h"\nclass CBP2016_TAGE_SC_L')
++
++# Replace the inner call in the outer update
++old_call = "update(PC, resolveDir, pred_taken, nextPC, pred_time_history);"
++new_call = "update(PC, resolveDir, pred_taken, nextPC, pred_time_history, seq_no, piece);"
++content = content.replace(old_call, new_call)
++
++# Now, we also need to fix the SC update block to use cond_predictor_impl because the previous script might not have included it properly if it failed?
++# Wait, the previous script DID replace the SC update block, because the error was about cond_predictor_impl not declared.
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(content)
++
+diff --git a/fix_test.py b/fix_test.py
+new file mode 100644
+index 0000000..2656217
+--- /dev/null
++++ b/fix_test.py
+@@ -0,0 +1,145 @@
++import sys
++
++content = """
++#include "my_cond_branch_predictor.h"
++#include <iostream>
++#include <cassert>
++
++extern SampleCondPredictor cond_predictor_impl;
++
++int main(int argc, char** argv) {
++    if (argc < 2) return 1;
++    int test_id = std::stoi(argv[1]);
++    
++    cond_predictor_impl.setup();
++
++    if (test_id == 0) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x0000000000000000, 0); // INT
++        assert(d == 0x1C7);
++    } else if (test_id == 1) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x0000000000000042, 0); // INT
++        assert(d == 0x149);
++    } else if (test_id == 2) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x3FF0000000000000, 1); // FP
++        assert(d == 0x07F);
++    } else if (test_id == 3) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x000000003F800000, 1); // FP
++        assert(d == 0x00F);
++    } else if (test_id == 4) {
++        uint32_t d = cond_predictor_impl.generate_digest(0b1001, 2); // FLAG
++        assert(d == 0x999);
++    } else if (test_id == 5) {
++        uint32_t folded = cond_predictor_impl.fold(0x149, 6);
++        assert(folded == 0x0C);
++    } else if (test_id == 6) {
++        cond_predictor_impl.on_instruction_decode(0, 100);
++        cond_predictor_impl.on_instruction_writeback(0, 100, 0, 0);
++        assert(cond_predictor_impl.reg_status[0].valid == true);
++        assert(cond_predictor_impl.reg_status[0].decay_ctr == 255);
++        for(int i = 0; i < 255; ++i) {
++            cond_predictor_impl.on_instruction_decode(1, 101+i);
++        }
++        assert(cond_predictor_impl.reg_status[0].valid == true);
++        assert(cond_predictor_impl.reg_status[0].decay_ctr == 0);
++        cond_predictor_impl.on_instruction_decode(1, 999);
++        assert(cond_predictor_impl.reg_status[0].valid == false);
++    } else if (test_id == 7) {
++        cond_predictor_impl.on_instruction_decode(3, 5); // instr A
++        cond_predictor_impl.on_instruction_decode(3, 9); // instr B
++        // A completes
++        cond_predictor_impl.on_instruction_writeback(3, 5, 0, 0);
++        assert(cond_predictor_impl.reg_status[3].valid == false); // still pending
++        assert(cond_predictor_impl.reg_status[3].payload == 9);
++        // B completes
++        cond_predictor_impl.on_instruction_writeback(3, 9, 0, 0);
++        assert(cond_predictor_impl.reg_status[3].valid == true);
++    } else if (test_id == 8) {
++        assert((0 % SR_NUM_BANKS) == 0);
++        assert((8 % SR_NUM_BANKS) == 0);
++        assert((64 % SR_NUM_BANKS) == 0);
++        assert((64 / SR_NUM_BANKS) == 8); // 9th slot
++        assert((1 % SR_NUM_BANKS) == 1);
++        assert((9 % SR_NUM_BANKS) == 1);
++        assert((57 % SR_NUM_BANKS) == 1);
++    } else if (test_id == 9) {
++        cond_predictor_impl.reg_status[0].valid = true; cond_predictor_impl.reg_status[0].payload = 0;
++        cond_predictor_impl.reg_status[8].valid = true; cond_predictor_impl.reg_status[8].payload = 1;
++        cond_predictor_impl.ut[0][0][0][0] = 5;
++        cond_predictor_impl.ut[0][0][0][1] = 18;
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 1)] = 10;
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -10;
++        
++        cond_predictor_impl.sr_predict(0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[0] > 0); 
++        
++        cond_predictor_impl.ut[0][0][0][0] = 7;
++        cond_predictor_impl.ut[0][0][0][1] = 7;
++        cond_predictor_impl.sr_predict(0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[0] < 0);
++    } else if (test_id == 10) {
++        cond_predictor_impl.reg_status[1].valid = true; cond_predictor_impl.reg_status[1].payload = 0;
++        cond_predictor_impl.ut[1][0][0][0] = -4; // slot 0 for R1 in bank 1
++        cond_predictor_impl.sr_predict(0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[1] == 0);
++    } else if (test_id == 11) {
++        cond_predictor_impl.reg_status[2].valid = true; cond_predictor_impl.reg_status[2].payload = 0;
++        cond_predictor_impl.ut[2][0][0][0] = 0;
++        cond_predictor_impl.wt0[2][cond_predictor_impl.wt_idx(0, 0, 0)] = 3;
++        cond_predictor_impl.wt1[2][cond_predictor_impl.wt_idx(1, 0, 0)] = -1;
++        cond_predictor_impl.wt2[2][cond_predictor_impl.wt_idx(2, 0, 0)] = 0;
++        cond_predictor_impl.sr_predict(0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[2] == 17);
++    } else if (test_id == 12) {
++        cond_predictor_impl.prng_state = 12345;
++        SampleHist hist;
++        hist.sr_snap[3].valid = true;
++        hist.sr_snap[3].digest = 1;
++        hist.sr_snap[11].valid = true;
++        hist.sr_snap[11].digest = 2;
++        hist.sr_snap[19].valid = false;
++        
++        cond_predictor_impl.pred_time_histories.emplace(cond_predictor_impl.get_unique_inst_id(0, 0), hist);
++        
++        cond_predictor_impl.reg_status[19].valid = true;
++        
++        cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 1)] = 0;
++        cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 2)] = 0;
++        
++        cond_predictor_impl.sr_update(0, 0, 0, true, 0); // taken
++        
++        int w3 = cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 1)];
++        int w11 = cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 2)];
++        assert((w3 == 1 && w11 == 0) || (w3 == 0 && w11 == 1));
++    } else if (test_id == 13) {
++        SampleHist hist;
++        hist.sr_snap[0].valid = true;
++        hist.sr_snap[0].digest = 0;
++        hist.sr_bank_contrib[0] = -25; // to simulate earlier predict
++        cond_predictor_impl.pred_time_histories.emplace(cond_predictor_impl.get_unique_inst_id(0, 1), hist);
++        
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -5;
++        cond_predictor_impl.wt1[0][cond_predictor_impl.wt_idx(1, 0, 0)] = 0;
++        cond_predictor_impl.wt2[0][cond_predictor_impl.wt_idx(2, 0, 0)] = -1;
++        
++        cond_predictor_impl.ut[0][0][0][0] = 0;
++        
++        // Case 1: rest = 40. lsum = 40 + (-25) = 15
++        cond_predictor_impl.sr_update(0, 1, 0, false, 15);
++        assert(cond_predictor_impl.ut[0][0][0][0] == 0); // unchanged
++        
++        SampleHist hist2;
++        hist2.sr_snap[0].valid = true;
++        hist2.sr_snap[0].digest = 0;
++        hist2.sr_bank_contrib[0] = -22;
++        cond_predictor_impl.pred_time_histories.emplace(cond_predictor_impl.get_unique_inst_id(0, 2), hist2);
++        
++        // Case 2: rest = 10. lsum = 10 + (-22) = -12
++        cond_predictor_impl.sr_update(0, 2, 0, false, -12);
++        assert(cond_predictor_impl.ut[0][0][0][0] == 1); // trained because p < 0 matches not taken
++    }
++    return 0;
++}
++"""
++
++with open('test_sr.cc', 'w') as f:
++    f.write(content)
+diff --git a/fix_test_logic.py b/fix_test_logic.py
+new file mode 100644
+index 0000000..7618232
+--- /dev/null
++++ b/fix_test_logic.py
+@@ -0,0 +1,29 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++# Make sure we use bank_contrib properly
++old_pred = """        int sr_predict_at_pred(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) {
++                pred_time_histories.emplace(pred_hist_key, active_hist);
++            }
++            return sr_predict(pc, active_hist.sr_snap, pred_time_histories.at(pred_hist_key).sr_bank_contrib);
++        }"""
++
++new_pred = """        int sr_predict_at_pred(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) {
++                pred_time_histories.emplace(pred_hist_key, active_hist);
++            }
++            int res = sr_predict(pc, active_hist.sr_snap, pred_time_histories.at(pred_hist_key).sr_bank_contrib);
++            for(int i=0; i<SR_NUM_BANKS; ++i) active_hist.sr_bank_contrib[i] = pred_time_histories.at(pred_hist_key).sr_bank_contrib[i];
++            return res;
++        }"""
++if old_pred in content:
++    content = content.replace(old_pred, new_pred)
++    with open('my_cond_branch_predictor.h', 'w') as f:
++        f.write(content)
+diff --git a/fix_vis.py b/fix_vis.py
+new file mode 100644
+index 0000000..2d8dfae
+--- /dev/null
++++ b/fix_vis.py
+@@ -0,0 +1,9 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++content = content.replace('class SampleCondPredictor\n{', 'class SampleCondPredictor\n{\npublic:')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/gen_test.py b/gen_test.py
+new file mode 100644
+index 0000000..17d004d
+--- /dev/null
++++ b/gen_test.py
+@@ -0,0 +1,170 @@
++import sys
++
++content = """
++#include "my_cond_branch_predictor.h"
++#include <iostream>
++#include <cassert>
++
++extern SampleCondPredictor cond_predictor_impl;
++
++int main(int argc, char** argv) {
++    if (argc < 2) return 1;
++    int test_id = std::stoi(argv[1]);
++    
++    cond_predictor_impl.setup();
++
++    if (test_id == 0) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x0000000000000000, 0); // INT
++        assert(d == 0x1C7);
++    } else if (test_id == 1) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x0000000000000042, 0); // INT
++        assert(d == 0x149);
++    } else if (test_id == 2) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x3FF0000000000000, 1); // FP
++        assert(d == 0x07F);
++    } else if (test_id == 3) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x000000003F800000, 1); // FP
++        assert(d == 0x00F);
++    } else if (test_id == 4) {
++        uint32_t d = cond_predictor_impl.generate_digest(0b1001, 2); // FLAG
++        assert(d == 0x999);
++    } else if (test_id == 5) {
++        uint32_t folded = cond_predictor_impl.fold(0x149, 6);
++        assert(folded == 0x0C);
++    } else if (test_id == 6) {
++        cond_predictor_impl.on_instruction_decode(0, 100);
++        cond_predictor_impl.on_instruction_writeback(0, 100, 0, 0);
++        assert(cond_predictor_impl.reg_status[0].valid == true);
++        assert(cond_predictor_impl.reg_status[0].decay_ctr == 255);
++        for(int i = 0; i < 255; ++i) {
++            cond_predictor_impl.on_instruction_decode(1, 101+i);
++        }
++        assert(cond_predictor_impl.reg_status[0].valid == true);
++        assert(cond_predictor_impl.reg_status[0].decay_ctr == 0);
++        cond_predictor_impl.on_instruction_decode(1, 999);
++        assert(cond_predictor_impl.reg_status[0].valid == false);
++    } else if (test_id == 7) {
++        cond_predictor_impl.on_instruction_decode(3, 5); // instr A
++        cond_predictor_impl.on_instruction_decode(3, 9); // instr B
++        // A completes
++        cond_predictor_impl.on_instruction_writeback(3, 5, 0, 0);
++        assert(cond_predictor_impl.reg_status[3].valid == false); // still pending
++        assert(cond_predictor_impl.reg_status[3].payload == 9);
++        // B completes
++        cond_predictor_impl.on_instruction_writeback(3, 9, 0, 0);
++        assert(cond_predictor_impl.reg_status[3].valid == true);
++    } else if (test_id == 8) {
++        // Bank membership
++        // Bank 0 holds R0, R8, R16... R64
++        // Bank 1 holds R1, R9... R57
++        assert((0 % SR_NUM_BANKS) == 0);
++        assert((8 % SR_NUM_BANKS) == 0);
++        assert((64 % SR_NUM_BANKS) == 0);
++        assert((64 / SR_NUM_BANKS) == 8); // 9th slot
++        assert((1 % SR_NUM_BANKS) == 1);
++        assert((9 % SR_NUM_BANKS) == 1);
++        assert((57 % SR_NUM_BANKS) == 1);
++    } else if (test_id == 9) {
++        // Test bank selection highest usefulness
++        std::array<SRSnapshotEntry, 65> snap;
++        for (int i=0; i<65; ++i) { snap[i].valid = false; snap[i].digest = 0; }
++        snap[0].valid = true; snap[0].digest = 0;
++        snap[8].valid = true; snap[8].digest = 1;
++        // set up usefulness
++        // bank 0, t=0, u=0 (assuming pc=0 maps to u=0)
++        // R0 is slot 0, R8 is slot 1
++        cond_predictor_impl.ut[0][0][0][0] = 5;
++        cond_predictor_impl.ut[0][0][0][1] = 18;
++        
++        std::array<int, SR_NUM_BANKS> contrib;
++        // sr_predict will use best_reg. If it picks R8, it uses digest 1.
++        // We set wt for digest 1 to give a known value.
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 1)] = 10;
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -10;
++        
++        cond_predictor_impl.sr_predict(0, snap, contrib);
++        // if it picked R8, sum uses wt for digest 1 => 2*10+1 = 21. * 2.5 = 52.
++        assert(contrib[0] > 0); 
++        
++        // tie case
++        cond_predictor_impl.ut[0][0][0][0] = 7;
++        cond_predictor_impl.ut[0][0][0][1] = 7;
++        cond_predictor_impl.sr_predict(0, snap, contrib);
++        assert(contrib[0] < 0);
++    } else if (test_id == 10) {
++        std::array<SRSnapshotEntry, 65> snap;
++        for (int i=0; i<65; ++i) { snap[i].valid = false; snap[i].digest = 0; }
++        snap[1].valid = true; snap[1].digest = 0;
++        cond_predictor_impl.ut[1][0][0][0] = -4; // slot 0 for R1 in bank 1
++        std::array<int, SR_NUM_BANKS> contrib;
++        cond_predictor_impl.sr_predict(0, snap, contrib);
++        assert(contrib[1] == 0);
++    } else if (test_id == 11) {
++        std::array<SRSnapshotEntry, 65> snap;
++        for (int i=0; i<65; ++i) { snap[i].valid = false; snap[i].digest = 0; }
++        snap[2].valid = true; snap[2].digest = 0;
++        cond_predictor_impl.ut[2][0][0][0] = 0;
++        cond_predictor_impl.wt0[2][cond_predictor_impl.wt_idx(0, 0, 0)] = 3;
++        cond_predictor_impl.wt1[2][cond_predictor_impl.wt_idx(1, 0, 0)] = -1;
++        cond_predictor_impl.wt2[2][cond_predictor_impl.wt_idx(2, 0, 0)] = 0;
++        std::array<int, SR_NUM_BANKS> contrib;
++        cond_predictor_impl.sr_predict(0, snap, contrib);
++        assert(contrib[2] == 17);
++    } else if (test_id == 12) {
++        // prng_next choice
++        cond_predictor_impl.prng_state = 12345;
++        
++        // Let's set up a prediction time state
++        cond_predictor_impl.pred_time_histories[0].sr_snap[3].valid = true;
++        cond_predictor_impl.pred_time_histories[0].sr_snap[3].digest = 1;
++        cond_predictor_impl.pred_time_histories[0].sr_snap[11].valid = true;
++        cond_predictor_impl.pred_time_histories[0].sr_snap[11].digest = 2;
++        cond_predictor_impl.pred_time_histories[0].sr_snap[19].valid = false;
++        
++        // R19 becomes valid before update
++        cond_predictor_impl.reg_status[19].valid = true;
++        
++        cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 1)] = 0;
++        cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 2)] = 0;
++        
++        cond_predictor_impl.sr_update(0, 0, 0, true, 0); // taken
++        
++        // Only one of R3 or R11 should be trained.
++        int w3 = cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 1)];
++        int w11 = cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 2)];
++        assert((w3 == 1 && w11 == 0) || (w3 == 0 && w11 == 1));
++    } else if (test_id == 13) {
++        // Usefulness update only when decisive
++        cond_predictor_impl.pred_time_histories[1].sr_snap[0].valid = true;
++        cond_predictor_impl.pred_time_histories[1].sr_snap[0].digest = 0;
++        cond_predictor_impl.pred_time_histories[1].sr_bank_contrib[0] = -25;
++        
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -6; // 2*-6+1 = -11. Let's make it -10. Wait, 2*w+1 = -11, not -10. 
++        // to make p = -10, w0, w1, w2 must sum to -10, which means 2*sum_w + 3 = -10 -> impossible.
++        // It's fine if p is -10 or -11, just need scaled vote to be -25 or -27.
++        // Let's set w0=-5 => 2*-5+1=-9. w1=0 => 1. w2=-1 => -1. p = -9. p*2.5 = -22.
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -5;
++        cond_predictor_impl.wt1[0][cond_predictor_impl.wt_idx(1, 0, 0)] = 0;
++        cond_predictor_impl.wt2[0][cond_predictor_impl.wt_idx(2, 0, 0)] = -1;
++        // p = -9
++        
++        cond_predictor_impl.ut[0][0][0][0] = 0;
++        
++        // Case 1: rest = 40. lsum = 40 + (-22) = 18
++        cond_predictor_impl.sr_update(0, 1, 0, false, 18);
++        assert(cond_predictor_impl.ut[0][0][0][0] == 0); // unchanged
++        
++        // Case 2: rest = 10. lsum = 10 + (-22) = -12
++        cond_predictor_impl.pred_time_histories[2].sr_snap[0].valid = true;
++        cond_predictor_impl.pred_time_histories[2].sr_snap[0].digest = 0;
++        cond_predictor_impl.pred_time_histories[2].sr_bank_contrib[0] = -22;
++        cond_predictor_impl.sr_update(0, 2, 0, false, -12);
++        assert(cond_predictor_impl.ut[0][0][0][0] == 1); // trained because p < 0 matches not taken
++    }
++    return 0;
++}
++"""
++
++with open('test_sr.cc', 'w') as f:
++    f.write(content)
++
+diff --git a/my_cond_branch_predictor.cc b/my_cond_branch_predictor.cc
+index e69de29..002b5af 100755
+--- a/my_cond_branch_predictor.cc
++++ b/my_cond_branch_predictor.cc
+@@ -0,0 +1,3 @@
++#include "my_cond_branch_predictor.h"
++
++SampleCondPredictor cond_predictor_impl;
+diff --git a/my_cond_branch_predictor.h b/my_cond_branch_predictor.h
+index e96ebb8..b75c1cd 100644
+--- a/my_cond_branch_predictor.h
++++ b/my_cond_branch_predictor.h
+@@ -1,34 +1,302 @@
++#include <cmath>
+ #ifndef _PREDICTOR_H_
+ #define _PREDICTOR_H_
+ 
+ #include <stdlib.h>
++#include "sr_params.h"
++#include <stdint.h>
++#include <vector>
++#include <array>
++#include <unordered_map>
++#include <assert.h>
++
++
++struct SRSnapshotEntry {
++    bool valid;
++    uint32_t digest;
++};
+ 
+ struct SampleHist
+ {
+       uint64_t ghist;
+       bool tage_pred;
+-      //
++      std::array<SRSnapshotEntry, 65> sr_snap;
++      std::array<int, SR_NUM_BANKS> sr_bank_contrib;
++
+       SampleHist()
+       {
+           ghist = 0;
++          for (int i=0; i<65; ++i) { sr_snap[i].valid = false; sr_snap[i].digest = 0; }
++          for (int i=0; i<SR_NUM_BANKS; ++i) sr_bank_contrib[i] = 0;
+       }
+ };
+ 
+ 
++
+ class SampleCondPredictor
+ {
++public:
+         SampleHist active_hist;
+         std::unordered_map<uint64_t/*key*/, SampleHist/*val*/> pred_time_histories;
++
+     public:
++        bool sr_enabled;
++
++        struct RegStatus {
++            bool valid;
++            uint32_t payload;
++            uint32_t decay_ctr;
++        } reg_status[65];
++
++        int8_t ut[SR_NUM_BANKS][3][SR_UT_ENTRIES][65 / SR_NUM_BANKS + 1];
++        int8_t wt0[SR_NUM_BANKS][SR_WT0_ENTRIES];
++        int8_t wt1[SR_NUM_BANKS][SR_WT1_ENTRIES];
++        int8_t wt2[SR_NUM_BANKS][SR_WT2_ENTRIES];
++        
++        uint64_t prng_state;
++
++        uint64_t prng_next() {
++            // A simple LCG or Xorshift
++            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
++            return prng_state;
++        }
++
++        uint32_t fold(uint32_t x, int k) const {
++            uint32_t folded = 0;
++            while (x != 0) {
++                folded ^= (x & ((1 << k) - 1));
++                x >>= k;
++            }
++            return folded;
++        }
++
++        void sat_update(int8_t& ctr, bool up, int bits) {
++            int max_val = (1 << (bits - 1)) - 1;
++            int min_val = -(1 << (bits - 1));
++            if (up) {
++                if (ctr < max_val) ctr++;
++            } else {
++                if (ctr > min_val) ctr--;
++            }
++        }
++
++        uint32_t ut_idx(int t, uint64_t pc) const {
++            return (pc ^ (pc >> (3 * (t + 1)))) & (SR_UT_ENTRIES - 1);
++        }
++
++        uint32_t wt_idx(int t, uint64_t pc, uint32_t d) const {
++            int n = (t == 0) ? SR_WT0_ENTRIES : ((t == 1) ? SR_WT1_ENTRIES : SR_WT2_ENTRIES);
++            int k = 0;
++            while ((1 << k) < n) k++; // Assuming n is a power of 2
++            return (pc ^ (pc >> k) ^ fold(d, k)) & (n - 1);
++        }
++
++        int count_leading(uint64_t val, bool b) const {
++            if (b) val = ~val;
++            if (val == 0) return 64;
++            return __builtin_clzll(val);
++        }
++
++        int count_trailing(uint64_t val, bool b) const {
++            if (b) val = ~val;
++            if (val == 0) return 64;
++            return __builtin_ctzll(val);
++        }
++
++        uint32_t generate_digest(uint64_t val, int reg_type) const {
++            uint32_t raw = 0;
++            if (reg_type == 0) { // INT
++                uint32_t low6 = val & 0x3F;
++                bool lead_bit = (val >> 63) & 1;
++                uint32_t lead_count = count_leading(val, lead_bit);
++                if (lead_count > 63) lead_count = 63;
++                bool trail_bit = val & 1;
++                uint32_t trail_count = count_trailing(val, trail_bit);
++                if (trail_count > 63) trail_count = 63;
++                raw = ((low6 << 6) ^ (lead_count << 3) ^ trail_count) & 0xFFF;
++            } else if (reg_type == 1) { // FP
++                if ((val >> 32) != 0) {
++                    raw = (val >> 55) & 0x1FF;
++                } else if ((val >> 16) != 0) {
++                    raw = (val >> 26) & 0x3F;
++                } else {
++                    raw = (val >> 13) & 0x7;
++                }
++            } else { // FLAG
++                uint32_t flag4 = val & 0xF;
++                raw = (flag4 << 8) | (flag4 << 4) | flag4;
++            }
++            return fold(raw, SR_DIGEST_WIDTH);
++        }
++
++        void on_instruction_decode(int dest_reg, uint64_t rob_tag) {
++            for (int r = 0; r <= 64; ++r) {
++                if (reg_status[r].valid) {
++                    if (reg_status[r].decay_ctr == 0) {
++                        reg_status[r].valid = false;
++                    } else {
++                        reg_status[r].decay_ctr--;
++                    }
++                }
++            }
++            if (dest_reg >= 0 && dest_reg <= 64) {
++                reg_status[dest_reg].valid = false;
++                reg_status[dest_reg].payload = rob_tag & ((1 << SR_ROB_TAG_BITS) - 1);
++                reg_status[dest_reg].decay_ctr = 0;
++            }
++        }
++
++        void on_instruction_writeback(int dest_reg, uint64_t rob_tag, uint64_t val, int reg_type) {
++            if (dest_reg >= 0 && dest_reg <= 64) {
++                uint32_t tag = rob_tag & ((1 << SR_ROB_TAG_BITS) - 1);
++                if (!reg_status[dest_reg].valid && reg_status[dest_reg].payload == tag) {
++                    reg_status[dest_reg].payload = generate_digest(val, reg_type);
++                    reg_status[dest_reg].decay_ctr = SR_DECAY_INTERVAL - 1;
++                    reg_status[dest_reg].valid = true;
++                }
++            }
++        }
++
++        void snapshot_status_table(std::array<SRSnapshotEntry, 65>& snap) const {
++            for (int r = 0; r <= 64; ++r) {
++                snap[r].valid = reg_status[r].valid;
++                snap[r].digest = reg_status[r].payload & ((1 << SR_DIGEST_WIDTH) - 1);
++            }
++        }
++
++        int sr_predict_at_pred(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) {
++                pred_time_histories.emplace(pred_hist_key, active_hist);
++            }
++            int res = sr_predict(pc, active_hist.sr_snap, pred_time_histories.at(pred_hist_key).sr_bank_contrib);
++            for(int i=0; i<SR_NUM_BANKS; ++i) active_hist.sr_bank_contrib[i] = pred_time_histories.at(pred_hist_key).sr_bank_contrib[i];
++            return res;
++        }
++
++        int sr_predict_at_update(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) != pred_time_histories.end()) {
++                auto& hist = pred_time_histories.at(pred_hist_key);
++                return sr_predict(pc, hist.sr_snap, hist.sr_bank_contrib);
++            }
++            return 0;
++        }
++
++        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) {
++            int sr_total = 0;
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int best_reg = -1;
++                int max_useful = 0;
++                for (int r = b; r <= 64; r += SR_NUM_BANKS) {
++                    if (snap[r].valid) {
++                        int s = r / SR_NUM_BANKS;
++                        int useful_sum = 0;
++                        for (int t = 0; t < 3; ++t) {
++                            int u = ut_idx(t, pc);
++                            useful_sum += ut[b][t][u][s];
++                        }
++                        if (best_reg < 0 || useful_sum > max_useful) {
++                            max_useful = useful_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                bank_contrib[b] = 0;
++                if (best_reg >= 0 && max_useful >= SR_USEFULNESS_THRESHOLD) {
++                    uint32_t d = snap[best_reg].digest;
++                    int p = 0;
++                    
++                    int w0 = wt_idx(0, pc, d);
++                    p += (2 * wt0[b][w0] + 1);
++                    
++                    int w1 = wt_idx(1, pc, d);
++                    p += (2 * wt1[b][w1] + 1);
++                    
++                    int w2 = wt_idx(2, pc, d);
++                    p += (2 * wt2[b][w2] + 1);
++                    
++                    bank_contrib[b] = std::floor(p * 2.5); // trunc toward zero
++                }
++                sr_total += bank_contrib[b];
++            }
++            return sr_total;
++        }
++
++        void sr_update(uint64_t seq_no, uint8_t piece, uint64_t pc, bool taken, int lsum) {
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& hist = pred_time_histories.at(pred_hist_key);
++            const auto& snap = hist.sr_snap;
++            const auto& bank_contrib = hist.sr_bank_contrib;
++
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                std::vector<int> avail;
++                for (int r = b; r <= 64; r += SR_NUM_BANKS) {
++                    if (snap[r].valid) {
++                        avail.push_back(r);
++                    }
++                }
++                if (avail.empty()) continue;
++
++                int r_train = avail[prng_next() % avail.size()];
++                int s = r_train / SR_NUM_BANKS;
++                uint32_t d = snap[r_train].digest;
++
++                int p = 0;
++                int w0 = wt_idx(0, pc, d);
++                p += (2 * wt0[b][w0] + 1);
++                
++                int w1 = wt_idx(1, pc, d);
++                p += (2 * wt1[b][w1] + 1);
++                
++                int w2 = wt_idx(2, pc, d);
++                p += (2 * wt2[b][w2] + 1);
++
++                int rest = lsum - bank_contrib[b];
++                bool current_sign = (rest >= 0);
++                bool new_sign = ((rest + std::floor(p * 2.5)) >= 0);
++                
++                if (new_sign != current_sign) {
++                    bool match = ((p >= 0) == taken);
++                    for (int t = 0; t < 3; ++t) {
++                        int u = ut_idx(t, pc);
++                        sat_update(ut[b][t][u][s], match, SR_UT_CTR_BITS);
++                    }
++                }
++
++                sat_update(wt0[b][w0], taken, SR_WT_CTR_BITS);
++                sat_update(wt1[b][w1], taken, SR_WT_CTR_BITS);
++                sat_update(wt2[b][w2], taken, SR_WT_CTR_BITS);
++            }
++        }
++
+ 
+         SampleCondPredictor (void)
+         {
+         }
+ 
++
+         void setup()
+         {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            for (int r=0; r<=64; ++r) { reg_status[r].valid=false; reg_status[r].payload=0; reg_status[r].decay_ctr=0; }
++            for(int b=0;b<SR_NUM_BANKS;++b){
++                for(int t=0;t<3;++t){
++                    for(int u=0;u<SR_UT_ENTRIES;++u){
++                        for(int s=0;s<(65/SR_NUM_BANKS + 1);++s) ut[b][t][u][s] = 0;
++                    }
++                }
++                for(int w=0;w<SR_WT0_ENTRIES;++w) wt0[b][w] = 0;
++                for(int w=0;w<SR_WT1_ENTRIES;++w) wt1[b][w] = 0;
++                for(int w=0;w<SR_WT2_ENTRIES;++w) wt2[b][w] = 0;
++            }
++            prng_state = 123456789;
+         }
+ 
++
+         void terminate()
+         {
+         }
+@@ -42,11 +310,15 @@ class SampleCondPredictor
+ 
+         bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
+         {
+-            active_hist.tage_pred = tage_pred;
+-            // checkpoint current hist
+-            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
+-            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
+-            return pred_taken;
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) != pred_time_histories.end()) {
++                pred_time_histories.at(pred_hist_key).tage_pred = tage_pred;
++            } else {
++                active_hist.tage_pred = tage_pred;
++                snapshot_status_table(active_hist.sr_snap);
++                pred_time_histories.emplace(pred_hist_key, active_hist);
++            }
++            return tage_pred;
+         }
+ 
+         bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict)
+@@ -80,4 +352,4 @@ class SampleCondPredictor
+ // =================
+ 
+ #endif
+-static SampleCondPredictor cond_predictor_impl;
++extern SampleCondPredictor cond_predictor_impl;
+diff --git a/patch_host_knobs.py b/patch_host_knobs.py
+new file mode 100644
+index 0000000..86b94b8
+--- /dev/null
++++ b/patch_host_knobs.py
+@@ -0,0 +1,35 @@
++import sys
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    lines = f.readlines()
++
++replacements = {
++    "#define LOGG 10": "#define LOGG HOST_LOGG",
++    "#define TBITS 8": "#define TBITS HOST_TBITS",
++    "#define NBANKLOW 10": "#define NBANKLOW HOST_NBANKLOW",
++    "#define NBANKHIGH 20": "#define NBANKHIGH HOST_NBANKHIGH",
++    "#define CWIDTH 3": "#define CWIDTH HOST_CWIDTH",
++    "#define UWIDTH 1": "#define UWIDTH HOST_UWIDTH",
++    "#define LOGB 13": "#define LOGB HOST_LOGB",
++    "#define HYSTSHIFT 2": "#define HYSTSHIFT HOST_HYSTSHIFT",
++    "#define PERCWIDTH 6": "#define PERCWIDTH HOST_PERCWIDTH",
++    "#define LOGBIAS 8": "#define LOGBIAS HOST_LOGBIAS",
++    "#define LOGGNB 10": "#define LOGGNB HOST_LOGGNB",
++    "#define LOGPNB 9": "#define LOGPNB HOST_LOGPNB",
++    "#define LOGLNB  10": "#define LOGLNB HOST_LOGLNB",
++    "#define LOGSNB 9": "#define LOGSNB HOST_LOGSNB",
++    "#define LOGTNB 10": "#define LOGTNB HOST_LOGTNB",
++    "#define LOGINB 8": "#define LOGINB HOST_LOGINB",
++    "#define LOGIMNB 9": "#define LOGIMNB HOST_LOGIMNB",
++    "#define LOGL 5": "#define LOGL HOST_LOGL",
++    "#define EWIDTH 6": "#define EWIDTH HOST_EWIDTH"
++}
++
++for i in range(len(lines)):
++    for k, v in replacements.items():
++        if lines[i].startswith(k):
++            lines[i] = lines[i].replace(k, v)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.writelines(lines)
++
+diff --git a/patch_interface.py b/patch_interface.py
+new file mode 100644
+index 0000000..7e8d643
+--- /dev/null
++++ b/patch_interface.py
+@@ -0,0 +1,42 @@
++import sys
++
++with open('cond_branch_predictor_interface.cc', 'r') as f:
++    content = f.read()
++
++decode_orig = """void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++}"""
++
++decode_new = """void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++    int dest_reg = -1;
++    if (_decode_info.dst_reg_info.has_value()) {
++        dest_reg = _decode_info.dst_reg_info.value();
++    }
++    cond_predictor_impl.on_instruction_decode(dest_reg, cond_predictor_impl.get_unique_inst_id(seq_no, piece));
++}"""
++
++content = content.replace(decode_orig, decode_new)
++
++exec_orig = """void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);"""
++
++exec_new = """void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    if (_exec_info.dst_reg_value.has_value() && _exec_info.dec_info.dst_reg_info.has_value()) {
++        uint64_t dst_reg = _exec_info.dec_info.dst_reg_info.value();
++        uint64_t val = _exec_info.dst_reg_value.value();
++        int reg_type = 0;
++        if (dst_reg < 32) reg_type = 0;
++        else if (dst_reg < 64) reg_type = 1;
++        else if (dst_reg == 64) reg_type = 2;
++        cond_predictor_impl.on_instruction_writeback(dst_reg, cond_predictor_impl.get_unique_inst_id(seq_no, piece), val, reg_type);
++    }
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);"""
++
++content = content.replace(exec_orig, exec_new)
++
++with open('cond_branch_predictor_interface.cc', 'w') as f:
++    f.write(content)
++
+diff --git a/patch_sr_update.py b/patch_sr_update.py
+new file mode 100644
+index 0000000..107261f
+--- /dev/null
++++ b/patch_sr_update.py
+@@ -0,0 +1,25 @@
++import sys
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    content = f.read()
++
++orig = """            if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++            {
++                {
++                    if (SCPRED != resolveDir)"""
++
++new = """            if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++            {
++                if (cond_predictor_impl.sr_enabled) {
++                    cond_predictor_impl.sr_update(seq_no, piece, PC, resolveDir, LSUM);
++                }
++                {
++                    if (SCPRED != resolveDir)"""
++
++if orig in content:
++    content = content.replace(orig, new)
++else:
++    print("Could not find the block to replace!")
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(content)
+diff --git a/patch_tage.py b/patch_tage.py
+new file mode 100644
+index 0000000..f65e335
+--- /dev/null
++++ b/patch_tage.py
+@@ -0,0 +1,67 @@
++import sys
++import re
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    content = f.read()
++
++# Add include
++if '#include "my_cond_branch_predictor.h"' not in content:
++    content = content.replace('class PREDICTOR', '#include "my_cond_branch_predictor.h"\n\nclass PREDICTOR')
++
++# Modify outer update
++outer_orig = """        void update (uint64_t seq_no, uint8_t piece, UINT64 PC, bool resolveDir, bool predDir, UINT64 nextPC)
++        {
++            const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++            const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++            update(PC, resolveDir, predDir, nextPC, pred_time_history);
++            pred_time_histories.erase(pred_hist_key);
++        }"""
++        
++outer_new = """        void update (uint64_t seq_no, uint8_t piece, UINT64 PC, bool resolveDir, bool predDir, UINT64 nextPC)
++        {
++            const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++            const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++            update(PC, resolveDir, predDir, nextPC, pred_time_history, seq_no, piece);
++            pred_time_histories.erase(pred_hist_key);
++        }"""
++content = content.replace(outer_orig, outer_new)
++
++# Modify inner update signature
++inner_sig_orig = """void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)"""
++inner_sig_new = """void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no, uint8_t piece)"""
++content = content.replace(inner_sig_orig, inner_sig_new)
++
++# Predict hook
++predict_orig = """#endif
++            bool SCPRED = (LSUM >= 0);
++            //just  an heuristic if the respective contribution of component groups can be multiplied by 2 or not"""
++predict_new = """#endif
++            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.sr_predict(PC);
++            }
++            bool SCPRED = (LSUM >= 0);
++            //just  an heuristic if the respective contribution of component groups can be multiplied by 2 or not"""
++content = content.replace(predict_orig, predict_new)
++
++# SC Update hook
++# Let's find the SC update block.
++sc_update_orig = """            //update the statistical corrector predictor
++            if ((abs (LSUM) < THRES) || (SCPRED != resolveDir))
++            {
++
++                if (SCPRED != resolveDir)
++                {"""
++sc_update_new = """            //update the statistical corrector predictor
++            if ((abs (LSUM) < THRES) || (SCPRED != resolveDir))
++            {
++                if (cond_predictor_impl.sr_enabled) {
++                    cond_predictor_impl.sr_update(seq_no, piece, PC, resolveDir, LSUM);
++                }
++
++                if (SCPRED != resolveDir)
++                {"""
++content = content.replace(sc_update_orig, sc_update_new)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(content)
++
+diff --git a/patch_tage2.py b/patch_tage2.py
+new file mode 100644
+index 0000000..6f07e7c
+--- /dev/null
++++ b/patch_tage2.py
+@@ -0,0 +1,32 @@
++import sys
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    content = f.read()
++
++# Fix the predict call
++content = content.replace("cond_predictor_impl.sr_predict(PC)", "cond_predictor_impl.sr_predict_at_pred(PC)")
++
++# Add the update time LSUM computation
++update_orig = """                }
++                loopupdate (PC, resolveDir, (pred_taken != resolveDir), active_hist.ltable);
++            }
++#endif
++
++            bool SCPRED = (LSUM >= 0);"""
++
++update_new = """                }
++                loopupdate (PC, resolveDir, (pred_taken != resolveDir), active_hist.ltable);
++            }
++#endif
++
++            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.sr_predict_at_update(seq_no, piece, PC);
++            }
++
++            bool SCPRED = (LSUM >= 0);"""
++
++content = content.replace(update_orig, update_new)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(content)
++
+diff --git a/rewrite_h.py b/rewrite_h.py
+new file mode 100644
+index 0000000..f5a191d
+--- /dev/null
++++ b/rewrite_h.py
+@@ -0,0 +1,277 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++# Add sr_params.h include
++content = content.replace('#include <stdlib.h>', '#include <stdlib.h>\n#include "sr_params.h"\n#include <stdint.h>\n#include <vector>\n#include <array>\n#include <unordered_map>\n#include <assert.h>')
++
++# modify SampleHist
++snapshot_struct = """
++struct SRSnapshotEntry {
++    bool valid;
++    uint32_t digest;
++};
++
++struct SampleHist
++{
++      uint64_t ghist;
++      bool tage_pred;
++      std::array<SRSnapshotEntry, 65> sr_snap;
++      std::array<int, SR_NUM_BANKS> sr_bank_contrib;
++
++      SampleHist()
++      {
++          ghist = 0;
++          for (int i=0; i<65; ++i) { sr_snap[i].valid = false; sr_snap[i].digest = 0; }
++          for (int i=0; i<SR_NUM_BANKS; ++i) sr_bank_contrib[i] = 0;
++      }
++};
++"""
++content = content.replace('struct SampleHist\n{\n      uint64_t ghist;\n      bool tage_pred;\n      //\n      SampleHist()\n      {\n          ghist = 0;\n      }\n};', snapshot_struct)
++
++# Add members to SampleCondPredictor
++sr_members = """
++    public:
++        bool sr_enabled;
++
++        struct RegStatus {
++            bool valid;
++            uint32_t payload;
++            uint32_t decay_ctr;
++        } reg_status[65];
++
++        int8_t ut[SR_NUM_BANKS][3][SR_UT_ENTRIES][65 / SR_NUM_BANKS + 1];
++        int8_t wt0[SR_NUM_BANKS][SR_WT0_ENTRIES];
++        int8_t wt1[SR_NUM_BANKS][SR_WT1_ENTRIES];
++        int8_t wt2[SR_NUM_BANKS][SR_WT2_ENTRIES];
++        
++        uint64_t prng_state;
++
++        uint64_t prng_next() {
++            // A simple LCG or Xorshift
++            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
++            return prng_state;
++        }
++
++        uint32_t fold(uint32_t x, int k) const {
++            uint32_t folded = 0;
++            while (x != 0) {
++                folded ^= (x & ((1 << k) - 1));
++                x >>= k;
++            }
++            return folded;
++        }
++
++        void sat_update(int8_t& ctr, bool up, int bits) {
++            int max_val = (1 << (bits - 1)) - 1;
++            int min_val = -(1 << (bits - 1));
++            if (up) {
++                if (ctr < max_val) ctr++;
++            } else {
++                if (ctr > min_val) ctr--;
++            }
++        }
++
++        uint32_t ut_idx(int t, uint64_t pc) const {
++            return (pc ^ (pc >> (3 * (t + 1)))) & (SR_UT_ENTRIES - 1);
++        }
++
++        uint32_t wt_idx(int t, uint64_t pc, uint32_t d) const {
++            int n = (t == 0) ? SR_WT0_ENTRIES : ((t == 1) ? SR_WT1_ENTRIES : SR_WT2_ENTRIES);
++            int k = 0;
++            while ((1 << k) < n) k++; // Assuming n is a power of 2
++            return (pc ^ (pc >> k) ^ fold(d, k)) & (n - 1);
++        }
++
++        int count_leading(uint64_t val, bool b) const {
++            if (b) val = ~val;
++            if (val == 0) return 64;
++            return __builtin_clzll(val);
++        }
++
++        int count_trailing(uint64_t val, bool b) const {
++            if (b) val = ~val;
++            if (val == 0) return 64;
++            return __builtin_ctzll(val);
++        }
++
++        uint32_t generate_digest(uint64_t val, int reg_type) const {
++            uint32_t raw = 0;
++            if (reg_type == 0) { // INT
++                uint32_t low6 = val & 0x3F;
++                bool lead_bit = (val >> 63) & 1;
++                uint32_t lead_count = count_leading(val, lead_bit);
++                if (lead_count > 63) lead_count = 63;
++                bool trail_bit = val & 1;
++                uint32_t trail_count = count_trailing(val, trail_bit);
++                if (trail_count > 63) trail_count = 63;
++                raw = ((low6 << 6) ^ (lead_count << 3) ^ trail_count) & 0xFFF;
++            } else if (reg_type == 1) { // FP
++                if ((val >> 32) != 0) {
++                    raw = (val >> 55) & 0x1FF;
++                } else if ((val >> 16) != 0) {
++                    raw = (val >> 26) & 0x3F;
++                } else {
++                    raw = (val >> 13) & 0x7;
++                }
++            } else { // FLAG
++                uint32_t flag4 = val & 0xF;
++                raw = (flag4 << 8) | (flag4 << 4) | flag4;
++            }
++            return fold(raw, SR_DIGEST_WIDTH);
++        }
++
++        void on_instruction_decode(int dest_reg, uint64_t rob_tag) {
++            for (int r = 0; r <= 64; ++r) {
++                if (reg_status[r].valid) {
++                    if (reg_status[r].decay_ctr == 0) {
++                        reg_status[r].valid = false;
++                    } else {
++                        reg_status[r].decay_ctr--;
++                    }
++                }
++            }
++            if (dest_reg >= 0 && dest_reg <= 64) {
++                reg_status[dest_reg].valid = false;
++                reg_status[dest_reg].payload = rob_tag & ((1 << SR_ROB_TAG_BITS) - 1);
++                reg_status[dest_reg].decay_ctr = 0;
++            }
++        }
++
++        void on_instruction_writeback(int dest_reg, uint64_t rob_tag, uint64_t val, int reg_type) {
++            if (dest_reg >= 0 && dest_reg <= 64) {
++                uint32_t tag = rob_tag & ((1 << SR_ROB_TAG_BITS) - 1);
++                if (!reg_status[dest_reg].valid && reg_status[dest_reg].payload == tag) {
++                    reg_status[dest_reg].payload = generate_digest(val, reg_type);
++                    reg_status[dest_reg].decay_ctr = SR_DECAY_INTERVAL - 1;
++                    reg_status[dest_reg].valid = true;
++                }
++            }
++        }
++
++        void snapshot_status_table(std::array<SRSnapshotEntry, 65>& snap) const {
++            for (int r = 0; r <= 64; ++r) {
++                snap[r].valid = reg_status[r].valid;
++                snap[r].digest = reg_status[r].payload & ((1 << SR_DIGEST_WIDTH) - 1);
++            }
++        }
++
++        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) const {
++            int sr_total = 0;
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int best_reg = -1;
++                int max_useful = 0;
++                for (int r = b; r <= 64; r += SR_NUM_BANKS) {
++                    if (snap[r].valid) {
++                        int s = r / SR_NUM_BANKS;
++                        int useful_sum = 0;
++                        for (int t = 0; t < 3; ++t) {
++                            int u = ut_idx(t, pc);
++                            useful_sum += ut[b][t][u][s];
++                        }
++                        if (best_reg < 0 || useful_sum > max_useful) {
++                            max_useful = useful_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                bank_contrib[b] = 0;
++                if (best_reg >= 0 && max_useful >= SR_USEFULNESS_THRESHOLD) {
++                    uint32_t d = snap[best_reg].digest;
++                    int p = 0;
++                    
++                    int w0 = wt_idx(0, pc, d);
++                    p += (2 * wt0[b][w0] + 1);
++                    
++                    int w1 = wt_idx(1, pc, d);
++                    p += (2 * wt1[b][w1] + 1);
++                    
++                    int w2 = wt_idx(2, pc, d);
++                    p += (2 * wt2[b][w2] + 1);
++                    
++                    bank_contrib[b] = (int)(p * SR_MULTIPLIER_USEFUL); // trunc toward zero
++                }
++                sr_total += bank_contrib[b];
++            }
++            return sr_total;
++        }
++
++        void sr_update(uint64_t seq_no, uint8_t piece, uint64_t pc, bool taken, int lsum) {
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& hist = pred_time_histories.at(pred_hist_key);
++            const auto& snap = hist.sr_snap;
++            const auto& bank_contrib = hist.sr_bank_contrib;
++
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                std::vector<int> avail;
++                for (int r = b; r <= 64; r += SR_NUM_BANKS) {
++                    if (snap[r].valid) {
++                        avail.push_back(r);
++                    }
++                }
++                if (avail.empty()) continue;
++
++                int r_train = avail[prng_next() % avail.size()];
++                int s = r_train / SR_NUM_BANKS;
++                uint32_t d = snap[r_train].digest;
++
++                int p = 0;
++                int w0 = wt_idx(0, pc, d);
++                p += (2 * wt0[b][w0] + 1);
++                
++                int w1 = wt_idx(1, pc, d);
++                p += (2 * wt1[b][w1] + 1);
++                
++                int w2 = wt_idx(2, pc, d);
++                p += (2 * wt2[b][w2] + 1);
++
++                int rest = lsum - bank_contrib[b];
++                bool current_sign = (rest >= 0);
++                bool new_sign = ((rest + (int)(p * SR_MULTIPLIER_USEFUL)) >= 0);
++                
++                if (new_sign != current_sign) {
++                    bool match = ((p >= 0) == taken);
++                    for (int t = 0; t < 3; ++t) {
++                        int u = ut_idx(t, pc);
++                        sat_update(ut[b][t][u][s], match, SR_UT_CTR_BITS);
++                    }
++                }
++
++                sat_update(wt0[b][w0], taken, SR_WT_CTR_BITS);
++                sat_update(wt1[b][w1], taken, SR_WT_CTR_BITS);
++                sat_update(wt2[b][w2], taken, SR_WT_CTR_BITS);
++            }
++        }
++"""
++
++content = content.replace('    public:', sr_members)
++
++# Add setup initialization
++setup_new = """
++        void setup()
++        {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            for (int r=0; r<=64; ++r) { reg_status[r].valid=false; reg_status[r].payload=0; reg_status[r].decay_ctr=0; }
++            for(int b=0;b<SR_NUM_BANKS;++b){
++                for(int t=0;t<3;++t){
++                    for(int u=0;u<SR_UT_ENTRIES;++u){
++                        for(int s=0;s<(65/SR_NUM_BANKS + 1);++s) ut[b][t][u][s] = 0;
++                    }
++                }
++                for(int w=0;w<SR_WT0_ENTRIES;++w) wt0[b][w] = 0;
++                for(int w=0;w<SR_WT1_ENTRIES;++w) wt1[b][w] = 0;
++                for(int w=0;w<SR_WT2_ENTRIES;++w) wt2[b][w] = 0;
++            }
++            prng_state = 123456789;
++        }
++"""
++content = content.replace('        void setup()\n        {\n        }', setup_new)
++
++content = content.replace('static SampleCondPredictor cond_predictor_impl;', 'extern SampleCondPredictor cond_predictor_impl;')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
++
+diff --git a/sr_params.h b/sr_params.h
+new file mode 100644
+index 0000000..d7a76f5
+--- /dev/null
++++ b/sr_params.h
+@@ -0,0 +1,34 @@
++// generated from the feature spec and the port plan; DSE mutates values only
++#pragma once
++#define SR_NUM_BANKS 8  // range: [1, 16]
++#define SR_WT0_ENTRIES 512  // range: [128, 2048] pow2
++#define SR_WT1_ENTRIES 256  // range: [64, 1024] pow2
++#define SR_WT2_ENTRIES 128  // range: [32, 512] pow2
++#define SR_WT_CTR_BITS 6  // range: [3, 8]
++#define SR_UT_ENTRIES 8  // range: [4, 32] pow2
++#define SR_UT_CTR_BITS 6  // range: [2, 8]
++#define SR_DIGEST_WIDTH 12  // range: [4, 12]
++#define SR_ROB_TAG_BITS 14  // range: [10, 16]
++#define SR_DECAY_INTERVAL 256  // range: [32, 2048] pow2
++#define SR_MULTIPLIER_USEFUL 2.5  // range: [1.0, 4.0]
++#define SR_USEFULNESS_THRESHOLD 0  // range: [-16, 16]
++// host knobs: the host's own structures, at the clean tree's values by default
++#define HOST_LOGG 10  // range: [8, 12]; sets LOGG
++#define HOST_TBITS 8  // range: [6, 12]; sets TBITS
++#define HOST_NBANKLOW 10  // range: [4, 16]; sets NBANKLOW
++#define HOST_NBANKHIGH 20  // range: [10, 32]; sets NBANKHIGH
++#define HOST_CWIDTH 3  // range: [2, 4]; sets CWIDTH
++#define HOST_UWIDTH 1  // range: [1, 2]; sets UWIDTH
++#define HOST_LOGB 13  // range: [10, 15]; sets LOGB
++#define HOST_HYSTSHIFT 2  // range: [0, 4]; sets HYSTSHIFT
++#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH
++#define HOST_LOGBIAS 8  // range: [4, 10]; sets LOGBIAS
++#define HOST_LOGGNB 10  // range: [6, 12]; sets LOGGNB
++#define HOST_LOGPNB 9  // range: [6, 12]; sets LOGPNB
++#define HOST_LOGLNB 10  // range: [6, 12]; sets LOGLNB
++#define HOST_LOGSNB 9  // range: [6, 12]; sets LOGSNB
++#define HOST_LOGTNB 10  // range: [6, 12]; sets LOGTNB
++#define HOST_LOGINB 8  // range: [4, 12]; sets LOGINB
++#define HOST_LOGIMNB 9  // range: [4, 12]; sets LOGIMNB
++#define HOST_LOGL 5  // range: [3, 8]; sets LOGL
++#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH
+diff --git a/test_sr.cc b/test_sr.cc
+new file mode 100644
+index 0000000..cec3823
+--- /dev/null
++++ b/test_sr.cc
+@@ -0,0 +1,139 @@
++
++#include "my_cond_branch_predictor.h"
++#include <iostream>
++#include <cassert>
++
++extern SampleCondPredictor cond_predictor_impl;
++
++int main(int argc, char** argv) {
++    if (argc < 2) return 1;
++    int test_id = std::stoi(argv[1]);
++    
++    cond_predictor_impl.setup();
++
++    if (test_id == 0) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x0000000000000000, 0); // INT
++        assert(d == 0x1C7);
++    } else if (test_id == 1) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x0000000000000042, 0); // INT
++        assert(d == 0x149);
++    } else if (test_id == 2) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x3FF0000000000000, 1); // FP
++        assert(d == 0x07F);
++    } else if (test_id == 3) {
++        uint32_t d = cond_predictor_impl.generate_digest(0x000000003F800000, 1); // FP
++        assert(d == 0x00F);
++    } else if (test_id == 4) {
++        uint32_t d = cond_predictor_impl.generate_digest(0b1001, 2); // FLAG
++        assert(d == 0x999);
++    } else if (test_id == 5) {
++        uint32_t folded = cond_predictor_impl.fold(0x149, 6);
++        assert(folded == 0x0C);
++    } else if (test_id == 6) {
++        cond_predictor_impl.on_instruction_decode(0, 100);
++        cond_predictor_impl.on_instruction_writeback(0, 100, 0, 0);
++        assert(cond_predictor_impl.reg_status[0].valid == true);
++        assert(cond_predictor_impl.reg_status[0].decay_ctr == 255);
++        for(int i = 0; i < 255; ++i) {
++            cond_predictor_impl.on_instruction_decode(1, 101+i);
++        }
++        assert(cond_predictor_impl.reg_status[0].valid == true);
++        assert(cond_predictor_impl.reg_status[0].decay_ctr == 0);
++        cond_predictor_impl.on_instruction_decode(1, 999);
++        assert(cond_predictor_impl.reg_status[0].valid == false);
++    } else if (test_id == 7) {
++        cond_predictor_impl.on_instruction_decode(3, 5); // instr A
++        cond_predictor_impl.on_instruction_decode(3, 9); // instr B
++        // A completes
++        cond_predictor_impl.on_instruction_writeback(3, 5, 0, 0);
++        assert(cond_predictor_impl.reg_status[3].valid == false); // still pending
++        assert(cond_predictor_impl.reg_status[3].payload == 9);
++        // B completes
++        cond_predictor_impl.on_instruction_writeback(3, 9, 0, 0);
++        assert(cond_predictor_impl.reg_status[3].valid == true);
++    } else if (test_id == 8) {
++        assert((0 % SR_NUM_BANKS) == 0);
++        assert((8 % SR_NUM_BANKS) == 0);
++        assert((64 % SR_NUM_BANKS) == 0);
++        assert((64 / SR_NUM_BANKS) == 8); // 9th slot
++        assert((1 % SR_NUM_BANKS) == 1);
++        assert((9 % SR_NUM_BANKS) == 1);
++        assert((57 % SR_NUM_BANKS) == 1);
++    } else if (test_id == 9) {
++        cond_predictor_impl.reg_status[0].valid = true; cond_predictor_impl.reg_status[0].payload = 0;
++        cond_predictor_impl.reg_status[8].valid = true; cond_predictor_impl.reg_status[8].payload = 1;
++        cond_predictor_impl.ut[0][0][0][0] = 5;
++        cond_predictor_impl.ut[0][0][0][1] = 18;
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 1)] = 10;
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -10;
++        
++        cond_predictor_impl.sr_predict_at_pred(0, 0, 0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[0] > 0); 
++        
++        cond_predictor_impl.ut[0][0][0][0] = 7;
++        cond_predictor_impl.ut[0][0][0][1] = 7;
++        cond_predictor_impl.sr_predict_at_pred(0, 0, 0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[0] < 0);
++    } else if (test_id == 10) {
++        cond_predictor_impl.reg_status[1].valid = true; cond_predictor_impl.reg_status[1].payload = 0;
++        cond_predictor_impl.ut[1][0][0][0] = -4; // slot 0 for R1 in bank 1
++        cond_predictor_impl.sr_predict_at_pred(0, 0, 0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[1] == 0);
++    } else if (test_id == 11) {
++        cond_predictor_impl.reg_status[2].valid = true; cond_predictor_impl.reg_status[2].payload = 0;
++        cond_predictor_impl.ut[2][0][0][0] = 0;
++        cond_predictor_impl.wt0[2][cond_predictor_impl.wt_idx(0, 0, 0)] = 3;
++        cond_predictor_impl.wt1[2][cond_predictor_impl.wt_idx(1, 0, 0)] = -1;
++        cond_predictor_impl.wt2[2][cond_predictor_impl.wt_idx(2, 0, 0)] = 0;
++        cond_predictor_impl.sr_predict_at_pred(0, 0, 0);
++        assert(cond_predictor_impl.active_hist.sr_bank_contrib[2] == 17);
++    } else if (test_id == 12) {
++        cond_predictor_impl.prng_state = 12345;
++        SampleHist hist;
++        hist.sr_snap[3].valid = true;
++        hist.sr_snap[3].digest = 1;
++        hist.sr_snap[11].valid = true;
++        hist.sr_snap[11].digest = 2;
++        hist.sr_snap[19].valid = false;
++        
++        cond_predictor_impl.pred_time_histories.emplace(cond_predictor_impl.get_unique_inst_id(0, 0), hist);
++        
++        cond_predictor_impl.reg_status[19].valid = true;
++        
++        cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 1)] = 0;
++        cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 2)] = 0;
++        
++        cond_predictor_impl.sr_update(0, 0, 0, true, 0); // taken
++        
++        int w3 = cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 1)];
++        int w11 = cond_predictor_impl.wt0[3][cond_predictor_impl.wt_idx(0, 0, 2)];
++        assert((w3 == 1 && w11 == 0) || (w3 == 0 && w11 == 1));
++    } else if (test_id == 13) {
++        SampleHist hist;
++        hist.sr_snap[0].valid = true;
++        hist.sr_snap[0].digest = 0;
++        hist.sr_bank_contrib[0] = -25; // to simulate earlier predict
++        cond_predictor_impl.pred_time_histories.emplace(cond_predictor_impl.get_unique_inst_id(0, 1), hist);
++        
++        cond_predictor_impl.wt0[0][cond_predictor_impl.wt_idx(0, 0, 0)] = -5;
++        cond_predictor_impl.wt1[0][cond_predictor_impl.wt_idx(1, 0, 0)] = 0;
++        cond_predictor_impl.wt2[0][cond_predictor_impl.wt_idx(2, 0, 0)] = -1;
++        
++        cond_predictor_impl.ut[0][0][0][0] = 0;
++        
++        // Case 1: rest = 40. lsum = 40 + (-25) = 15
++        cond_predictor_impl.sr_update(0, 1, 0, false, 15);
++        assert(cond_predictor_impl.ut[0][0][0][0] == 0); // unchanged
++        
++        SampleHist hist2;
++        hist2.sr_snap[0].valid = true;
++        hist2.sr_snap[0].digest = 0;
++        hist2.sr_bank_contrib[0] = -22;
++        cond_predictor_impl.pred_time_histories.emplace(cond_predictor_impl.get_unique_inst_id(0, 2), hist2);
++        
++        // Case 2: rest = 10. lsum = 10 + (-22) = -12
++        cond_predictor_impl.sr_update(0, 2, 0, false, -12);
++        assert(cond_predictor_impl.ut[0][0][0][0] == 1); // trained because p < 0 matches not taken
++    }
++    return 0;
++}
+diff --git a/update_h.py b/update_h.py
+new file mode 100644
+index 0000000..2a7f1da
+--- /dev/null
++++ b/update_h.py
+@@ -0,0 +1,38 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++# Replace the current sr_predict
++old_sr = """        int sr_predict(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            auto& snap = active_hist.sr_snap;
++            auto& bank_contrib = active_hist.sr_bank_contrib;
++
++            int sr_total = 0;"""
++
++new_sr = """        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) {
++            int sr_total = 0;"""
++content = content.replace(old_sr, new_sr)
++
++# Add helpers
++helpers = """
++        int sr_predict_at_pred(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            return sr_predict(pc, active_hist.sr_snap, active_hist.sr_bank_contrib);
++        }
++
++        int sr_predict_at_update(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) != pred_time_histories.end()) {
++                auto& hist = pred_time_histories.at(pred_hist_key);
++                return sr_predict(pc, hist.sr_snap, hist.sr_bank_contrib);
++            }
++            return 0;
++        }
++
++        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) {"""
++content = content.replace(new_sr, helpers)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/update_h2.py b/update_h2.py
+new file mode 100644
+index 0000000..c160f44
+--- /dev/null
++++ b/update_h2.py
+@@ -0,0 +1,32 @@
++import sys
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    content = f.read()
++
++old_sr = """        int sr_predict(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            auto& snap = active_hist.sr_snap;
++            auto& bank_contrib = active_hist.sr_bank_contrib;
++            int sr_total = 0;"""
++
++helpers = """        int sr_predict_at_pred(uint64_t pc) {
++            snapshot_status_table(active_hist.sr_snap);
++            return sr_predict(pc, active_hist.sr_snap, active_hist.sr_bank_contrib);
++        }
++
++        int sr_predict_at_update(uint64_t seq_no, uint8_t piece, uint64_t pc) {
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) != pred_time_histories.end()) {
++                auto& hist = pred_time_histories.at(pred_hist_key);
++                return sr_predict(pc, hist.sr_snap, hist.sr_bank_contrib);
++            }
++            return 0;
++        }
++
++        int sr_predict(uint64_t pc, const std::array<SRSnapshotEntry, 65>& snap, std::array<int, SR_NUM_BANKS>& bank_contrib) {
++            int sr_total = 0;"""
++
++content = content.replace(old_sr, helpers)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(content)
+diff --git a/update_test.py b/update_test.py
+new file mode 100644
+index 0000000..83d4218
+--- /dev/null
++++ b/update_test.py
+@@ -0,0 +1,9 @@
++import sys
++
++with open('test_sr.cc', 'r') as f:
++    content = f.read()
++
++content = content.replace('sr_predict_at_pred(0)', 'sr_predict_at_pred(0, 0, 0)')
++
++with open('test_sr.cc', 'w') as f:
++    f.write(content)

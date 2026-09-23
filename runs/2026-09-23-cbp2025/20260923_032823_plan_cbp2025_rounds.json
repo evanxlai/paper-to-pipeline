@@ -1,0 +1,38 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/open_questions/8/assumption",
+        "code": "budget_language",
+        "severity": "warn",
+        "message": "this field talks about a resource budget ('budget'). Only stage 4 knows about constraints; the integrator never shrinks a host structure to make room, so a budget written here is an instruction no stage is allowed to follow."
+      },
+      {
+        "pointer": "/plan/open_questions/8/cost_if_wrong",
+        "code": "budget_language",
+        "severity": "warn",
+        "message": "this field talks about a resource budget ('allowance'). Only stage 4 knows about constraints; the integrator never shrinks a host structure to make room, so a budget written here is an instruction no stage is allowed to follow."
+      },
+      {
+        "pointer": "/plan/risks/0",
+        "code": "undetected_risk",
+        "severity": "info",
+        "message": "no test detects this risk: The SampleCondPredictor object might be instantiated multiple times if include guards or extern are mishandled, splittin"
+      },
+      {
+        "pointer": "/plan/risks/1",
+        "code": "undetected_risk",
+        "severity": "info",
+        "message": "no test detects this risk: The sr_enabled knob could be evaluated too late or at compile time."
+      },
+      {
+        "pointer": "/plan/hook_points/1/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'cond_predictor_impl' does not occur in my_cond_branch_predictor.cc. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  }
+]

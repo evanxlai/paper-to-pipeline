@@ -1,0 +1,741 @@
+{
+ "source": "out/dse/cbp2025/20260923_032823_adaevolve (adaevolve_iteration_stats_*.jsonl, one record per iteration; the seed from checkpoint_1)",
+ "screening_list": "experiments/perf-8.list",
+ "budget": "iso-64KiB",
+ "allowance_bits": 524288,
+ "seed": {
+  "id": "e8759c61-eb32-419a-aebb-bdbbeec8abc9",
+  "metrics": {
+   "error": 0.0,
+   "combined_score": 0.906323144527536,
+   "storage_bits": 578478.0
+  },
+  "knobs": {
+   "SR_NUM_BANKS": "8",
+   "SR_WT0_ENTRIES": "512",
+   "SR_WT1_ENTRIES": "256",
+   "SR_WT2_ENTRIES": "128",
+   "SR_WT_CTR_BITS": "6",
+   "SR_UT_ENTRIES": "8",
+   "SR_UT_CTR_BITS": "6",
+   "SR_DIGEST_WIDTH": "12",
+   "SR_ROB_TAG_BITS": "14",
+   "SR_DECAY_INTERVAL": "256",
+   "SR_MULTIPLIER_USEFUL": "2.5",
+   "SR_USEFULNESS_THRESHOLD": "0",
+   "HOST_LOGG": "10",
+   "HOST_TBITS": "8",
+   "HOST_NBANKLOW": "10",
+   "HOST_NBANKHIGH": "20",
+   "HOST_CWIDTH": "3",
+   "HOST_UWIDTH": "1",
+   "HOST_LOGB": "13",
+   "HOST_HYSTSHIFT": "2",
+   "HOST_PERCWIDTH": "6",
+   "HOST_LOGBIAS": "8",
+   "HOST_LOGGNB": "10",
+   "HOST_LOGPNB": "9",
+   "HOST_LOGLNB": "10",
+   "HOST_LOGSNB": "9",
+   "HOST_LOGTNB": "10",
+   "HOST_LOGINB": "8",
+   "HOST_LOGIMNB": "9",
+   "HOST_LOGL": "5",
+   "HOST_EWIDTH": "6"
+  }
+ },
+ "iterations": [
+  {
+   "iteration": 1,
+   "id": "9c401baa-6e32-4d0b-8f1f-777763156b80",
+   "parent_id": "e8759c61-eb32-419a-aebb-bdbbeec8abc9",
+   "success": true,
+   "error": null,
+   "llm_s": 65.0,
+   "eval_s": 1086.5,
+   "metrics": {
+    "combined_score": 127.14234857346285,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8652,
+    "cycwppki_50perc_amean": 470.6171125000001,
+    "ipc_50perc_amean": 2.3200125,
+    "storage_bits": 521134.0
+   },
+   "changed_from_seed": {
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 2,
+   "id": "4660ad26-f4dc-4d1b-a0b9-c37ee7d710a4",
+   "parent_id": "e8759c61-eb32-419a-aebb-bdbbeec8abc9",
+   "success": true,
+   "error": null,
+   "llm_s": 111.7,
+   "eval_s": 1068.0,
+   "metrics": {
+    "combined_score": 126.72785509937047,
+    "n": 8,
+    "brmispki_50perc_amean": 6.890925,
+    "cycwppki_50perc_amean": 471.43056249999995,
+    "ipc_50perc_amean": 2.319025,
+    "storage_bits": 520095.0
+   },
+   "changed_from_seed": {
+    "SR_WT2_ENTRIES": [
+     "128",
+     "32"
+    ],
+    "SR_UT_ENTRIES": [
+     "8",
+     "16"
+    ],
+    "SR_DECAY_INTERVAL": [
+     "256",
+     "512"
+    ],
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGTNB": [
+     "10",
+     "9"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "8"
+    ],
+    "HOST_LOGL": [
+     "5",
+     "4"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 3,
+   "id": "149a3da5-c6dc-4035-874e-c145fd883d43",
+   "parent_id": "9c401baa-6e32-4d0b-8f1f-777763156b80",
+   "success": true,
+   "error": null,
+   "llm_s": 95.7,
+   "eval_s": 1122.2,
+   "metrics": {
+    "combined_score": 126.4782141276165,
+    "n": 8,
+    "brmispki_50perc_amean": 6.906500000000001,
+    "cycwppki_50perc_amean": 471.8008625,
+    "ipc_50perc_amean": 2.3232625000000002,
+    "storage_bits": 522158.0
+   },
+   "changed_from_seed": {
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "19"
+    ],
+    "HOST_LOGB": [
+     "13",
+     "11"
+    ],
+    "HOST_LOGSNB": [
+     "9",
+     "8"
+    ],
+    "HOST_LOGTNB": [
+     "10",
+     "8"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 4,
+   "id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "parent_id": "9c401baa-6e32-4d0b-8f1f-777763156b80",
+   "success": true,
+   "error": null,
+   "llm_s": 32.3,
+   "eval_s": 1247.1,
+   "metrics": {
+    "combined_score": 127.48658602077712,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8439625,
+    "cycwppki_50perc_amean": 470.3566875,
+    "ipc_50perc_amean": 2.322825,
+    "storage_bits": 524206.0
+   },
+   "changed_from_seed": {
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "10"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 5,
+   "id": "5960d8a5-2b43-4b53-b98a-ab573010b55f",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 54.7,
+   "eval_s": 1638.0,
+   "metrics": {
+    "combined_score": 126.86873684728019,
+    "n": 8,
+    "brmispki_50perc_amean": 6.882162499999999,
+    "cycwppki_50perc_amean": 470.817025,
+    "ipc_50perc_amean": 2.3265375,
+    "storage_bits": 523438.0
+   },
+   "changed_from_seed": {
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGB": [
+     "13",
+     "11"
+    ],
+    "HOST_LOGINB": [
+     "8",
+     "9"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "11"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 6,
+   "id": "0b7f282e-5cc0-4015-82c9-7dab123b0f39",
+   "parent_id": "e8759c61-eb32-419a-aebb-bdbbeec8abc9",
+   "success": true,
+   "error": null,
+   "llm_s": 60.7,
+   "eval_s": 1056.0,
+   "metrics": {
+    "combined_score": 127.48658602077712,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8439625,
+    "cycwppki_50perc_amean": 470.3566875,
+    "ipc_50perc_amean": 2.322825,
+    "storage_bits": 524206.0
+   },
+   "changed_from_seed": {
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "10"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": 4
+  },
+  {
+   "iteration": 7,
+   "id": "8281c105-5d46-4351-944e-57a447384ee1",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 145.8,
+   "eval_s": 1025.2,
+   "metrics": {
+    "combined_score": 126.7013617228851,
+    "n": 8,
+    "brmispki_50perc_amean": 6.892575000000002,
+    "cycwppki_50perc_amean": 471.6974125,
+    "ipc_50perc_amean": 2.3152125000000003,
+    "storage_bits": 523391.0
+   },
+   "changed_from_seed": {
+    "SR_UT_ENTRIES": [
+     "8",
+     "16"
+    ],
+    "SR_DECAY_INTERVAL": [
+     "256",
+     "512"
+    ],
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_HYSTSHIFT": [
+     "2",
+     "3"
+    ],
+    "HOST_LOGPNB": [
+     "9",
+     "8"
+    ],
+    "HOST_LOGSNB": [
+     "9",
+     "8"
+    ],
+    "HOST_LOGTNB": [
+     "10",
+     "9"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "10"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 8,
+   "id": "9079babf-2c57-4ac7-a9d8-c66d054a4c2c",
+   "parent_id": "0b7f282e-5cc0-4015-82c9-7dab123b0f39",
+   "success": true,
+   "error": null,
+   "llm_s": 94.7,
+   "eval_s": 1082.0,
+   "metrics": {
+    "combined_score": 127.44373359161929,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8466000000000005,
+    "cycwppki_50perc_amean": 470.3376125000001,
+    "ipc_50perc_amean": 2.322925,
+    "storage_bits": 523326.0
+   },
+   "changed_from_seed": {
+    "SR_UT_ENTRIES": [
+     "8",
+     "16"
+    ],
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "17"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "11"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 9,
+   "id": "f601879d-8ec5-4a70-96fb-d34296a68b98",
+   "parent_id": "5960d8a5-2b43-4b53-b98a-ab573010b55f",
+   "success": true,
+   "error": null,
+   "llm_s": 49.1,
+   "eval_s": 1028.6,
+   "metrics": {
+    "combined_score": 127.42749375605281,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8476,
+    "cycwppki_50perc_amean": 470.4046125,
+    "ipc_50perc_amean": 2.321975,
+    "storage_bits": 524271.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 10,
+   "id": "dddad5fc-b5bc-4dce-9b76-6b3fb027906a",
+   "parent_id": "0b7f282e-5cc0-4015-82c9-7dab123b0f39",
+   "success": true,
+   "error": null,
+   "llm_s": 87.9,
+   "eval_s": 1067.0,
+   "metrics": {
+    "combined_score": 126.7013617228851,
+    "n": 8,
+    "brmispki_50perc_amean": 6.892575000000002,
+    "cycwppki_50perc_amean": 471.6974125,
+    "ipc_50perc_amean": 2.3152125000000003,
+    "storage_bits": 523391.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": 7
+  },
+  {
+   "iteration": 11,
+   "id": "1bc9691e-3db5-4c49-987f-62b009e62577",
+   "parent_id": "9079babf-2c57-4ac7-a9d8-c66d054a4c2c",
+   "success": true,
+   "error": null,
+   "llm_s": 64.4,
+   "eval_s": 1091.8,
+   "metrics": {
+    "combined_score": 127.26188108967986,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8578125,
+    "cycwppki_50perc_amean": 470.5089875,
+    "ipc_50perc_amean": 2.3241,
+    "storage_bits": 524206.0
+   },
+   "changed_from_seed": {
+    "SR_WT2_ENTRIES": [
+     "128",
+     "256"
+    ],
+    "HOST_NBANKLOW": [
+     "10",
+     "7"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "11"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 12,
+   "id": "2562bc18-18a0-41f3-a042-13a86c70ac7f",
+   "parent_id": "9079babf-2c57-4ac7-a9d8-c66d054a4c2c",
+   "success": true,
+   "error": null,
+   "llm_s": 71.7,
+   "eval_s": 1061.2,
+   "metrics": {
+    "combined_score": 127.30805525806139,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8549625,
+    "cycwppki_50perc_amean": 470.5682249999999,
+    "ipc_50perc_amean": 2.3239375000000004,
+    "storage_bits": 523326.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 13,
+   "id": "3bed0a1c-663e-4ab8-8fed-99966f0b0e7e",
+   "parent_id": "9079babf-2c57-4ac7-a9d8-c66d054a4c2c",
+   "success": true,
+   "error": null,
+   "llm_s": 133.7,
+   "eval_s": 1085.9,
+   "metrics": {
+    "combined_score": 127.42749375605281,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8476,
+    "cycwppki_50perc_amean": 470.4046125,
+    "ipc_50perc_amean": 2.321975,
+    "storage_bits": 524271.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": 9
+  },
+  {
+   "iteration": 14,
+   "id": "4c5c580a-6918-4f6e-af84-55d1b985d77f",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 100.5,
+   "eval_s": 1085.6,
+   "metrics": {
+    "combined_score": 126.99198839293227,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8745125,
+    "cycwppki_50perc_amean": 470.5606125,
+    "ipc_50perc_amean": 2.324175,
+    "storage_bits": 524126.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 15,
+   "id": "117eaf17-9cca-4c54-8d2e-31560ed920bf",
+   "parent_id": "0b7f282e-5cc0-4015-82c9-7dab123b0f39",
+   "success": true,
+   "error": null,
+   "llm_s": 79.5,
+   "eval_s": 1072.7,
+   "metrics": {
+    "combined_score": 126.80398481522282,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8861875,
+    "cycwppki_50perc_amean": 471.3712375,
+    "ipc_50perc_amean": 2.307025,
+    "storage_bits": 524047.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 16,
+   "id": "4f1444fa-2c3e-4904-aff6-76dd387aaad7",
+   "parent_id": "149a3da5-c6dc-4035-874e-c145fd883d43",
+   "success": true,
+   "error": null,
+   "llm_s": 167.0,
+   "eval_s": 1059.7,
+   "metrics": {
+    "combined_score": 127.48658602077712,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8439625,
+    "cycwppki_50perc_amean": 470.3566875,
+    "ipc_50perc_amean": 2.322825,
+    "storage_bits": 524206.0
+   },
+   "changed_from_seed": {
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "10"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": 4
+  },
+  {
+   "iteration": 17,
+   "id": "359bc305-db89-4c42-89b2-4fb104d81c0a",
+   "parent_id": "4f1444fa-2c3e-4904-aff6-76dd387aaad7",
+   "success": true,
+   "error": null,
+   "llm_s": 41.6,
+   "eval_s": 1104.0,
+   "metrics": {
+    "combined_score": 127.42749375605281,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8476,
+    "cycwppki_50perc_amean": 470.4046125,
+    "ipc_50perc_amean": 2.321975,
+    "storage_bits": 524271.0
+   },
+   "changed_from_seed": {
+    "SR_DECAY_INTERVAL": [
+     "256",
+     "512"
+    ],
+    "HOST_NBANKLOW": [
+     "10",
+     "8"
+    ],
+    "HOST_NBANKHIGH": [
+     "20",
+     "18"
+    ],
+    "HOST_LOGIMNB": [
+     "9",
+     "10"
+    ]
+   },
+   "header_kept": true,
+   "same_metrics_as_iteration": 9
+  },
+  {
+   "iteration": 18,
+   "id": "b11bdd50-5773-4274-a824-c869e88c3700",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 128.8,
+   "eval_s": 1099.9,
+   "metrics": {
+    "combined_score": 127.06964687345133,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8697,
+    "cycwppki_50perc_amean": 471.35741250000007,
+    "ipc_50perc_amean": 2.317475,
+    "storage_bits": 524271.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 19,
+   "id": "b10ebd35-20f9-4e4d-adf0-144b64f568d2",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 138.6,
+   "eval_s": 1063.9,
+   "metrics": {
+    "combined_score": 127.34595119466421,
+    "n": 8,
+    "brmispki_50perc_amean": 6.852625,
+    "cycwppki_50perc_amean": 470.0493875000001,
+    "ipc_50perc_amean": 2.3222625,
+    "storage_bits": 524220.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 20,
+   "id": "019205a9-9c05-4b14-8831-c7b39cf31a6e",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 72.8,
+   "eval_s": 1070.4,
+   "metrics": {
+    "combined_score": 127.42749375605281,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8476,
+    "cycwppki_50perc_amean": 470.4046125,
+    "ipc_50perc_amean": 2.321975,
+    "storage_bits": 524271.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": 9
+  },
+  {
+   "iteration": 21,
+   "id": "db10d273-51f0-447c-b226-5c87be781444",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 94.5,
+   "eval_s": 1089.6,
+   "metrics": {
+    "combined_score": 126.47381517749018,
+    "n": 8,
+    "brmispki_50perc_amean": 6.9067750000000006,
+    "cycwppki_50perc_amean": 472.3263,
+    "ipc_50perc_amean": 2.2983374999999997,
+    "storage_bits": 521538.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 22,
+   "id": "c102144d-a84c-44e2-9946-a48d628fc5c2",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 75.7,
+   "eval_s": 1217.3,
+   "metrics": {
+    "combined_score": 127.24184220739149,
+    "n": 8,
+    "brmispki_50perc_amean": 6.85905,
+    "cycwppki_50perc_amean": 470.8296375,
+    "ipc_50perc_amean": 2.3202,
+    "storage_bits": 522158.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  },
+  {
+   "iteration": 23,
+   "id": "2b4dbcc3-c8c6-4c29-baf9-f64e634c796d",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 72.9,
+   "eval_s": 1077.1,
+   "metrics": {
+    "combined_score": 127.42749375605281,
+    "n": 8,
+    "brmispki_50perc_amean": 6.8476,
+    "cycwppki_50perc_amean": 470.4046125,
+    "ipc_50perc_amean": 2.321975,
+    "storage_bits": 524271.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": 9
+  },
+  {
+   "iteration": 24,
+   "id": "51a592c7-0151-4b53-b5de-1dd3d898706e",
+   "parent_id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+   "success": true,
+   "error": null,
+   "llm_s": 95.6,
+   "eval_s": 1081.8,
+   "metrics": {
+    "combined_score": 126.90395591356571,
+    "n": 8,
+    "brmispki_50perc_amean": 6.879975,
+    "cycwppki_50perc_amean": 471.58101250000004,
+    "ipc_50perc_amean": 2.32175,
+    "storage_bits": 524206.0
+   },
+   "changed_from_seed": null,
+   "header_kept": false,
+   "same_metrics_as_iteration": null
+  }
+ ],
+ "note": "child_program in the iteration stats has no source, so a header is only known when some checkpoint kept that program (header_kept). same_metrics_as_iteration marks an iteration whose three metrics and storage equal an earlier one's exactly, which in a deterministic simulator means the same binary: a repeated proposal."
+}

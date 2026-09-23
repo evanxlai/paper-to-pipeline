@@ -1,0 +1,678 @@
+{
+  "stage": [
+    "promote"
+  ],
+  "budget": "iso-64KiB",
+  "promote": [
+    {
+      "host": "cbp2025",
+      "budget": "iso-64KiB",
+      "promote_list": "/home/laievan/chia-hackathon/p2p-promote-126141f/experiments/promote-16.list",
+      "traces": [
+        "int/int_25_trace.gz",
+        "int/int_26_trace.gz",
+        "int/int_27_trace.gz",
+        "int/int_35_trace.gz",
+        "int/int_36_trace.gz",
+        "web/web_15_trace.gz",
+        "web/web_18_trace.gz",
+        "web/web_22_trace.gz",
+        "web/web_23_trace.gz",
+        "infra/infra_9_trace.gz",
+        "infra/infra_15_trace.gz",
+        "fp/fp_10_trace.gz",
+        "fp/fp_11_trace.gz",
+        "compress/compress_5_trace.gz",
+        "compress/compress_6_trace.gz",
+        "media/media_2_trace.gz"
+      ],
+      "constraints": [
+        {
+          "metric": "storage_bits",
+          "comparison": "<=",
+          "allowance": 524288,
+          "name": "iso-64KiB",
+          "phase": "static"
+        }
+      ],
+      "population": 12,
+      "passed_over": {
+        "not_scored": 1,
+        "fails_static_check": 0,
+        "defaults": 0,
+        "duplicate": 2
+      },
+      "finalists": [
+        {
+          "label": "finalist_1",
+          "id": "8619cd09-3bd1-475a-86a8-a69257625a54",
+          "iteration_found": 4,
+          "screening": {
+            "combined_score": 127.48658602077712,
+            "brmispki_50perc_amean": 6.8439625,
+            "cycwppki_50perc_amean": 470.3566875,
+            "ipc_50perc_amean": 2.322825
+          },
+          "storage_bits": 524206,
+          "header": "// generated from the feature spec and the port plan; DSE mutates values only\n// constraint: storage_bits <= 524288 (iso-64KiB). A candidate that breaks it is not built.\n#pragma once\n#define SR_NUM_BANKS 8  // range: [1, 16]\n#define SR_WT0_ENTRIES 512  // range: [128, 2048] pow2\n#define SR_WT1_ENTRIES 256  // range: [64, 1024] pow2\n#define SR_WT2_ENTRIES 128  // range: [32, 512] pow2\n#define SR_WT_CTR_BITS 6  // range: [3, 8]\n#define SR_UT_ENTRIES 8  // range: [4, 32] pow2\n#define SR_UT_CTR_BITS 6  // range: [2, 8]\n#define SR_DIGEST_WIDTH 12  // range: [4, 12]\n#define SR_ROB_TAG_BITS 14  // range: [10, 16]\n#define SR_DECAY_INTERVAL 256  // range: [32, 2048] pow2\n#define SR_MULTIPLIER_USEFUL 2.5  // range: [1.0, 4.0]\n#define SR_USEFULNESS_THRESHOLD 0  // range: [-16, 16]\n// host knobs: the host's own structures, at the clean tree's values by default\n#define HOST_LOGG 10  // range: [8, 12]; sets LOGG\n#define HOST_TBITS 8  // range: [6, 12]; sets TBITS\n#define HOST_NBANKLOW 8  // range: [4, 16]; sets NBANKLOW\n#define HOST_NBANKHIGH 18  // range: [10, 32]; sets NBANKHIGH\n#define HOST_CWIDTH 3  // range: [2, 4]; sets CWIDTH\n#define HOST_UWIDTH 1  // range: [1, 2]; sets UWIDTH\n#define HOST_LOGB 13  // range: [10, 15]; sets LOGB\n#define HOST_HYSTSHIFT 2  // range: [0, 4]; sets HYSTSHIFT\n#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH\n#define HOST_LOGBIAS 8  // range: [4, 10]; sets LOGBIAS\n#define HOST_LOGGNB 10  // range: [6, 12]; sets LOGGNB\n#define HOST_LOGPNB 9  // range: [6, 12]; sets LOGPNB\n#define HOST_LOGLNB 10  // range: [6, 12]; sets LOGLNB\n#define HOST_LOGSNB 9  // range: [6, 12]; sets LOGSNB\n#define HOST_LOGTNB 10  // range: [6, 12]; sets LOGTNB\n#define HOST_LOGINB 8  // range: [4, 12]; sets LOGINB\n#define HOST_LOGIMNB 10  // range: [4, 12]; sets LOGIMNB\n#define HOST_LOGL 5  // range: [3, 8]; sets LOGL\n#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH\n// storage_bits is the sum of these, in bits:\n//   register_status_table: 65 * (1 + max(SR_ROB_TAG_BITS, SR_DIGEST_WIDTH) + log2(SR_DECAY_INTERVAL))\n//   usefulness_weight_tables: 65 * 3 * SR_UT_ENTRIES * SR_UT_CTR_BITS\n//   prediction_weight_tables: SR_NUM_BANKS * (SR_WT0_ENTRIES + SR_WT1_ENTRIES + SR_WT2_ENTRIES) * SR_WT_CTR_BITS\n//   host tagged tables, high banks: HOST_NBANKHIGH * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS + 4)\n//   host tagged tables, low banks: HOST_NBANKLOW * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS)\n//   host use-alt-on-NA counters: 80\n//   host bimodal, with shared hysteresis: 2 ** HOST_LOGB + 2 ** (HOST_LOGB - HOST_HYSTSHIFT)\n//   host global history, m[NHIST]: 3000\n//   host path history: 27\n//   host TICK counter: 10\n//   host loop predictor: 2 ** HOST_LOGL * 39\n//   host loop predictor, counted again inside SC: 2 ** HOST_LOGL * 39\n//   host SC thresholds and component weights: 524 + 24 * HOST_EWIDTH\n//   host SC bias tables: HOST_PERCWIDTH * 3 * 2 ** HOST_LOGBIAS\n//   host SC global GEHL: 2 * 2 ** HOST_LOGGNB * HOST_PERCWIDTH + 40\n//   host SC path GEHL: 2 * 2 ** HOST_LOGPNB * HOST_PERCWIDTH\n//   host SC first local: 2 * 2 ** HOST_LOGLNB * HOST_PERCWIDTH + 2816 + 8 * HOST_EWIDTH\n//   host SC second local: 2 * 2 ** HOST_LOGSNB * HOST_PERCWIDTH + 256 + 8 * HOST_EWIDTH\n//   host SC third local: 2 ** HOST_LOGTNB * HOST_PERCWIDTH + 144 + 8 * HOST_EWIDTH\n//   host SC IMLI: 2 ** (HOST_LOGINB - 1) * HOST_PERCWIDTH + 2 ** HOST_LOGIMNB * HOST_PERCWIDTH + 16 * HOST_EWIDTH + 2568\n//   host chooser counters: 14\n"
+        },
+        {
+          "label": "finalist_2",
+          "id": "9079babf-2c57-4ac7-a9d8-c66d054a4c2c",
+          "iteration_found": 8,
+          "screening": {
+            "combined_score": 127.44373359161929,
+            "brmispki_50perc_amean": 6.8466000000000005,
+            "cycwppki_50perc_amean": 470.3376125000001,
+            "ipc_50perc_amean": 2.322925
+          },
+          "storage_bits": 523326,
+          "header": "// generated from the feature spec and the port plan; DSE mutates values only\n// constraint: storage_bits <= 524288 (iso-64KiB). A candidate that breaks it is not built.\n#pragma once\n#define SR_NUM_BANKS 8  // range: [1, 16]\n#define SR_WT0_ENTRIES 512  // range: [128, 2048] pow2\n#define SR_WT1_ENTRIES 256  // range: [64, 1024] pow2\n#define SR_WT2_ENTRIES 128  // range: [32, 512] pow2\n#define SR_WT_CTR_BITS 6  // range: [3, 8]\n#define SR_UT_ENTRIES 16  // range: [4, 32] pow2\n#define SR_UT_CTR_BITS 6  // range: [2, 8]\n#define SR_DIGEST_WIDTH 12  // range: [4, 12]\n#define SR_ROB_TAG_BITS 14  // range: [10, 16]\n#define SR_DECAY_INTERVAL 256  // range: [32, 2048] pow2\n#define SR_MULTIPLIER_USEFUL 2.5  // range: [1.0, 4.0]\n#define SR_USEFULNESS_THRESHOLD 0  // range: [-16, 16]\n// host knobs: the host's own structures, at the clean tree's values by default\n#define HOST_LOGG 10  // range: [8, 12]; sets LOGG\n#define HOST_TBITS 8  // range: [6, 12]; sets TBITS\n#define HOST_NBANKLOW 8  // range: [4, 16]; sets NBANKLOW\n#define HOST_NBANKHIGH 17  // range: [10, 32]; sets NBANKHIGH\n#define HOST_CWIDTH 3  // range: [2, 4]; sets CWIDTH\n#define HOST_UWIDTH 1  // range: [1, 2]; sets UWIDTH\n#define HOST_LOGB 13  // range: [10, 15]; sets LOGB\n#define HOST_HYSTSHIFT 2  // range: [0, 4]; sets HYSTSHIFT\n#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH\n#define HOST_LOGBIAS 8  // range: [4, 10]; sets LOGBIAS\n#define HOST_LOGGNB 10  // range: [6, 12]; sets LOGGNB\n#define HOST_LOGPNB 9  // range: [6, 12]; sets LOGPNB\n#define HOST_LOGLNB 10  // range: [6, 12]; sets LOGLNB\n#define HOST_LOGSNB 9  // range: [6, 12]; sets LOGSNB\n#define HOST_LOGTNB 10  // range: [6, 12]; sets LOGTNB\n#define HOST_LOGINB 8  // range: [4, 12]; sets LOGINB\n#define HOST_LOGIMNB 11  // range: [4, 12]; sets LOGIMNB\n#define HOST_LOGL 5  // range: [3, 8]; sets LOGL\n#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH\n// storage_bits is the sum of these, in bits:\n//   register_status_table: 65 * (1 + max(SR_ROB_TAG_BITS, SR_DIGEST_WIDTH) + log2(SR_DECAY_INTERVAL))\n//   usefulness_weight_tables: 65 * 3 * SR_UT_ENTRIES * SR_UT_CTR_BITS\n//   prediction_weight_tables: SR_NUM_BANKS * (SR_WT0_ENTRIES + SR_WT1_ENTRIES + SR_WT2_ENTRIES) * SR_WT_CTR_BITS\n//   host tagged tables, high banks: HOST_NBANKHIGH * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS + 4)\n//   host tagged tables, low banks: HOST_NBANKLOW * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS)\n//   host use-alt-on-NA counters: 80\n//   host bimodal, with shared hysteresis: 2 ** HOST_LOGB + 2 ** (HOST_LOGB - HOST_HYSTSHIFT)\n//   host global history, m[NHIST]: 3000\n//   host path history: 27\n//   host TICK counter: 10\n//   host loop predictor: 2 ** HOST_LOGL * 39\n//   host loop predictor, counted again inside SC: 2 ** HOST_LOGL * 39\n//   host SC thresholds and component weights: 524 + 24 * HOST_EWIDTH\n//   host SC bias tables: HOST_PERCWIDTH * 3 * 2 ** HOST_LOGBIAS\n//   host SC global GEHL: 2 * 2 ** HOST_LOGGNB * HOST_PERCWIDTH + 40\n//   host SC path GEHL: 2 * 2 ** HOST_LOGPNB * HOST_PERCWIDTH\n//   host SC first local: 2 * 2 ** HOST_LOGLNB * HOST_PERCWIDTH + 2816 + 8 * HOST_EWIDTH\n//   host SC second local: 2 * 2 ** HOST_LOGSNB * HOST_PERCWIDTH + 256 + 8 * HOST_EWIDTH\n//   host SC third local: 2 ** HOST_LOGTNB * HOST_PERCWIDTH + 144 + 8 * HOST_EWIDTH\n//   host SC IMLI: 2 ** (HOST_LOGINB - 1) * HOST_PERCWIDTH + 2 ** HOST_LOGIMNB * HOST_PERCWIDTH + 16 * HOST_EWIDTH + 2568\n//   host chooser counters: 14\n"
+        },
+        {
+          "label": "finalist_3",
+          "id": "359bc305-db89-4c42-89b2-4fb104d81c0a",
+          "iteration_found": 17,
+          "screening": {
+            "combined_score": 127.42749375605281,
+            "brmispki_50perc_amean": 6.8476,
+            "cycwppki_50perc_amean": 470.4046125,
+            "ipc_50perc_amean": 2.321975
+          },
+          "storage_bits": 524271,
+          "header": "// generated from the feature spec and the port plan; DSE mutates values only\n// constraint: storage_bits <= 524288 (iso-64KiB). A candidate that breaks it is not built.\n#pragma once\n#define SR_NUM_BANKS 8  // range: [1, 16]\n#define SR_WT0_ENTRIES 512  // range: [128, 2048] pow2\n#define SR_WT1_ENTRIES 256  // range: [64, 1024] pow2\n#define SR_WT2_ENTRIES 128  // range: [32, 512] pow2\n#define SR_WT_CTR_BITS 6  // range: [3, 8]\n#define SR_UT_ENTRIES 8  // range: [4, 32] pow2\n#define SR_UT_CTR_BITS 6  // range: [2, 8]\n#define SR_DIGEST_WIDTH 12  // range: [4, 12]\n#define SR_ROB_TAG_BITS 14  // range: [10, 16]\n#define SR_DECAY_INTERVAL 512  // range: [32, 2048] pow2\n#define SR_MULTIPLIER_USEFUL 2.5  // range: [1.0, 4.0]\n#define SR_USEFULNESS_THRESHOLD 0  // range: [-16, 16]\n// host knobs: the host's own structures, at the clean tree's values by default\n#define HOST_LOGG 10  // range: [8, 12]; sets LOGG\n#define HOST_TBITS 8  // range: [6, 12]; sets TBITS\n#define HOST_NBANKLOW 8  // range: [4, 16]; sets NBANKLOW\n#define HOST_NBANKHIGH 18  // range: [10, 32]; sets NBANKHIGH\n#define HOST_CWIDTH 3  // range: [2, 4]; sets CWIDTH\n#define HOST_UWIDTH 1  // range: [1, 2]; sets UWIDTH\n#define HOST_LOGB 13  // range: [10, 15]; sets LOGB\n#define HOST_HYSTSHIFT 2  // range: [0, 4]; sets HYSTSHIFT\n#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH\n#define HOST_LOGBIAS 8  // range: [4, 10]; sets LOGBIAS\n#define HOST_LOGGNB 10  // range: [6, 12]; sets LOGGNB\n#define HOST_LOGPNB 9  // range: [6, 12]; sets LOGPNB\n#define HOST_LOGLNB 10  // range: [6, 12]; sets LOGLNB\n#define HOST_LOGSNB 9  // range: [6, 12]; sets LOGSNB\n#define HOST_LOGTNB 10  // range: [6, 12]; sets LOGTNB\n#define HOST_LOGINB 8  // range: [4, 12]; sets LOGINB\n#define HOST_LOGIMNB 10  // range: [4, 12]; sets LOGIMNB\n#define HOST_LOGL 5  // range: [3, 8]; sets LOGL\n#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH\n// storage_bits is the sum of these, in bits:\n//   register_status_table: 65 * (1 + max(SR_ROB_TAG_BITS, SR_DIGEST_WIDTH) + log2(SR_DECAY_INTERVAL))\n//   usefulness_weight_tables: 65 * 3 * SR_UT_ENTRIES * SR_UT_CTR_BITS\n//   prediction_weight_tables: SR_NUM_BANKS * (SR_WT0_ENTRIES + SR_WT1_ENTRIES + SR_WT2_ENTRIES) * SR_WT_CTR_BITS\n//   host tagged tables, high banks: HOST_NBANKHIGH * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS + 4)\n//   host tagged tables, low banks: HOST_NBANKLOW * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS)\n//   host use-alt-on-NA counters: 80\n//   host bimodal, with shared hysteresis: 2 ** HOST_LOGB + 2 ** (HOST_LOGB - HOST_HYSTSHIFT)\n//   host global history, m[NHIST]: 3000\n//   host path history: 27\n//   host TICK counter: 10\n//   host loop predictor: 2 ** HOST_LOGL * 39\n//   host loop predictor, counted again inside SC: 2 ** HOST_LOGL * 39\n//   host SC thresholds and component weights: 524 + 24 * HOST_EWIDTH\n//   host SC bias tables: HOST_PERCWIDTH * 3 * 2 ** HOST_LOGBIAS\n//   host SC global GEHL: 2 * 2 ** HOST_LOGGNB * HOST_PERCWIDTH + 40\n//   host SC path GEHL: 2 * 2 ** HOST_LOGPNB * HOST_PERCWIDTH\n//   host SC first local: 2 * 2 ** HOST_LOGLNB * HOST_PERCWIDTH + 2816 + 8 * HOST_EWIDTH\n//   host SC second local: 2 * 2 ** HOST_LOGSNB * HOST_PERCWIDTH + 256 + 8 * HOST_EWIDTH\n//   host SC third local: 2 ** HOST_LOGTNB * HOST_PERCWIDTH + 144 + 8 * HOST_EWIDTH\n//   host SC IMLI: 2 ** (HOST_LOGINB - 1) * HOST_PERCWIDTH + 2 ** HOST_LOGIMNB * HOST_PERCWIDTH + 16 * HOST_EWIDTH + 2568\n//   host chooser counters: 14\n"
+        }
+      ],
+      "storage_bits": {
+        "baseline": 524615,
+        "defaults": 578478,
+        "finalist_1": 524206,
+        "finalist_2": 523326,
+        "finalist_3": 524271
+      },
+      "restore": {
+        "root": "/home/laievan/cbp2025",
+        "was_dirty": true,
+        "removed": [
+          "Removing cbp",
+          "Removing cond_branch_predictor_interface.o",
+          "Removing lib/bp.o",
+          "Removing lib/cache.o",
+          "Removing lib/cbp.o",
+          "Removing lib/gzstream.o",
+          "Removing lib/libcbp.a",
+          "Removing lib/my_value_predictor.o",
+          "Removing lib/parameters.o",
+          "Removing lib/resource_schedule.o",
+          "Removing lib/uarchsim.o",
+          "Removing my_cond_branch_predictor.o"
+        ],
+        "revision": "607496629452740887dc1b90a46834cc90dda1e0"
+      },
+      "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+      "build_failed": {},
+      "run_errors": {},
+      "per_trace": {
+        "baseline": {
+          "int/int_25_trace.gz": {
+            "brmispki_50perc_amean": 2.2961,
+            "cycwppki_50perc_amean": 76.4057,
+            "ipc_50perc_amean": 4.7204
+          },
+          "int/int_26_trace.gz": {
+            "brmispki_50perc_amean": 1.2416,
+            "cycwppki_50perc_amean": 42.8235,
+            "ipc_50perc_amean": 6.2548
+          },
+          "int/int_27_trace.gz": {
+            "brmispki_50perc_amean": 0.7473,
+            "cycwppki_50perc_amean": 25.5502,
+            "ipc_50perc_amean": 6.7648
+          },
+          "int/int_35_trace.gz": {
+            "brmispki_50perc_amean": 2.34,
+            "cycwppki_50perc_amean": 125.7139,
+            "ipc_50perc_amean": 3.6034
+          },
+          "int/int_36_trace.gz": {
+            "brmispki_50perc_amean": 3.8084,
+            "cycwppki_50perc_amean": 157.7487,
+            "ipc_50perc_amean": 1.8008
+          },
+          "web/web_15_trace.gz": {
+            "brmispki_50perc_amean": 5.5078,
+            "cycwppki_50perc_amean": 137.6607,
+            "ipc_50perc_amean": 2.3453
+          },
+          "web/web_18_trace.gz": {
+            "brmispki_50perc_amean": 2.67,
+            "cycwppki_50perc_amean": 131.7678,
+            "ipc_50perc_amean": 3.9975
+          },
+          "web/web_22_trace.gz": {
+            "brmispki_50perc_amean": 3.136,
+            "cycwppki_50perc_amean": 144.9693,
+            "ipc_50perc_amean": 3.7686
+          },
+          "web/web_23_trace.gz": {
+            "brmispki_50perc_amean": 1.7933,
+            "cycwppki_50perc_amean": 61.6144,
+            "ipc_50perc_amean": 2.1662
+          },
+          "infra/infra_9_trace.gz": {
+            "brmispki_50perc_amean": 6.8318,
+            "cycwppki_50perc_amean": 578.9669,
+            "ipc_50perc_amean": 1.4622
+          },
+          "infra/infra_15_trace.gz": {
+            "brmispki_50perc_amean": 5.8776,
+            "cycwppki_50perc_amean": 165.0237,
+            "ipc_50perc_amean": 3.9042
+          },
+          "fp/fp_10_trace.gz": {
+            "brmispki_50perc_amean": 2.0322,
+            "cycwppki_50perc_amean": 44.5103,
+            "ipc_50perc_amean": 5.8923
+          },
+          "fp/fp_11_trace.gz": {
+            "brmispki_50perc_amean": 0.687,
+            "cycwppki_50perc_amean": 14.8113,
+            "ipc_50perc_amean": 5.4319
+          },
+          "compress/compress_5_trace.gz": {
+            "brmispki_50perc_amean": 1.7159,
+            "cycwppki_50perc_amean": 42.8358,
+            "ipc_50perc_amean": 5.5043
+          },
+          "compress/compress_6_trace.gz": {
+            "brmispki_50perc_amean": 1.694,
+            "cycwppki_50perc_amean": 42.0462,
+            "ipc_50perc_amean": 5.5009
+          },
+          "media/media_2_trace.gz": {
+            "brmispki_50perc_amean": 0.7329,
+            "cycwppki_50perc_amean": 39.2565,
+            "ipc_50perc_amean": 6.0143
+          }
+        },
+        "defaults": {
+          "int/int_25_trace.gz": {
+            "brmispki_50perc_amean": 2.2926,
+            "cycwppki_50perc_amean": 76.2293,
+            "ipc_50perc_amean": 4.7256
+          },
+          "int/int_26_trace.gz": {
+            "brmispki_50perc_amean": 1.2492,
+            "cycwppki_50perc_amean": 43.3644,
+            "ipc_50perc_amean": 6.2358
+          },
+          "int/int_27_trace.gz": {
+            "brmispki_50perc_amean": 0.7617,
+            "cycwppki_50perc_amean": 26.0107,
+            "ipc_50perc_amean": 6.7529
+          },
+          "int/int_35_trace.gz": {
+            "brmispki_50perc_amean": 2.3487,
+            "cycwppki_50perc_amean": 124.6147,
+            "ipc_50perc_amean": 3.6057
+          },
+          "int/int_36_trace.gz": {
+            "brmispki_50perc_amean": 3.8083,
+            "cycwppki_50perc_amean": 157.2794,
+            "ipc_50perc_amean": 1.8017
+          },
+          "web/web_15_trace.gz": {
+            "brmispki_50perc_amean": 5.5041,
+            "cycwppki_50perc_amean": 137.6089,
+            "ipc_50perc_amean": 2.3459
+          },
+          "web/web_18_trace.gz": {
+            "brmispki_50perc_amean": 2.6912,
+            "cycwppki_50perc_amean": 131.9997,
+            "ipc_50perc_amean": 3.9988
+          },
+          "web/web_22_trace.gz": {
+            "brmispki_50perc_amean": 3.1584,
+            "cycwppki_50perc_amean": 144.8476,
+            "ipc_50perc_amean": 3.7642
+          },
+          "web/web_23_trace.gz": {
+            "brmispki_50perc_amean": 1.8042,
+            "cycwppki_50perc_amean": 61.898,
+            "ipc_50perc_amean": 2.1655
+          },
+          "infra/infra_9_trace.gz": {
+            "brmispki_50perc_amean": 6.844,
+            "cycwppki_50perc_amean": 583.2987,
+            "ipc_50perc_amean": 1.4526
+          },
+          "infra/infra_15_trace.gz": {
+            "brmispki_50perc_amean": 5.7897,
+            "cycwppki_50perc_amean": 163.378,
+            "ipc_50perc_amean": 3.9294
+          },
+          "fp/fp_10_trace.gz": {
+            "brmispki_50perc_amean": 2.0204,
+            "cycwppki_50perc_amean": 44.3456,
+            "ipc_50perc_amean": 5.897
+          },
+          "fp/fp_11_trace.gz": {
+            "brmispki_50perc_amean": 0.6771,
+            "cycwppki_50perc_amean": 14.6359,
+            "ipc_50perc_amean": 5.4367
+          },
+          "compress/compress_5_trace.gz": {
+            "brmispki_50perc_amean": 1.5781,
+            "cycwppki_50perc_amean": 41.2729,
+            "ipc_50perc_amean": 5.5488
+          },
+          "compress/compress_6_trace.gz": {
+            "brmispki_50perc_amean": 1.5622,
+            "cycwppki_50perc_amean": 40.537,
+            "ipc_50perc_amean": 5.542
+          },
+          "media/media_2_trace.gz": {
+            "brmispki_50perc_amean": 0.7515,
+            "cycwppki_50perc_amean": 39.7872,
+            "ipc_50perc_amean": 5.9964
+          }
+        },
+        "finalist_1": {
+          "int/int_25_trace.gz": {
+            "brmispki_50perc_amean": 2.302,
+            "cycwppki_50perc_amean": 76.4471,
+            "ipc_50perc_amean": 4.7197
+          },
+          "int/int_26_trace.gz": {
+            "brmispki_50perc_amean": 1.2756,
+            "cycwppki_50perc_amean": 44.1736,
+            "ipc_50perc_amean": 6.2133
+          },
+          "int/int_27_trace.gz": {
+            "brmispki_50perc_amean": 0.7633,
+            "cycwppki_50perc_amean": 26.1482,
+            "ipc_50perc_amean": 6.7483
+          },
+          "int/int_35_trace.gz": {
+            "brmispki_50perc_amean": 2.3698,
+            "cycwppki_50perc_amean": 126.1813,
+            "ipc_50perc_amean": 3.5983
+          },
+          "int/int_36_trace.gz": {
+            "brmispki_50perc_amean": 4.0606,
+            "cycwppki_50perc_amean": 163.0402,
+            "ipc_50perc_amean": 1.7849
+          },
+          "web/web_15_trace.gz": {
+            "brmispki_50perc_amean": 5.6561,
+            "cycwppki_50perc_amean": 140.2184,
+            "ipc_50perc_amean": 2.3321
+          },
+          "web/web_18_trace.gz": {
+            "brmispki_50perc_amean": 2.707,
+            "cycwppki_50perc_amean": 131.4694,
+            "ipc_50perc_amean": 4.0005
+          },
+          "web/web_22_trace.gz": {
+            "brmispki_50perc_amean": 3.1743,
+            "cycwppki_50perc_amean": 145.4914,
+            "ipc_50perc_amean": 3.755
+          },
+          "web/web_23_trace.gz": {
+            "brmispki_50perc_amean": 1.8243,
+            "cycwppki_50perc_amean": 62.9952,
+            "ipc_50perc_amean": 2.1617
+          },
+          "infra/infra_9_trace.gz": {
+            "brmispki_50perc_amean": 6.8673,
+            "cycwppki_50perc_amean": 584.4797,
+            "ipc_50perc_amean": 1.4502
+          },
+          "infra/infra_15_trace.gz": {
+            "brmispki_50perc_amean": 5.8329,
+            "cycwppki_50perc_amean": 164.2152,
+            "ipc_50perc_amean": 3.9168
+          },
+          "fp/fp_10_trace.gz": {
+            "brmispki_50perc_amean": 2.015,
+            "cycwppki_50perc_amean": 44.3174,
+            "ipc_50perc_amean": 5.8983
+          },
+          "fp/fp_11_trace.gz": {
+            "brmispki_50perc_amean": 0.6782,
+            "cycwppki_50perc_amean": 14.6557,
+            "ipc_50perc_amean": 5.4359
+          },
+          "compress/compress_5_trace.gz": {
+            "brmispki_50perc_amean": 1.5894,
+            "cycwppki_50perc_amean": 41.472,
+            "ipc_50perc_amean": 5.5449
+          },
+          "compress/compress_6_trace.gz": {
+            "brmispki_50perc_amean": 1.5574,
+            "cycwppki_50perc_amean": 40.4253,
+            "ipc_50perc_amean": 5.5449
+          },
+          "media/media_2_trace.gz": {
+            "brmispki_50perc_amean": 0.7678,
+            "cycwppki_50perc_amean": 40.7567,
+            "ipc_50perc_amean": 5.9666
+          }
+        },
+        "finalist_2": {
+          "int/int_25_trace.gz": {
+            "brmispki_50perc_amean": 2.2983,
+            "cycwppki_50perc_amean": 76.5112,
+            "ipc_50perc_amean": 4.7205
+          },
+          "int/int_26_trace.gz": {
+            "brmispki_50perc_amean": 1.2609,
+            "cycwppki_50perc_amean": 43.7318,
+            "ipc_50perc_amean": 6.2269
+          },
+          "int/int_27_trace.gz": {
+            "brmispki_50perc_amean": 0.7647,
+            "cycwppki_50perc_amean": 26.0999,
+            "ipc_50perc_amean": 6.7506
+          },
+          "int/int_35_trace.gz": {
+            "brmispki_50perc_amean": 2.4045,
+            "cycwppki_50perc_amean": 126.9346,
+            "ipc_50perc_amean": 3.5914
+          },
+          "int/int_36_trace.gz": {
+            "brmispki_50perc_amean": 4.0821,
+            "cycwppki_50perc_amean": 163.0203,
+            "ipc_50perc_amean": 1.7855
+          },
+          "web/web_15_trace.gz": {
+            "brmispki_50perc_amean": 5.635,
+            "cycwppki_50perc_amean": 140.0632,
+            "ipc_50perc_amean": 2.3316
+          },
+          "web/web_18_trace.gz": {
+            "brmispki_50perc_amean": 2.7042,
+            "cycwppki_50perc_amean": 130.8075,
+            "ipc_50perc_amean": 4.0093
+          },
+          "web/web_22_trace.gz": {
+            "brmispki_50perc_amean": 3.1957,
+            "cycwppki_50perc_amean": 146.3456,
+            "ipc_50perc_amean": 3.7458
+          },
+          "web/web_23_trace.gz": {
+            "brmispki_50perc_amean": 1.8388,
+            "cycwppki_50perc_amean": 62.6579,
+            "ipc_50perc_amean": 2.1611
+          },
+          "infra/infra_9_trace.gz": {
+            "brmispki_50perc_amean": 6.8192,
+            "cycwppki_50perc_amean": 584.8945,
+            "ipc_50perc_amean": 1.4506
+          },
+          "infra/infra_15_trace.gz": {
+            "brmispki_50perc_amean": 5.8344,
+            "cycwppki_50perc_amean": 164.4274,
+            "ipc_50perc_amean": 3.9136
+          },
+          "fp/fp_10_trace.gz": {
+            "brmispki_50perc_amean": 2.0655,
+            "cycwppki_50perc_amean": 45.0995,
+            "ipc_50perc_amean": 5.8736
+          },
+          "fp/fp_11_trace.gz": {
+            "brmispki_50perc_amean": 0.6878,
+            "cycwppki_50perc_amean": 14.8899,
+            "ipc_50perc_amean": 5.4306
+          },
+          "compress/compress_5_trace.gz": {
+            "brmispki_50perc_amean": 1.5785,
+            "cycwppki_50perc_amean": 41.2916,
+            "ipc_50perc_amean": 5.5465
+          },
+          "compress/compress_6_trace.gz": {
+            "brmispki_50perc_amean": 1.5596,
+            "cycwppki_50perc_amean": 40.5172,
+            "ipc_50perc_amean": 5.5417
+          },
+          "media/media_2_trace.gz": {
+            "brmispki_50perc_amean": 0.7833,
+            "cycwppki_50perc_amean": 41.691,
+            "ipc_50perc_amean": 5.942
+          }
+        },
+        "finalist_3": {
+          "int/int_25_trace.gz": {
+            "brmispki_50perc_amean": 2.3063,
+            "cycwppki_50perc_amean": 76.6607,
+            "ipc_50perc_amean": 4.7165
+          },
+          "int/int_26_trace.gz": {
+            "brmispki_50perc_amean": 1.2573,
+            "cycwppki_50perc_amean": 43.4359,
+            "ipc_50perc_amean": 6.2317
+          },
+          "int/int_27_trace.gz": {
+            "brmispki_50perc_amean": 0.7729,
+            "cycwppki_50perc_amean": 26.3519,
+            "ipc_50perc_amean": 6.7414
+          },
+          "int/int_35_trace.gz": {
+            "brmispki_50perc_amean": 2.3994,
+            "cycwppki_50perc_amean": 126.0336,
+            "ipc_50perc_amean": 3.595
+          },
+          "int/int_36_trace.gz": {
+            "brmispki_50perc_amean": 4.0835,
+            "cycwppki_50perc_amean": 162.9772,
+            "ipc_50perc_amean": 1.7853
+          },
+          "web/web_15_trace.gz": {
+            "brmispki_50perc_amean": 5.6801,
+            "cycwppki_50perc_amean": 141.137,
+            "ipc_50perc_amean": 2.3264
+          },
+          "web/web_18_trace.gz": {
+            "brmispki_50perc_amean": 2.7167,
+            "cycwppki_50perc_amean": 132.1889,
+            "ipc_50perc_amean": 3.9919
+          },
+          "web/web_22_trace.gz": {
+            "brmispki_50perc_amean": 3.1851,
+            "cycwppki_50perc_amean": 145.02,
+            "ipc_50perc_amean": 3.7627
+          },
+          "web/web_23_trace.gz": {
+            "brmispki_50perc_amean": 1.8264,
+            "cycwppki_50perc_amean": 62.0196,
+            "ipc_50perc_amean": 2.1638
+          },
+          "infra/infra_9_trace.gz": {
+            "brmispki_50perc_amean": 6.8651,
+            "cycwppki_50perc_amean": 590.7265,
+            "ipc_50perc_amean": 1.4401
+          },
+          "infra/infra_15_trace.gz": {
+            "brmispki_50perc_amean": 5.8511,
+            "cycwppki_50perc_amean": 164.5973,
+            "ipc_50perc_amean": 3.9112
+          },
+          "fp/fp_10_trace.gz": {
+            "brmispki_50perc_amean": 2.0383,
+            "cycwppki_50perc_amean": 44.7827,
+            "ipc_50perc_amean": 5.8815
+          },
+          "fp/fp_11_trace.gz": {
+            "brmispki_50perc_amean": 0.6766,
+            "cycwppki_50perc_amean": 14.6313,
+            "ipc_50perc_amean": 5.4366
+          },
+          "compress/compress_5_trace.gz": {
+            "brmispki_50perc_amean": 1.5908,
+            "cycwppki_50perc_amean": 41.5111,
+            "ipc_50perc_amean": 5.5418
+          },
+          "compress/compress_6_trace.gz": {
+            "brmispki_50perc_amean": 1.5686,
+            "cycwppki_50perc_amean": 40.6358,
+            "ipc_50perc_amean": 5.5413
+          },
+          "media/media_2_trace.gz": {
+            "brmispki_50perc_amean": 0.7994,
+            "cycwppki_50perc_amean": 41.6013,
+            "ipc_50perc_amean": 5.9409
+          }
+        }
+      },
+      "variants": {
+        "baseline": {
+          "n": 16,
+          "failed": [],
+          "brmispki_50perc_amean": 2.69449375,
+          "cycwppki_50perc_amean": 114.48155625,
+          "ipc_50perc_amean": 4.320743750000001
+        },
+        "defaults": {
+          "n": 16,
+          "failed": [],
+          "brmispki_50perc_amean": 2.6775875,
+          "cycwppki_50perc_amean": 114.44425000000001,
+          "ipc_50perc_amean": 4.3249375
+        },
+        "finalist_1": {
+          "n": 16,
+          "failed": [],
+          "brmispki_50perc_amean": 2.7150624999999997,
+          "cycwppki_50perc_amean": 115.405425,
+          "ipc_50perc_amean": 4.316962500000001
+        },
+        "finalist_2": {
+          "n": 16,
+          "failed": [],
+          "brmispki_50perc_amean": 2.71953125,
+          "cycwppki_50perc_amean": 115.56144375,
+          "ipc_50perc_amean": 4.31383125
+        },
+        "finalist_3": {
+          "n": 16,
+          "failed": [],
+          "brmispki_50perc_amean": 2.7261,
+          "cycwppki_50perc_amean": 115.89442499999998,
+          "ipc_50perc_amean": 4.313006250000001
+        }
+      },
+      "vs_baseline": {
+        "defaults": {
+          "brmispki_50perc_amean": {
+            "change": -0.006274369721584905,
+            "traces_lower": 8,
+            "traces_higher": 8,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": -0.000325871268892608,
+            "traces_lower": 10,
+            "traces_higher": 6,
+            "traces_same": 0
+          }
+        },
+        "finalist_1": {
+          "brmispki_50perc_amean": {
+            "change": 0.007633623199162942,
+            "traces_lower": 5,
+            "traces_higher": 11,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": 0.008070022633012597,
+            "traces_lower": 6,
+            "traces_higher": 10,
+            "traces_same": 0
+          }
+        },
+        "finalist_2": {
+          "brmispki_50perc_amean": {
+            "change": 0.009292098005423188,
+            "traces_lower": 4,
+            "traces_higher": 12,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": 0.009432851328835756,
+            "traces_lower": 4,
+            "traces_higher": 12,
+            "traces_same": 0
+          }
+        },
+        "finalist_3": {
+          "brmispki_50perc_amean": {
+            "change": 0.011729939993366134,
+            "traces_lower": 4,
+            "traces_higher": 12,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": 0.012341453036457839,
+            "traces_lower": 4,
+            "traces_higher": 12,
+            "traces_same": 0
+          }
+        }
+      },
+      "vs_defaults": {
+        "finalist_1": {
+          "brmispki_50perc_amean": {
+            "change": 0.013995807793395931,
+            "traces_lower": 2,
+            "traces_higher": 14,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": 0.008398630774372418,
+            "traces_lower": 3,
+            "traces_higher": 13,
+            "traces_same": 0
+          }
+        },
+        "finalist_2": {
+          "brmispki_50perc_amean": {
+            "change": 0.015664754186371255,
+            "traces_lower": 2,
+            "traces_higher": 14,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": 0.009761903721680953,
+            "traces_lower": 2,
+            "traces_higher": 14,
+            "traces_same": 0
+          }
+        },
+        "finalist_3": {
+          "brmispki_50perc_amean": {
+            "change": 0.018117988674506424,
+            "traces_lower": 1,
+            "traces_higher": 15,
+            "traces_same": 0
+          },
+          "cycwppki_50perc_amean": {
+            "change": 0.012671453568003477,
+            "traces_lower": 1,
+            "traces_higher": 15,
+            "traces_same": 0
+          }
+        }
+      },
+      "verdict": {
+        "metric": "brmispki_50perc_amean",
+        "winner": "finalist_1",
+        "screening_winner_held": true,
+        "tuned_beats_baseline": false,
+        "tuned_beats_defaults": false,
+        "defaults_beat_baseline": true
+      },
+      "status": "promoted",
+      "error": null
+    }
+  ]
+}
