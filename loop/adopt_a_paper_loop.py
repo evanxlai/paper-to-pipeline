@@ -121,13 +121,19 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
     # reading them inline is what did not happen, and the resulting guess
     # then rode three review rounds as an established fact.
     ann = paper_markers.annotate(paper)
+    if C.REQUIRE_SOURCE_MARKERS:
+        paper_markers.require_markers(paper, ann, C.PAPER_TEXT_PATH)
     notes = ann.render_notes()
     caveats = (
         "\n\n## Declared ambiguities in the source\n\n"
-        "Each of these is a point the input marks `UNCERTAIN`: the figure is "
-        "genuinely ambiguous there. Choose a default so the spec stays "
-        "implementable, but record the alternative in `open_questions`, and "
-        "do not describe either reading as something the paper states.\n\n"
+        "Each of these is a point the input declines to state as fact. A "
+        "`U` note marks a figure the input calls genuinely ambiguous. An `I` "
+        "note marks a reading of a figure's layout that the paper never puts "
+        "into words -- it will read as settled, because it states its "
+        "conclusion and only then says where the conclusion came from. "
+        "Either way: choose a default so the spec stays implementable, but "
+        "record the alternative in `open_questions`, and do not describe "
+        "either reading as something the paper states.\n\n"
         + notes
     ) if notes else ""
     prompt = (
@@ -163,9 +169,14 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
         raise SystemExit(f"distillation failed schema check: {errs}")
 
     dump.json("spec_draft.json", spec)
+    # Resolved once and handed to both the rounds and the gate below. The
+    # rounds are the point: a feature budget the reviewers never see is one
+    # the gate can only refuse the spec over, with no round left in which to
+    # repair it.
+    feature_bits = helpers.feature_budget_bits(budget)
     if C.SPEC_REVIEW:
         spec, review = spec_review.review_spec(
-            dump, spec, paper, C.BUDGET_TRACKS_BITS[budget]
+            dump, spec, paper, C.BUDGET_TRACKS_BITS[budget], feature_bits
         )
         dump.json("spec_review_summary.json", review)
         print(json.dumps(review["rounds"], indent=2, default=str))
@@ -182,7 +193,8 @@ def distill(dump: helpers.Dumper, budget: str = "iso-192KiB") -> dict:
     # implement from this file and never read the paper, so a contradiction
     # here does not stop them: it produces a predictor that builds, runs, and
     # is quietly wrong, which the gate cannot distinguish from a real result.
-    errs = [f for f in spec_checks.run_checks(spec, C.BUDGET_TRACKS_BITS[budget])
+    errs = [f for f in spec_checks.run_checks(
+                spec, C.BUDGET_TRACKS_BITS[budget], feature_bits)
             if f.severity == "error"]
     if errs and not C.SPEC_ALLOW_ERRORS:
         raise SystemExit(

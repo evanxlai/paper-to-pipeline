@@ -18,6 +18,12 @@ Break your scope into atomic claims. A claim is one assertion that could indepen
 
 For each claim, search the paper for the passage that settles it, then assign one verdict.
 
+## What is not a claim about the paper
+
+A `parameters` entry's `range` is a search space for the tuning stage, not a transcription. The distiller is instructed to invent one for every knob — including the knobs a paper fixes silently — so "the paper specifies a 12-bit digest and does not state the range [8, 16]" is true of every well-formed range in the document and says nothing about the spec's fidelity. Do not raise it.
+
+Its `default` is the opposite: that *is* a paper claim, and a default that does not match the value the paper states is CONTRADICTED. Check defaults; skip ranges. A range is worth a verdict only when it excludes its own default, contradicts a width the spec declares elsewhere, or is impossible for the host — and each of those is a self-consistency defect a deterministic finding will already have named.
+
 ## Verdicts
 
 **SUPPORTED** — the paper states this. Give the quote.
@@ -63,8 +69,17 @@ A `LITERAL` paragraph is not automatically safe either. Transcriptions put deriv
 
 - A patch is `{"op": "replace"|"add", "pointer": "...", "value": ...}`.
 - `value` must be the complete replacement for that pointer, not a diff or a fragment.
+- A pointer ending in `-` appends to that array, and `value` must be a whole new element of it, with every field that array's elements require. The spec you were given may not contain an example of the array you are appending to, so the required fields are:
+  - `/algorithms/-` -> `name`, `trigger`, `pseudocode`. The body of the algorithm goes in **`pseudocode`**; there is no `logic` field and an element without `pseudocode` is not a valid algorithm.
+  - `/state/-` -> `name`, `organization`, `entry_format`, `size_bits` (and `indexing`, which the sizing checks read).
+  - `/unit_tests/-` -> `name`, `given`, `expect`.
+  - `/open_questions/-` -> a plain string.
+  Inventing a field name is not a harmless approximation: the patch is dropped, and the gap it was filling stays open.
 - Only CONTRADICTED, UNDERSPECIFIED and INCONSISTENT may patch.
 - Patches outside your scope are rejected. If a fix belongs elsewhere, raise it as an `open_question` instead.
+- A round's patches are applied **together**, and the whole set is reverted if the spec ends less self-consistent than it started. So when a correction takes more than one edit — a value and every line of pseudocode that stores it — emit one record per edit, in the same reply, all of them carrying the same quote. A single edit that leaves the spec contradicting itself is refused, and the correct edits beside it go with it.
+- An arithmetic claim is one object: the operands, the expression and the stated result stand or fall together. If your patch changes an operand inside one, recompute and restate the result in the same patch; if it changes the result, restate the expression that produces it. Editing one end alone is how `trail=0 ... = 568` became `trail=1 ... = 569` over two rounds while the expression it quotes is worth 441 — each round corrected the half it was looking at, and the claim was wrong the whole time. Multiply it out before you write it down; nobody downstream will.
+- Do not patch a `range`: it is this pipeline's search space, not a claim from the paper, and it is widened for you when a default you land outgrows it.
 - Never delete detail. If a field is wrong *and* carries a useful guard or corner case, keep the guard in your replacement.
 
 ## Output

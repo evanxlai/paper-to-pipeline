@@ -15,10 +15,10 @@
 #   gcloud auth application-default set-quota-project $GCP_PROJECT
 #   Compute Engine API enabled; conda env "chia_env" with ray + chia on every machine.
 #
-# NOTE (draft): worker_setup_commands below sketch the simulator/trace
+# NOTE (draft): the gcp_nodes setup_commands below sketch the simulator/trace
 # provisioning. Traces download from Google Drive because chia gives GCP
 # instances no service account, so they cannot read the project's GCS bucket
-# (see the cbp2025_worker block). The simulator and host checkouts are also
+# (see the sim_worker block). The simulator and host checkouts are also
 # built from source on every fresh node. Bake all of it into a custom image
 # before real DSE runs; re-downloading 14 GiB per node wastes time and credit.
 
@@ -52,58 +52,22 @@ gcp_nodes:
         image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
         disk_size_gb: 100
         spot: false
-        ssh_user: laievan
+        ssh_user: ${USER}
         ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
-    # The gem5 host: one big machine rather than several small ones. gem5 is
-    # path-based (chia.simulators.gem5): the binary stays on the node that
-    # built it, so every run of a build has to land on that node, and a
-    # second node would need its own full build. One 32-vCPU machine builds
-    # gem5 in under an hour and then runs ~30 workloads side by side. On
-    # demand, like sim_worker, and for the same reason. The 12-vCPU note on
-    # sim_worker is stale: the project quota is 3000 vCPUs (checked
-    # 2026-09-23).
-    gem5_node:
-        machine_type: c2d-standard-32
-        count: 1
-        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
-        disk_size_gb: 300
-        spot: false
-        ssh_user: laievan
-        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
-    # Integration host: on-demand (agents keep long-lived state in the checkouts).
-    host_worker:
-        #machine_type: c2d-standard-16
-        #machine_type: n1-standard-1
-        machine_type: e2-small
-        count: 1
-        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
-        disk_size_gb: 200
-        spot: false
-        ssh_user: laievan
-        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
-
-available_node_types:
-
-    # The CBP2025 integration host. One machine, its own resource token, and
-    # that is the whole point of splitting it out of cbp2025_worker below.
-    #
-    # Stage 3 hands the coding agent a BashTool pinned to {"cbp2025_host": N}
-    # and then builds what the agent wrote. Those two have to land on the same
-    # filesystem. While both sim_workers advertised only {"cbp2025": N}, Ray
-    # was free to put the shell on one and the build on the other, and the
-    # build would then compile a checkout nobody had edited -- a green gate on
-    # an unported tree, which is the one failure the gate cannot see.
-    #
-    # It also advertises "cbp2025" so this node can take trace work when the
-    # fan-out below is busy. That is safe in the other direction: a trace run
-    # receives the binary as bytes (CBP2025Node.run) and never reads the
-    # checkout.
-    cbp2025_host:
-        resources: {"cbp2025_host": 4, "cbp2025": 2}
-        num_workers: 1
-        compatible_ips: ["@sim_worker:0"]
-        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
-        worker_setup_commands: &cbp2025_setup
+        # n2 nodes take longer than the 120s default to open port 22 after
+        # the insert returns; a short budget marks them FAILED while they
+        # are still booting.
+        ssh_timeout: 300
+        # Simulator build + trace fetch live HERE, not in the node type's
+        # worker_setup_commands: this provisioning phase is the only one with
+        # a configurable budget (setup_timeout below). chia runs the worker
+        # script via SSHClient.run_script()'s hardcoded 600s default
+        # (node_setup.setup_worker_node -> ssh.run_script(script), no timeout
+        # arg), and the ~11 GiB gdown alone takes ~10min, so anything heavy
+        # there gets killed mid-download and the worker is marked FAILED.
+        # Running it here also means it happens once per fresh instance
+        # instead of on every `chia up --add`.
+        setup_commands:
             - sudo apt-get install -y build-essential zlib1g-dev
             - test -d ~/cbp2025 || git clone https://github.com/ramisheikh/cbp2025 ~/cbp2025
             - cd ~/cbp2025 && make -j
@@ -173,6 +137,81 @@ available_node_types:
             - >
               test -f ~/traces/cbp2025/int/int_0_trace.gz ||
               { echo "trace download failed -- ~/traces/cbp2025 is not populated"; exit 1; }
+        # Budget for the 14 default commands (miniconda + chia + docker) plus
+        # the build and the ~10min trace download above. Default is 1800s.
+        setup_timeout: 3600
+    # Integration host: on-demand (agents keep long-lived state in the checkouts).
+    # The gem5 host: one big machine rather than several small ones. gem5 is
+    # path-based (chia.simulators.gem5): the binary stays on the node that
+    # built it, so every run of a build has to land on that node, and a
+    # second node would need its own full build. One 32-vCPU machine builds
+    # gem5 in under an hour and then runs ~30 workloads side by side. On
+    # demand, like sim_worker, and for the same reason. The 12-vCPU note on
+    # sim_worker is stale: the project quota is 3000 vCPUs (checked
+    # 2026-09-23).
+    gem5_node:
+        machine_type: c2d-standard-32
+        count: 1
+        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        disk_size_gb: 300
+        spot: false
+        ssh_user: ${USER}
+        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
+    # Integration host: on-demand (agents keep long-lived state in the checkouts).
+    host_worker:
+        #machine_type: c2d-standard-16
+        machine_type: n2-standard-2
+        #machine_type: e2-small
+        count: 1
+        image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+        disk_size_gb: 200
+        spot: false
+        ssh_user: ${USER}
+        ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
+        ssh_timeout: 300
+        # Same reason as sim_worker: the checkout (and the ChampSim vcpkg
+        # bootstrap still to come) belongs in this phase, not in
+        # worker_setup_commands' hardcoded 600s. gem5 is not here any
+        # more -- it has its own machine, gem5_node above.
+        setup_commands:
+            - sudo apt-get install -y build-essential scons python3-dev zlib1g-dev
+            - test -d ~/ChampSim || git clone https://github.com/ChampSim/ChampSim ~/ChampSim
+            # TODO: ChampSim vcpkg bootstrap; trace sync
+        setup_timeout: 3600
+
+available_node_types:
+
+    # The CBP2025 integration host. One machine, its own resource token, and
+    # that is the whole point of splitting it out of cbp2025_worker below.
+    #
+    # Stage 3 hands the coding agent a BashTool pinned to {"cbp2025_host": N}
+    # and then builds what the agent wrote. Those two have to land on the same
+    # filesystem. While both sim_workers advertised only {"cbp2025": N}, Ray
+    # was free to put the shell on one and the build on the other, and the
+    # build would then compile a checkout nobody had edited -- a green gate on
+    # an unported tree, which is the one failure the gate cannot see.
+    #
+    # It also advertises "cbp2025" so this node can take trace work when the
+    # fan-out below is busy. That is safe in the other direction: a trace run
+    # receives the binary as bytes (CBP2025Node.run) and never reads the
+    # checkout.
+    #
+    # Nothing heavy here -- the build and the trace fetch run in
+    # gcp_nodes.sim_worker.setup_commands, which is the only phase with a
+    # configurable timeout. These are cheap assertions: they fail fast with a
+    # readable error if provisioning didn't leave the node usable, rather than
+    # silently starting a Ray worker that errors on its first ./cbp task.
+    # Single-quoted: an unquoted plain scalar containing ": " parses as a
+    # YAML mapping, and chia then dies with "'dict' object has no attribute
+    # 'strip'" inside run_script.
+    cbp2025_host:
+        resources: {"cbp2025_host": 4, "cbp2025": 2}
+        num_workers: 1
+        compatible_ips: ["@sim_worker:0"]
+        worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        worker_setup_commands: &cbp2025_assert
+            - 'test -x ~/cbp2025/cbp || { echo "FATAL: ~/cbp2025/cbp missing -- sim_worker provisioning did not complete" >&2; exit 1; }'
+            - 'test -f ~/traces/cbp2025/int/int_0_trace.gz || { echo "FATAL: CBP2025 training traces missing -- sim_worker provisioning did not complete" >&2; exit 1; }'
 
     # Trace fan-out for the gate's performance entries and the DSE screening
     # sweep: one single-threaded ./cbp process per trace, binary shipped as
@@ -187,7 +226,7 @@ available_node_types:
         num_workers: 1
         compatible_ips: ["@sim_worker:1"]
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
-        worker_setup_commands: *cbp2025_setup
+        worker_setup_commands: *cbp2025_assert
 
     # ChampSim checkout. It used to advertise "gem5" too, but an e2-small
     # (2 GB) cannot build gem5, and a token two nodes advertise is a token
@@ -197,10 +236,10 @@ available_node_types:
         num_workers: 1
         compatible_ips: ["@host_worker:0"]
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        # Cheap assertions only; provisioning happens in
+        # gcp_nodes.host_worker.setup_commands (see note there).
         worker_setup_commands:
-            - sudo apt-get install -y build-essential scons python3-dev zlib1g-dev
-            - test -d ~/ChampSim || git clone https://github.com/ChampSim/ChampSim ~/ChampSim
-            # TODO: ChampSim vcpkg bootstrap; trace sync
+            - 'test -d ~/ChampSim || { echo "FATAL: ~/ChampSim missing -- host_worker provisioning did not complete" >&2; exit 1; }'
 
     # The gem5 host: the pristine checkout (~/gem5), the port tree, the
     # search tree, the harness and the workloads, all on one machine.
@@ -243,7 +282,7 @@ available_node_types:
     # Gemini agent (Antigravity CLI). Sign in with `agy` on the head machine
     # first so ~/.gemini exists; the mount must be writable.
     antigravity_llm:
-        resources: {"antigravity_creds": 2}
+        resources: {"antigravity_creds": 4}
         num_workers: 1
         compatible_ips: ["${HEAD_IP}"]
         docker:

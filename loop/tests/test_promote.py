@@ -20,6 +20,7 @@ import adopt_a_paper_loop
 import constants as C
 import constraints as K
 import dse
+import spec_checks
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -49,15 +50,38 @@ def program(pid, spec, plan, score, feature=None, host=None, iteration=1, scored
 # ------------------------------------------------------------ selection
 
 
+def an_int_knob(spec, exclude=()):
+    """(name, a second legal value, an illegal one) for an integer knob.
+
+    By shape, not by name. Knob names change with every distill run -- one
+    run wrote `wt_ctr_bits` and the next `wt_counter_bits` -- and an
+    override naming a knob the spec no longer declares renders the *default*
+    header, so the candidate silently counts as `defaults` and this test
+    fails for a reason nobody should act on. That is what it did the first
+    time the spec was regenerated under it.
+    """
+    for k in K.feature_knobs(spec):
+        if k.name in exclude or k.type != "int":
+            continue
+        alt = K.alternate_value(k)
+        parsed = spec_checks.parse_range(k.range)
+        if alt is None or not parsed or parsed[0] != "interval":
+            continue
+        return k.name, alt, int(parsed[2]) + 1
+    pytest.skip("this spec declares no integer knob with a second legal value")
+
+
 def test_finalists_are_the_best_distinct_candidates_other_than_the_defaults(spec, plan):
+    first, legal, illegal = an_int_knob(spec)
+    second, other, _ = an_int_knob(spec, exclude={first})
     population = [
         program("seed", spec, plan, 170.0, iteration=0),
         program("a", spec, plan, 168.0, host={"logg": 11}),
-        program("b", spec, plan, 169.0, feature={"num_banks": 10}),
-        program("b-again", spec, plan, 165.0, feature={"num_banks": 10}, iteration=4),
-        program("refused", spec, plan, 0.5, feature={"num_banks": 12}, scored=False),
-        program("illegal", spec, plan, 200.0, feature={"num_banks": 99}),
-        program("c", spec, plan, 160.0, feature={"wt_ctr_bits": 5}),
+        program("b", spec, plan, 169.0, feature={first: legal}),
+        program("b-again", spec, plan, 165.0, feature={first: legal}, iteration=4),
+        program("refused", spec, plan, 0.5, feature={first: legal}, scored=False),
+        program("illegal", spec, plan, 200.0, feature={first: illegal}),
+        program("c", spec, plan, 160.0, feature={second: other}),
     ]
     finalists, passed_over = dse.select_finalists(
         population, spec, plan, dse.constraint_set("iso-192KiB"), top_k=2)

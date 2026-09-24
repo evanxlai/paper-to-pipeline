@@ -27,13 +27,15 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import constants as C
 import paper_markers
 import spec_checks
-from spec_checks import Finding, tokens
+from spec_checks import Finding, stem, tokens
 
 # A quote shorter than this matches too much text to be evidence of anything.
 MIN_QUOTE_CHARS = 12
@@ -41,6 +43,8 @@ MIN_QUOTE_CHARS = 12
 # Top-level spec keys that belong to the "global" review unit: cross-cutting
 # claims that no single algorithm owns.
 _GLOBAL_KEYS = ("summary", "source", "host_interfaces", "resource_accounting")
+# Where a finding may ask for something the spec does not contain yet.
+_APPEND_SCOPE = ("/algorithms/-",)
 
 
 # ------------------------------------------------------------ json pointers
@@ -109,6 +113,43 @@ def _is_append(pointer: str) -> bool:
     return pointer.endswith("/-")
 
 
+# Required-property names for each appendable array, read from the spec schema
+# rather than restated here: a field renamed in the schema has to rename here
+# too, and a copy would not.
+def _append_required(pointer: str) -> list[str]:
+    key = pointer[1:-2]                 # "/algorithms/-" -> "algorithms"
+    try:
+        schema = json.loads(Path(C.SPEC_SCHEMA_PATH).read_text())
+    except (OSError, ValueError):
+        return []
+    items = ((schema.get("properties") or {}).get(key) or {}).get("items") or {}
+    return list(items.get("required") or [])
+
+
+def _append_shape_error(pointer: str, value) -> str | None:
+    """Why this appended object cannot be an element of its array, or None.
+
+    An append is the one patch shape whose target does not exist yet, so none
+    of the checks above can look at what it is replacing. Left unchecked it
+    reaches the round-level schema gate, where a single missing field rejects
+    the round *and* every correct patch beside it -- one observed round wrote
+    the recovery algorithm the checks were asking for, called its body `logic`
+    instead of `pseudocode`, and took nine unrelated fixes down with it.
+    """
+    required = _append_required(pointer)
+    if not required:
+        return None
+    if not isinstance(value, dict):
+        return (f"append to {pointer} must be an object with "
+                f"{', '.join(required)}")
+    missing = [k for k in required if k not in value]
+    if not missing:
+        return None
+    return (f"append to {pointer} is missing required field(s) "
+            f"{', '.join(missing)}; an element of that array needs "
+            f"{', '.join(required)}")
+
+
 _NUM_RE = re.compile(r"0[xX][0-9a-fA-F]+|\b\d+\b")
 _NEGATION_RE = re.compile(r"\b(not|never|no|without|neither|unless)\b", re.I)
 
@@ -171,12 +212,21 @@ class ReviewUnit:
     unit_id: str
     kind: str                       # "algorithm" | "global" | "orphan"
     elements: list = field(default_factory=list)   # [{"pointer","value"}]
+    # Append pointers this unit may act on, for findings about something the
+    # spec does not contain yet. An element pointer cannot express that: a
+    # unit owns `/algorithms/0`, and a check reporting that the spec needs an
+    # algorithm it has never had has nowhere to anchor. Without this, such a
+    # finding is shown to no reviewer and patchable by none -- which makes an
+    # `error` unclearable and deadlocks the stage rather than gating it.
+    append_scope: list = field(default_factory=list)
 
     @property
     def prefixes(self) -> list[str]:
         return [e["pointer"] for e in self.elements]
 
     def owns(self, pointer: str) -> bool:
+        if pointer in self.append_scope:
+            return True
         return any(
             pointer == p or pointer.startswith(p + "/") for p in self.prefixes
         )
@@ -184,6 +234,88 @@ class ReviewUnit:
 
 def _elem(spec, pointer):
     return {"pointer": pointer, "value": ptr_get(spec, pointer)}
+
+
+# An assignment target, allowing subscripts and field access to interleave:
+# `reg_status_table[r].valid = 0` and `wt[b].WT0[i] += 1` both name the
+# structure being stored into. spec_checks' own target pattern stops at the
+# first `]`, which is right for the bare-name flow analysis it does there and
+# loses exactly the stores that matter here.
+_STORE_TARGET_RE = re.compile(
+    r"^\s*([A-Za-z_]\w*)(?:\s*\[[^\[\]]*\]|\s*\.\w+)*\s*(?:[-+*/|&^]|<<|>>)?=(?!=)"
+)
+
+
+def _norm_ident(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+# Below this, a containment match is noise: `v = victim_tag_table[PC]` binds a
+# local named `v`, and "v" is a substring of "victimtagtable", so a rule that
+# accepts any containment reads every local as a store into the table it was
+# read from -- which merges every algorithm that touches the structure at all
+# and dissolves the partition.
+_MIN_STORE_MATCH_CHARS = 6
+
+
+def _same_structure(state_name: str, root: str) -> bool:
+    """Does an assignment target name the state entry, allowing for the
+    abbreviations pseudocode uses (`decay_shadow` for "decay shadow
+    counters")? Normalized equality, or containment with enough characters
+    behind it to mean something."""
+    if not state_name or not root:
+        return False
+    if state_name == root:
+        return True
+    short, long_ = sorted((state_name, root), key=len)
+    return len(short) >= _MIN_STORE_MATCH_CHARS and short in long_
+
+
+def _written_state(spec: dict) -> list[set[int]]:
+    """Per algorithm, the indices of the state entries its pseudocode writes.
+
+    Matched by normalized identifier, not by the token overlap the rest of
+    `partition` uses. Overlap is the right rule for "which state does this
+    algorithm talk about", where a false positive costs a reviewer nothing
+    but some extra context; it is the wrong rule for "which algorithms must
+    be reviewed together", where `sr_weight_tables` and
+    `sr_usefulness_tables` share the word "table" and would collapse the
+    whole partition into one unit.
+    """
+    names = [_norm_ident(s.get("name", "")) for s in (spec.get("state") or [])]
+    out: list[set[int]] = []
+    for a in (spec.get("algorithms") or []):
+        mine: set[int] = set()
+        body = spec_checks.strip_comments(a.get("pseudocode", ""))
+        for line in body.splitlines():
+            for st in line.split(";"):
+                m = _STORE_TARGET_RE.match(st)
+                if not m:
+                    continue
+                root = _norm_ident(m.group(1))
+                for i, n in enumerate(names):
+                    if _same_structure(n, root):
+                        mine.add(i)
+        out.append(mine)
+    return out
+
+
+def _merge_units(a: ReviewUnit, b: ReviewUnit) -> ReviewUnit:
+    """One unit covering both, carrying each pointer once.
+
+    Units share elements -- two algorithms that read the same table each
+    attach it -- so concatenating their element lists shows a reviewer the
+    same JSON twice and inflates the size key the cap merge sorts on.
+    """
+    seen: set[str] = set()
+    elements = []
+    for e in a.elements + b.elements:
+        if e["pointer"] in seen:
+            continue
+        seen.add(e["pointer"])
+        elements.append(e)
+    return ReviewUnit(f"{a.unit_id}+{b.unit_id}", "algorithm", elements,
+                      sorted(set(a.append_scope) | set(b.append_scope)))
 
 
 def partition(spec: dict, max_units: int | None = None) -> list[ReviewUnit]:
@@ -236,11 +368,41 @@ def partition(spec: dict, max_units: int | None = None) -> list[ReviewUnit]:
             if tokens(f"{t.get('name','')} {t.get('given','')} {t.get('expect','')}") & scope:
                 elements.append(_elem(spec, f"/unit_tests/{ti}"))
 
-        units.append(ReviewUnit(f"algo:{a.get('name', ai)}", "algorithm", elements))
+        # `/parameters/-` so a reviewer told that a constant should be a knob
+        # can mint it and read it from the pseudocode in the same round. The
+        # repair spans two top-level arrays, and a round's patches land as a
+        # set -- half of it is a regression, so half of it is refused.
+        units.append(ReviewUnit(f"algo:{a.get('name', ai)}", "algorithm",
+                                elements, ["/parameters/-"]))
+
+    # Algorithms that store into the same state entry are reviewed together.
+    # A defect in a shared field is rarely confined to one of them -- the
+    # decay counter `decode` loads is the one `complete` reloads -- and the
+    # gate applies a round's patches as a set, reverting all of them if the
+    # spec ends less self-consistent than it started. So a reviewer holding
+    # half the writers can only ever propose half the edit, and the half
+    # lands as a regression. One observed run needed four coordinated edits
+    # to fix a countdown encoding, three inside one unit and the fourth in
+    # the next; the round was discarded whole, twice.
+    writers = _written_state(spec)
+    home = list(range(len(units)))          # algorithm index -> unit slot
+    slots: list[ReviewUnit | None] = list(units)
+    for si in range(len(state)):
+        group = sorted({home[ai] for ai, w in enumerate(writers) if si in w})
+        for other in group[1:]:
+            slots[group[0]] = _merge_units(slots[group[0]], slots[other])
+            slots[other] = None
+            home = [group[0] if h == other else h for h in home]
+    units = [u for u in slots if u is not None]
 
     globals_ = [_elem(spec, f"/{k}") for k in _GLOBAL_KEYS if k in spec]
     if globals_:
-        units.append(ReviewUnit("global", "global", globals_))
+        # The global unit is where a whole-spec omission lands. It already
+        # holds host_interfaces, which is where the signal such an algorithm
+        # would need is declared, so it is the reviewer best placed to say
+        # what the missing operation reads.
+        units.append(ReviewUnit("global", "global", globals_,
+                                list(_APPEND_SCOPE)))
 
     # Anything no algorithm touched. Being here is itself a smell, which is why
     # these get reviewed rather than dropped.
@@ -255,9 +417,7 @@ def partition(spec: dict, max_units: int | None = None) -> list[ReviewUnit]:
     while len(units) > cap:
         units.sort(key=lambda u: len(u.elements))
         a, b = units.pop(0), units.pop(0)
-        units.append(
-            ReviewUnit(f"{a.unit_id}+{b.unit_id}", "algorithm", a.elements + b.elements)
-        )
+        units.append(_merge_units(a, b))
     return units
 
 
@@ -293,6 +453,32 @@ _SELF_CONSISTENCY_CODES = frozenset({
     # check that had in fact flagged exactly that pointer. The run then failed
     # closed at the final gate with the defect intact.
     "index_exceeds_dimension",
+    # A test whose own arithmetic does not close is the same kind of defect,
+    # and it is the kind no reviewer can fix without this: the paper says
+    # nothing about a decimal restatement, so CONTRADICTED has no quote to
+    # offer and UNSUPPORTED forbids patching. Seven reviewers read
+    # `0xBBB (decimal 2999)` and returned SUPPORTED because the half the
+    # paper does settle was right.
+    "arith_mismatch",
+    # An unreachable threshold against a field width the spec itself declares
+    # is the same arithmetic, reached through a comparison instead of a store.
+    "unreachable_literal_compare",
+    # And the third way to reach it: a span parameter stored into the field
+    # without the countdown encoding that makes the span fit. The paper names
+    # the span (256 instructions) but never the encoding, so CONTRADICTED has
+    # no quote to offer and only INCONSISTENT can license the patch.
+    "span_stored_directly",
+    # A branch ordered behind a guard that subsumes it is dead code the spec
+    # wrote against itself. The paper names the three FP formats but never
+    # the discriminating bit patterns, so there is no quote to contradict --
+    # the contradiction is between two lines of the spec's own pseudocode.
+    "unreachable_branch_guard",
+    # Speculative state with nothing to unwind it. The paper cannot settle
+    # this one either way -- Section 5 defers recovering the table to future
+    # work -- so CONTRADICTED has no quote to offer and UNSUPPORTED forbids
+    # the patch. Without this entry the only check that enforces the
+    # distiller's brief rather than the paper would be unfixable.
+    "missing_recovery_algorithm",
 })
 
 
@@ -435,29 +621,75 @@ def verify_evidence(
         # established.
         r.verdict = "UNSUPPORTED"
         r.patch = None
+
+        # ...but "this reviewer cited badly" and "the paper does not say" are
+        # different findings, and only the first one is ours to report. When
+        # the source prints the claim's numbers in a paragraph it grades
+        # LITERAL or CROSS-CHECK, the rejection stands -- no patch rides a
+        # quote nobody can find -- while the open question does not, because
+        # there is nothing open. Writing one anyway is how the sR spec came to
+        # ask six questions the paper had already answered, each phrased so it
+        # read as the paper's silence rather than the reviewer's slip.
+        #
+        # Only the unfindable-quote branches reach this. A HEDGED quote is a
+        # different case: there the reviewer quoted accurately and the source
+        # itself declines to assert, so the open question is the correct
+        # outcome and must survive.
+        if r.tier not in paper_markers.HEDGED_TIERS:
+            if corroborating := ann.corroborates(r.claim):
+                where = f"{corroborating.block} {corroborating.section}".strip()
+                r.rejected = (
+                    f"{r.rejected}; but the source prints this claim's values "
+                    f"in {where}, graded {corroborating.tier.upper()}, so the "
+                    f"claim is the paper's own and only the citation is bad"
+                )
+                continue
+
         if not r.open_question:
             r.open_question = (
                 demote if demote.startswith(r.claim) else f"{r.claim} ({demote})"
             )
 
 
-def carry_uncertainties(
+# What each kind of note obliges the spec to admit, once it is carried.
+_NOTE_DUTY = {
+    paper_markers.UNCERTAIN: (
+        "the input marks this UNCERTAIN, so it must not be resolved by "
+        "assumption: "
+    ),
+    paper_markers.INFERRED: (
+        "the input marks this INFERRED -- a reading of the figure's layout "
+        "that the paper never states -- so whatever the spec derives from it "
+        "is an assumption and not a fact: "
+    ),
+}
+
+
+def carry_source_notes(
     spec: dict, records: list[Record], annotation: "paper_markers.Annotation",
 ) -> int:
-    """Record every declared ambiguity the spec actually leans on.
+    """Record every hedged point of the source the spec actually leans on.
 
     The source's own convention says an UNCERTAIN note must be "carried
     forward as an open question", not resolved by guessing. Leaving that to a
     model is what failed: three rounds of reviewers never mentioned the notes,
     because nothing pointed at them. Code can do it instead, and does it here.
 
+    INFERRED notes are carried on the same footing even though the source
+    never asks for it, because an unflagged inference is the worse of the two
+    failures. An UNCERTAIN point at least arrives in the spec looking
+    unfinished; an INFERRED one arrives looking settled, gets implemented, and
+    passes every test written from the same reading. Figure 6(a)'s "the three
+    fields are XORed together" is graded a reading of the drawing and sets
+    every integer digest value in the design.
+
     Relevance is decided by citation, not by topic modelling, which keeps the
     rule feature-agnostic: a note is carried when some verified quote this
     round was drawn from the same figure section. A spec that never cites
     Figure 4 does not inherit Figure 4's ambiguities. The unit is the section
-    rather than the paragraph on purpose -- an UNCERTAIN note routinely
-    retracts a number printed above it inside a LITERAL block, as Figure 6(b)
-    does to a whole derived column.
+    rather than the paragraph on purpose -- a note routinely retracts a number
+    printed above it inside a LITERAL block, as Figure 6(b) does to a whole
+    derived column.
     """
     cited: set[tuple[str, str]] = set()
     for r in records:
@@ -465,14 +697,23 @@ def carry_uncertainties(
         if span is not None and span.block:
             cited.add((span.block, span.section))
     carried = 0
-    for note in annotation.notes:
+    # UNCERTAIN first, document order within each tier. A section can hedge
+    # one point from both ends -- infer an alignment, then retract it three
+    # lines down -- and `_append_open_question` folds same-topic questions
+    # together, so whichever is carried first is the wording the spec keeps.
+    # The UNCERTAIN one is the better of the two to keep: it names the
+    # alternative reading, where the INFERRED one only says its own reading
+    # came from a drawing.
+    ordered = sorted(annotation.notes,
+                     key=lambda n: n.tier != paper_markers.UNCERTAIN)
+    for note in ordered:
         if (note.block, note.section) not in cited:
             continue
         before = len(spec.get("open_questions") or [])
         _append_open_question(
             spec,
-            f"[source {note.note_id}: {note.where}] the input marks this "
-            f"UNCERTAIN, so it must not be resolved by assumption: "
+            f"[source {note.note_id}: {note.where}] "
+            + _NOTE_DUTY[note.tier]
             + " ".join(note.text.split()),
         )
         carried += len(spec.get("open_questions") or []) > before
@@ -482,26 +723,312 @@ def carry_uncertainties(
 # ------------------------------------------------------------ patch merging
 
 
-def _self_consistency_scope(findings: list[Finding] | None) -> set[str]:
-    """Pointers a self-consistency check actually named this round."""
-    return {f.pointer for f in (findings or [])
-            if f.code in _SELF_CONSISTENCY_CODES}
+def _enclosing_object(spec: dict, pointer: str) -> str:
+    """The object whose fields a contradiction at *pointer* is between.
+
+    Widening stops at the enclosing object: a list parent would name every
+    sibling entry -- every parameter, every algorithm -- off a single
+    finding, and the document root would name the whole spec. A pointer with
+    no object parent is its own enclosure.
+    """
+    parent = pointer.rsplit("/", 1)[0]
+    return parent if parent and isinstance(ptr_get(spec, parent), dict) else pointer
+
+
+def _overlaps(pointer: str, region: str) -> bool:
+    """Does *pointer* address something inside *region*, or contain it?"""
+    return (pointer == region or pointer.startswith(region + "/")
+            or region.startswith(pointer + "/"))
+
+
+def _self_consistency_scope(
+    spec: dict, findings: list[Finding] | None
+) -> set[str]:
+    """Pointers an INCONSISTENT patch may act on this round.
+
+    A check names where a contradiction was *detected*, which is rarely the
+    only place it can be *fixed*. `param_range` reports
+    /parameters/0/default because that is the field it compared, but "default
+    256 outside [64, 255]" is a disagreement between two siblings and widening
+    /parameters/0/range settles it just as well -- only a reviewer holding the
+    parameter can say which side is wrong. Scoping to the flagged leaf refused
+    that repair and left the round with nowhere to put the fix.
+
+    So the enclosing object joins the scope, bounded as `_enclosing_object`
+    describes.
+    """
+    scope: set[str] = set()
+    for f in (findings or []):
+        if f.code not in _SELF_CONSISTENCY_CODES:
+            continue
+        scope.add(f.pointer)
+        scope.add(_enclosing_object(spec, f.pointer))
+    return scope
+
+
+def _apply_to(spec: dict, records: list[Record]) -> tuple[dict, list]:
+    """A fresh copy of *spec* with every record's patch applied.
+
+    Adds that append to the same array must not renumber each other, so
+    replaces go first and adds last. Returns the copy and the records whose
+    pointer would not resolve, paired with why.
+    """
+    out = copy.deepcopy(spec)
+    failed = []
+    for r in sorted(records,
+                    key=lambda x: (x.patch["op"] == "add", x.patch["pointer"])):
+        try:
+            ptr_apply(out, r.patch["pointer"], r.patch["value"], r.patch["op"])
+        except Exception as e:  # malformed pointer, bad index, ...
+            failed.append((r, e))
+    return out, failed
+
+
+def _num(v):
+    """A range bound as the spec writes it: 256, not 256.0."""
+    return int(v) if float(v).is_integer() else v
+
+
+def _couple_param_ranges(
+    doc: dict, findings: list[Finding], budget_bits: int | None,
+    feature_budget_bits: int | None = None,
+) -> dict:
+    """Widen a search range that a landed default has just outgrown.
+
+    `range` is this pipeline's own field -- the DSE's search space, and
+    `_render_unit` marks it to reviewers as not a paper claim -- so a
+    reviewer correcting a default *from* the paper should not have to patch
+    it. Under the verdicts available it largely cannot: CONTRADICTED needs a
+    quote and the paper says nothing about our search space, while
+    INCONSISTENT is bounded to pointers a check flagged before the round,
+    which for a spec that starts clean is nothing at all. The one edit no
+    verdict could make was the mechanical one, and the correct patch beside
+    it was reverted for the error it left behind.
+
+    So the pipeline maintains its own field. The bound moves only to admit a
+    default that is otherwise sound: if the value does not fit the state
+    field that stores it, `unrepresentable_default` fires at the same pointer
+    and nothing is widened -- a knob that overruns the hardware is a real
+    defect and stays one.
+    """
+    before = {(f.code, f.pointer) for f in findings if f.severity == "error"}
+    after = spec_checks.run_checks(doc, budget_bits, feature_budget_bits)
+    # The value has to fit the hardware before the search space is asked to
+    # admit it; these two findings share a pointer and only one of them is
+    # ours to settle.
+    unfit = {g.pointer for g in after if g.code == "unrepresentable_default"}
+    for f in after:
+        if f.severity != "error" or f.code != "param_range":
+            continue
+        if f.pointer in unfit:
+            continue
+        if (f.code, f.pointer) in before or not f.pointer.endswith("/default"):
+            continue
+        base = f.pointer.rsplit("/", 1)[0]
+        param = ptr_get(doc, base)
+        if not isinstance(param, dict):
+            continue
+        default = param.get("default")
+        if isinstance(default, bool) or not isinstance(default, (int, float)):
+            continue
+        parsed = spec_checks.parse_range(param.get("range"))
+        if not parsed or parsed[0] != "interval":
+            continue
+        _, lo, hi, mods = parsed
+        if lo <= default <= hi:
+            continue          # pow2 or some other modifier, not the bound
+        lo, hi = (default, hi) if default < lo else (lo, default)
+        param["range"] = (f"[{_num(lo)}, {_num(hi)}]"
+                          + (f" {mods}" if mods else ""))
+    return doc
+
+
+def _drop_schema_breaking_patches(
+    spec: dict, applied: list[Record],
+) -> tuple[dict, list[tuple[Record, str]]]:
+    """Re-apply the round without the patches that break the spec schema.
+
+    The twin of `_drop_regressing_patches`, for the gate one step earlier. A
+    schema error is not a judgement about whether a patch is *right*; it says
+    the document can no longer be parsed as a spec at all, and the round-level
+    gate answers that by discarding every patch in the round. That is the
+    wrong unit of blame: one observed round appended the recovery algorithm
+    the deterministic checks had been asking for, named its body `logic`
+    rather than `pseudocode`, and the resulting rejection ended the stage at
+    round 0 with nine unrelated fixes reverted and the error it had just
+    fixed still standing.
+
+    Leave-one-out, greedy, and it has to earn it the same way: a patch is
+    dropped only if dropping it reduces the schema errors, and a document
+    this cannot repair is returned untouched for the round gate to refuse.
+    """
+    patched = _apply_to(spec, applied)[0]
+    errs = _schema_errors(patched)
+    if not errs:
+        return patched, []
+
+    keep = list(applied)
+    dropped: list[tuple[Record, str]] = []
+    while errs and keep:
+        best = None
+        for r in keep:
+            trial = [x for x in keep if x is not r]
+            n = len(_schema_errors(_apply_to(spec, trial)[0]))
+            if n < len(errs) and (best is None or n < best[1]):
+                best = (r, n)
+        if best is None:
+            # Nothing attributable: hand the round gate the document as
+            # patched rather than dropping patches on a guess.
+            return patched, []
+        culprit = best[0]
+        keep = [x for x in keep if x is not culprit]
+        dropped.append((culprit, errs[0]))
+        errs = _schema_errors(_apply_to(spec, keep)[0])
+
+    return _apply_to(spec, keep)[0], dropped
+
+
+def _drop_laundering_patches(
+    spec: dict, applied: list[Record],
+) -> tuple[dict, list[tuple[Record, Finding]]]:
+    """Re-apply the round without the patches that quietly lost detail.
+
+    `uncovered_regressions` is a round-level verdict, and the round-level
+    answer to it is to discard every patch. But a regression is attributable
+    in a way a whole round is not: a field that lost 76% of its length lost it
+    to whichever patch replaced the object enclosing it. One observed round
+    replaced /state/1 with a correct, paper-backed correction to its size and
+    organization, and in passing cut `indexing` from "3 different skewed
+    hashes of the PC and the logical register index" to "skewed hashes of the
+    PC". That is exactly the hollowing-out the differ exists to catch -- and
+    catching it cost nine other patches, including the recovery algorithm a
+    deterministic `error` had been asking for.
+
+    Attribution is by enclosing pointer, the same rule `uncovered_regressions`
+    uses to decide a patch does *not* excuse a nested loss. Unattributable
+    losses are left standing for the round gate, which is the conservative
+    direction: the round is still refused, just not for someone else's fault.
+    """
+    patched = _apply_to(spec, applied)[0]
+    keep = list(applied)
+    dropped: list[tuple[Record, Finding]] = []
+    while True:
+        left = uncovered_regressions(
+            spec, patched, [r for r in keep if r.rejected is None])
+        if not left:
+            return patched, dropped
+        culprit = blame = None
+        for f in left:
+            for r in keep:
+                ptr = r.patch["pointer"]
+                if f.pointer == ptr or f.pointer.startswith(ptr + "/"):
+                    culprit, blame = r, f
+                    break
+            if culprit:
+                break
+        if culprit is None:
+            # Nobody to blame: hand the round gate the document as patched.
+            return _apply_to(spec, applied)[0], []
+        keep = [x for x in keep if x is not culprit]
+        dropped.append((culprit, blame))
+        patched = _apply_to(spec, keep)[0]
+
+
+def _drop_regressing_patches(
+    spec: dict, patched: dict, landed: list[Record],
+    findings: list[Finding], budget_bits: int | None,
+    feature_budget_bits: int | None = None,
+) -> tuple[dict, list[tuple[Record, Finding]]]:
+    """Re-apply the round without the patches that introduced a new error.
+
+    A patch that clears one contradiction by creating another is not a fix --
+    but it must not cost the round the patches that were. One observed round
+    landed three correct patches widening /parameters/0's range to admit its
+    own default, plus one that cut /resource_accounting/total_storage_bits to
+    the figure the paper's table prints. The second was right about the paper
+    and wrong about the spec, which also declares 43008 bits of checkpoint
+    state that figure excludes. Errors went 1 -> 1, and the whole round --
+    correct patches included -- was discarded.
+
+    Attribution is by enclosing object rather than by leaving each patch out
+    in turn. A total and the breakdown that explains it are one statement
+    spread over two fields; dropping only whichever of them a check happens to
+    name leaves the other still asserting the number just rejected.
+
+    The rebuild has to earn it: unless it actually reduces the introduced
+    errors, nothing is dropped and the round-level gate decides. A regression
+    this cannot attribute is left standing and visible rather than
+    half-repaired.
+    """
+    # The coupling has to earn its place the same way the rebuild below does.
+    # Applied unconditionally it clears the `param_range` that is often the
+    # only error attributable to the patch that caused it -- leaving errors
+    # attributable to nobody, which drops nothing and costs the round every
+    # patch instead of one. So: keep the widened doc when it settles the
+    # round completely, and otherwise judge the round on the doc as patched.
+    def settled(doc: dict) -> tuple[dict, list[Finding]]:
+        coupled = _couple_param_ranges(
+            copy.deepcopy(doc), findings, budget_bits, feature_budget_bits)
+        left = spec_checks.new_errors(
+            findings,
+            spec_checks.run_checks(coupled, budget_bits, feature_budget_bits))
+        if not left:
+            return coupled, []
+        return doc, spec_checks.new_errors(
+            findings,
+            spec_checks.run_checks(doc, budget_bits, feature_budget_bits))
+
+    patched, introduced = settled(patched)
+    if not introduced:
+        return patched, []
+
+    culprit_of: dict[int, Finding] = {}
+    for f in introduced:
+        region = _enclosing_object(patched, f.pointer)
+        for r in landed:
+            if _overlaps(r.patch["pointer"], region):
+                culprit_of.setdefault(id(r), f)
+    if not culprit_of:
+        return patched, []
+
+    rebuilt, _ = _apply_to(spec, [r for r in landed if id(r) not in culprit_of])
+    rebuilt, still = settled(rebuilt)
+    if len(still) >= len(introduced):
+        return patched, []
+    return rebuilt, [(r, culprit_of[id(r)]) for r in landed if id(r) in culprit_of]
+
+
+def _patch_digest(patch: dict | None, limit: int = 400) -> str | None:
+    """The value a refused patch proposed, short enough to quote in a prompt."""
+    if not isinstance(patch, dict):
+        return None
+    text = json.dumps(patch.get("value"), default=str)
+    return text if len(text) <= limit else text[:limit] + " ...[truncated]"
 
 
 def apply_patches(
     spec: dict, records: list[Record], units: list[ReviewUnit],
-    findings: list[Finding] | None = None,
+    findings: list[Finding] | None = None, budget_bits: int | None = None,
+    feature_budget_bits: int | None = None,
 ) -> tuple[dict, list[dict]]:
     """Apply surviving patches deterministically. Returns (new_spec, rejections)."""
     by_unit = {u.unit_id: u for u in units}
-    inconsistent_scope = _self_consistency_scope(findings)
+    inconsistent_scope = _self_consistency_scope(spec, findings)
     rejections: list[dict] = []
     candidates: list[Record] = []
 
-    def reject(rec: Record, why: str) -> None:
+    def reject(rec: Record, why: str, detail: str | None = None) -> None:
         rec.rejected = why
-        rejections.append({"unit": rec.unit_id, "pointer": rec.pointer,
-                           "verdict": rec.verdict, "reason": why})
+        entry = {"unit": rec.unit_id, "pointer": rec.pointer,
+                 "verdict": rec.verdict, "reason": why,
+                 "value": _patch_digest(rec.patch)}
+        # What the refusing check actually said. The reason names its code and
+        # its pointer; the message is the half that says what would satisfy it
+        # ("write target = pname - 1, or widen the field"), and it is the half
+        # the next round needs.
+        if detail:
+            entry["detail"] = detail
+        rejections.append(entry)
 
     for r in records:
         if not r.patch:
@@ -514,12 +1041,10 @@ def apply_patches(
             continue
         if r.verdict == "INCONSISTENT":
             # Quote-free patching is a large hole to open, so it is bounded to
-            # exactly the pointers a deterministic check flagged. Without this
-            # the verdict degrades into "rewrite anything, cite nothing".
+            # the objects a deterministic check flagged. Without this the
+            # verdict degrades into "rewrite anything, cite nothing".
             target = str(r.patch.get("pointer") or r.pointer)
-            if not any(target == p or target.startswith(p + "/")
-                       or p.startswith(target + "/")
-                       for p in inconsistent_scope):
+            if not any(_overlaps(target, p) for p in inconsistent_scope):
                 reject(r, "INCONSISTENT patch at a pointer no self-consistency "
                           "check flagged")
                 continue
@@ -542,6 +1067,12 @@ def apply_patches(
             reject(r, f"replace target {pointer} does not exist")
             continue
 
+        if op == "add" and _is_append(pointer):
+            shape = _append_shape_error(pointer, r.patch.get("value"))
+            if shape:
+                reject(r, shape)
+                continue
+
         if op == "replace" and not _is_test_text(pointer):
             old, new = ptr_get(spec, pointer), r.patch.get("value")
             if isinstance(old, str) and isinstance(new, str):
@@ -557,8 +1088,17 @@ def apply_patches(
                     reject(r, f"patch would drop "
                               f"{100 * (1 - len(new) / len(old)):.0f}% of the field; "
                               f"restate it in full or raise it as an open question")
+                    # Tagged with the field, and phrased as a question about
+                    # it. Integration agents read this list, and "Reviewer
+                    # wanted to shorten /x" is the loop's bookkeeping rather
+                    # than anything about the feature -- untagged, it was
+                    # also invisible to the pointer-scoped dedup.
                     _append_open_question(
-                        spec, f"Reviewer wanted to shorten {pointer}: {r.claim}"
+                        spec,
+                        f"{r.claim} A reviewer proposed cutting this field "
+                        f"down to that, which would have dropped most of what "
+                        f"it says; confirm the full text before implementing.",
+                        pointer,
                     )
                     continue
 
@@ -580,7 +1120,6 @@ def apply_patches(
         else:
             grouped.setdefault(r.patch["pointer"], []).append(r)
 
-    new_spec = copy.deepcopy(spec)
     conflicts: list[str] = []
     applied: list[Record] = []
     for pointer, group in sorted(grouped.items()):
@@ -614,16 +1153,67 @@ def apply_patches(
         seen.add(key)
         applied.append(r)
 
-    # Adds that append to the same array must not renumber each other, so
-    # apply replaces first and adds last.
-    for r in sorted(applied, key=lambda x: (x.patch["op"] == "add", x.patch["pointer"])):
-        try:
-            ptr_apply(new_spec, r.patch["pointer"], r.patch["value"], r.patch["op"])
-        except Exception as e:  # malformed pointer, bad index, ...
-            reject(r, f"patch failed to apply: {e}")
+    new_spec, failed = _apply_to(spec, applied)
+    for r, e in failed:
+        reject(r, f"patch failed to apply: {e}")
+
+    # Three drops, in this order. Each asks a different question of the round
+    # -- is it still a spec, did it lose detail, did it break a check -- and
+    # each answers by naming the patch responsible rather than by refusing the
+    # round, because the round is not the unit of blame. The order is forced:
+    # `_drop_regressing_patches` returns a range-coupled document that the
+    # other two could not rebuild by replaying patches, so it goes last, and a
+    # document that is not a spec cannot meaningfully be asked either of the
+    # later questions, so the schema drop goes first.
+    new_spec, broke = _drop_schema_breaking_patches(
+        spec, [r for r in applied if r.rejected is None])
+    for r, e in broke:
+        reject(r, f"patch left the spec failing its own schema ({e})")
+
+    new_spec, laundered = _drop_laundering_patches(
+        spec, [r for r in applied if r.rejected is None])
+    for r, f in laundered:
+        reject(r, f"patch caused {f.code} at {f.pointer}, a loss of detail no "
+                  f"patch this round claimed", detail=f.message)
+
+    # Without a baseline there is no way to tell a regression from a defect
+    # the round inherited, so the whole comparison is skipped rather than
+    # guessed at.
+    if findings is not None:
+        new_spec, reverted = _drop_regressing_patches(
+            spec, new_spec, [r for r in applied if r.rejected is None],
+            findings, budget_bits, feature_budget_bits,
+        )
+        for r, f in reverted:
+            reject(r, f"patch introduced {f.code} at {f.pointer}, which the "
+                      f"spec did not have before this round", detail=f.message)
 
     for c in conflicts:
         _append_open_question(new_spec, c)
+
+    # A CONTRADICTED record with verified evidence is the strongest thing this
+    # stage produces: a verbatim quote from the paper saying the spec is
+    # wrong. When its patch cannot land the finding used to vanish with it,
+    # and the spec went on to the integration agents asserting the very thing
+    # the paper contradicts, with nothing recorded anywhere. Landing the fix
+    # is the reviewer's job and the gate's; surviving the failure to land it
+    # is this. The question is tagged with the pointer the patch aimed at, so
+    # the next round dedups against it rather than re-asking.
+    for r in records:
+        if r.verdict != "CONTRADICTED" or not r.rejected or not r.evidence_ok:
+            continue
+        where = str((r.patch or {}).get("pointer") or r.pointer)
+        quote = " ".join((r.quote or "").split())
+        _append_open_question(
+            new_spec,
+            # The claim and the quote are the substance; which internal gate
+            # rejected the patch is this loop talking to itself, and it was
+            # reaching the integration agents verbatim.
+            f"{r.claim} The paper says: \"{quote}\" "
+            f"The correction did not land, so this field still says what it "
+            f"said -- resolve it before implementing.",
+            where,
+        )
     return new_spec, rejections
 
 
@@ -722,6 +1312,374 @@ def _append_open_question(spec: dict, text: str, pointer: str | None = None) -> 
     oq.append(f"[{pointer}] {text}" if pointer else text)
 
 
+# ------------------------------------------------ pruning at merge time
+
+# Templates this loop writes into questions itself. They are identical across
+# every question of their kind, so they dominate any word-overlap comparison
+# and make two unrelated questions look like one: the four carried source
+# notes in run 6 share thirty words of boilerplate and nothing else.
+_QUESTION_BOILERPLATE = tuple(re.compile(rx, re.S) for rx in (
+    r"the input marks this (?:UNCERTAIN|INFERRED)\b.*?:\s*",
+    r"\bUnrepaired contradiction:\s*",
+    r"The correction was refused by code \(.*?\), so this field still says "
+    r"what it said -- resolve it before implementing\.",
+    # The wordings that replaced the two above. Both spellings stay matched:
+    # a spec carried forward from an earlier run still holds the old text,
+    # and a gist that keeps the template scores every unrelated pair alike.
+    r"The correction did not land, so this field still says what it said "
+    r"-- resolve it before implementing\.",
+    r"A reviewer proposed cutting this field down to that, which would have "
+    r"dropped most of what it says; confirm the full text before implementing\.",
+    r"This is the same decision '[^']*' already carries; resolve it in that "
+    r"knob's range rather than as a second knob\.",
+    # Two escalations of disagreement share "reviewers disagreed on unit
+    # test", which is four content words about the review and none about
+    # the spec -- enough to score a decay question against an alignment one.
+    r"Reviewers disagreed on \S+:\s*",
+    r"\bAlso raised at [^.]*\.",
+))
+
+# English that survives `tokens()` because that filter was written for spec
+# names, not for sentences. "should" and "be" are rare across a list of
+# thirty questions and carry nothing, and an overlap of exactly those three
+# words merged a question about squash recovery into one about usefulness
+# updates.
+_QUESTION_STOPWORDS = frozenset("""
+    a about all also an and any are as at be been being both but by can could
+    do does each either else for from given had has have here how if in into is it its
+    may might must no not of on one only or other out over per shall
+    should so some such take than that the their them then there these they
+    this those to two up use used using was we were what when where whether
+    which will with would
+""".split())
+
+# The words every question in a list like this uses to point at its own
+# subject matter rather than to say anything about it. "The paper does not
+# specify the exact ..." is how half the entries open, and "paper" alone
+# linked an ROB-size question to a usefulness-gate one.
+_QUESTION_STOPWORDS |= frozenset(("paper", "spec", "specification"))
+
+# The list above is written as words, and what it gets subtracted from is
+# stems -- the same mismatch `_GENERIC_STEMS` was introduced to fix for
+# `GENERIC_TOKENS`. Half of it never matched: `stem("does")` is "doe",
+# `stem("using")` is "us", and both leaked through as content words. Two
+# questions sharing nothing but "does" scored a real overlap.
+_QUESTION_STOPWORD_STEMS = _QUESTION_STOPWORDS | {
+    stem(w) for w in _QUESTION_STOPWORDS
+}
+
+# `0x0BDC` -- a value a question quotes back at the spec. When the spec no
+# longer holds it the question is answered and nobody withdrew it: run 6
+# carried "the expected value 0xBEC" against a unit test that had already
+# been repaired to 0x0BDC.
+#
+# Three digits minimum. `0x0` and `0xF` are arguments in a sentence, not
+# citations of anything -- one source note explains that "a 64-bit register
+# yields a count of 64 for 0x0", and reading that as a quotation of the spec
+# withdrew a hedge the paper never resolved.
+_HEX_CITATION_RE = re.compile(r"\b0x[0-9A-Fa-f]{3,}\b")
+# "the parameter defaults set wt0_entries to 128" -- a claim about a knob's
+# value that the spec can settle. Run 6 carried this one after the defaults
+# had been swapped back to match the figure.
+_VALUE_CLAIM_RE = re.compile(r"\b([A-Za-z_]\w*)\s+(?:to|=|is|of)\s+(\d+)\b")
+# How much of the smaller question's rare vocabulary the two have to share.
+# See `_question_clusters` for how it was calibrated.
+_CLUSTER_RATIO = 0.4
+# The companion bar, on rarity-weighted overlap normalised by the lighter
+# question. Calibrated over every pair of run 7's thirty-five live
+# questions. Ranked by score, the first thirteen pairs are all genuinely
+# one question -- 1.00, 1.00, 1.00, 0.66, 0.61, 0.61, 0.47, 0.41, 0.38,
+# 0.38, 0.30, 0.30, 0.29 -- and the first that is not scores 0.287, two
+# UNCERTAIN notes that happen to come off the same figure.
+#
+# The bar is 0.40 rather than anywhere in that overlap zone. It takes the
+# three clusters the audit named -- the usefulness threshold asked four
+# ways, the theta pair, FP classification -- with 40% of headroom over the
+# first false merge, and leaves three real duplicates below it uncollapsed.
+# That is the right way round: a surviving duplicate costs a reviewer a
+# second read, a wrong merge loses a question for good. A bar tuned to
+# catch those last three would sit inside a 0.003 gap, which is fitting to
+# one run's noise rather than calibrating against it.
+#
+# The weighting is degenerate on a very short list -- with two questions,
+# every word they share has frequency 2 out of 2 and so weighs log(1) = 0,
+# and the rule can never fire. That is the safe degeneracy: this rule is
+# purely additive to the rare-word one above, so a short list simply keeps
+# the behaviour it had before. It needs a real list to say anything, which
+# is the same list it was calibrated on.
+_CLUSTER_WEIGHTED_RATIO = 0.40
+
+
+def _question_gist(entry: str) -> str:
+    """A question with its pointer tag and this loop's own templates removed."""
+    _, body = _question_pointer(entry)
+    for rx in _QUESTION_BOILERPLATE:
+        body = rx.sub(" ", body)
+    return " ".join(body.split())
+
+
+def _spec_without_questions(spec: dict) -> str:
+    """Everything the spec asserts, minus the questions about it.
+
+    Searching the whole document for a quoted value finds the question's own
+    copy of it and calls every stale citation live -- which is exactly what
+    the first draft of `_stale_questions` did.
+    """
+    return json.dumps({k: v for k, v in spec.items() if k != "open_questions"})
+
+
+# A carried source note tags itself with the paper location it came from --
+# `carry_source_notes` passes no spec pointer. One that also carries a
+# `[/...]` tag got it from `prune_open_questions` merging it into a cluster
+# of real spec questions, which is the spec claiming it.
+_SOURCE_NOTE_TAG_RE = re.compile(r"\[source\s+([A-Za-z]\d+)\s*:\s*([^\]]*)\]")
+# How much of a carried note's own vocabulary the spec has to use before the
+# note counts as being about something the spec does.
+#
+# Measured over run 7's five carried notes. The four the spec draws on score
+# 0.327, 0.333, 0.364 and 0.368; Figure 7's -- a stacked MPKI bar chart a
+# register-value predictor reads nothing off -- scores 0.080, its only
+# shared words being "feature" and "source". Anywhere in 0.1 to 0.3
+# separates them; 0.15 leaves the wider margin on the side that matters,
+# since keeping an off-topic note costs a reviewer's attention and dropping
+# a live one loses a hedge the paper asked to have carried.
+#
+# Stopwords come out first. `tokens()` was written for identifiers, and on
+# a sentence it scores "are", "at", "be" and "by" as shared vocabulary --
+# which alone put Figure 7's note at 0.289, above any usable bar.
+_NOTE_RELEVANCE = 0.15
+_NOTE_STOPWORDS = _QUESTION_STOPWORD_STEMS
+
+
+def _off_topic_source_notes(spec: dict, questions: list[str]) -> dict[int, str]:
+    """Carried source notes about a part of the paper the spec never uses.
+
+    `carry_source_notes` decides relevance by citation: a note is carried
+    when some verified quote that round came from the same figure section.
+    That is the right rule at the time -- it keeps the loop
+    feature-agnostic -- but a section is coarse, and a reviewer who quotes
+    one sentence of Section 6 inherits every hedge in it. Run 7 shipped
+    Figure 7's note, which says no per-feature MPKI delta can be read off a
+    stacked bar chart, into a spec for a register-value predictor that
+    never reads that chart.
+
+    Decided against the finished document rather than against the round
+    that carried it, which is the whole reason this runs at merge time:
+    whether the spec ended up using a figure is not knowable while it is
+    still being repaired.
+
+    Only a carried note with no spec pointer is eligible, on both counts.
+    A reviewer-written question is *supposed* to name things the spec does
+    not contain -- that is what a gap is -- and applying this rule to one
+    would delete the list. A note that does carry a spec pointer was merged
+    into a cluster of questions about that location, which is the spec
+    claiming it whatever its own words score.
+    """
+    out: dict[int, str] = {}
+    vocab = tokens(_spec_without_questions(spec))
+    for i, entry in enumerate(questions):
+        ptr, _ = _question_pointer(entry)
+        if (ptr or "").startswith("/"):
+            continue
+        tag = _SOURCE_NOTE_TAG_RE.search(entry)
+        if not tag:
+            continue
+        body = entry[tag.end():]
+        for rx in _QUESTION_BOILERPLATE:
+            body = rx.sub(" ", body)
+        subject = tokens(body) - _NOTE_STOPWORDS
+        if not subject:
+            continue
+        if len(subject & vocab) / len(subject) < _NOTE_RELEVANCE:
+            out[i] = (f"it carries {tag.group(1)} from {tag.group(2).strip()}, "
+                      f"which the spec draws nothing from")
+    return out
+
+
+def _stale_questions(spec: dict, questions: list[str]) -> dict[int, str]:
+    """Questions the spec has already answered, with the reason.
+
+    A round repairs the field a question was about and nothing withdraws the
+    question, so the list grows monotonically while the spec improves. Both
+    probes below are decidable against the document -- a quoted value that is
+    no longer anywhere in it, and a claim about a knob's default that the
+    knob contradicts -- so neither is a judgement about whether the question
+    is still interesting, only about whether its premise still holds.
+    """
+    out: dict[int, str] = {}
+    body = _spec_without_questions(spec)
+    defaults = {str(q.get("name")): q.get("default")
+                for q in spec.get("parameters") or []}
+    for i, entry in enumerate(questions):
+        text = _question_gist(entry)
+        cited = [h for h in _HEX_CITATION_RE.findall(text)
+                 if not re.search(rf"0x0*{h[2:].lstrip('0') or '0'}\b", body, re.I)]
+        if cited:
+            out[i] = (f"it quotes {cited[0]}, which appears nowhere in the "
+                      f"spec any more")
+            continue
+        for name, val in _VALUE_CLAIM_RE.findall(text):
+            if name in defaults and str(defaults[name]) != str(val):
+                out[i] = (f"it says {name} is {val}; the spec declares "
+                          f"{defaults[name]}")
+                break
+    return out
+
+
+def _question_clusters(questions: list[str]) -> dict[int, list[int]]:
+    """Group questions that are one question asked twice. head -> members.
+
+    Every round re-reviews the whole spec with fresh reviewers, and
+    `_append_open_question` only dedups within a pointer -- so the same
+    ambiguity raised at `/algorithms/2/pseudocode` and at `/unit_tests/0`
+    survives as two entries, and run 6 shipped roughly five such clusters.
+
+    Similarity is overlap of RARE words, not of all of them. Plain Jaccard
+    does not separate these: the pairs that are genuinely one question score
+    between 0.16 and 0.30, and unrelated pairs score up to 0.40. What does
+    separate them is sharing several words that few other questions use --
+    "nan", "boxing", "opcode", "fp64" -- which is a signature of subject and
+    not of phrasing.
+
+    Normalised by the SMALLER question, because an absolute count rewards
+    length: the longest entry in run 6 shared three rare words with almost
+    everything and, unnormalised, absorbed four unrelated questions.
+
+    Both bars were set against run 6's list of thirty-four. Below 0.4 the
+    result stops changing, and above 0.45 the two recovery-mechanism
+    questions stop merging; 0.5 was the first value tried and lost that
+    pair. Nothing false merges anywhere in that range, which is the
+    direction that matters -- a surviving duplicate costs a reviewer a
+    second read, a wrong merge loses a question for good.
+
+    The head is the longest member, which is deliberately the most
+    informative one: a carried source note states the ambiguity, quotes the
+    paper and records the duty not to resolve it by assumption, while the
+    terse re-ask states only the ambiguity. Pointers from the members it
+    absorbs are carried onto it, so nothing loses its way back into the spec.
+    """
+    gists = [_question_gist(q) for q in questions]
+    toks = [tokens(g) - _QUESTION_STOPWORD_STEMS for g in gists]
+    n = len(questions)
+    freq: dict[str, int] = {}
+    for t in toks:
+        for w in t:
+            freq[w] = freq.get(w, 0) + 1
+    # "Rare" has to scale with the list: at a fixed cut a short list has no
+    # rare words and a long one has nothing else.
+    cutoff = max(3, n // 8)
+    rare = [{w for w in t if freq[w] <= cutoff} for t in toks]
+    # Rarity as a weight rather than a cut, for the companion rule below.
+    weight = {w: math.log(n / f) for w, f in freq.items()} if n else {}
+    mass = [sum(weight[w] for w in t) for t in toks]
+
+    def linked(i: int, j: int) -> bool:
+        # The same sentence at two pointers, which is what a reviewer
+        # raising one ambiguity against two algorithms produces. It can
+        # sit below the rare-word bar -- "How is the PC skewed for UT
+        # indexing?" has four content words and two of them are common
+        # across the list -- so it is settled before the bar is applied.
+        if gists[i] == gists[j]:
+            return True
+        shared = rare[i] & rare[j]
+        smaller = min(len(rare[i]), len(rare[j]))
+        if smaller and len(shared) >= 3 and len(shared) / smaller >= _CLUSTER_RATIO:
+            return True
+        # The rare-word rule has a blind spot that grows with the thing it
+        # is looking for: the more often a topic is re-asked, the less rare
+        # its words are, until the topic drops out of every signature. Run
+        # 7's usefulness-threshold question was asked four times, which put
+        # "usefulnes" at eight occurrences against a cutoff of four, and
+        # the four entries did not cluster at all. The theta pair missed
+        # for the opposite reason -- both questions are short, so their
+        # two genuinely shared words could not reach a floor of three.
+        #
+        # Weighting by rarity instead of cutting on it fixes both: a common
+        # word still counts, just for less. Two shared words minimum, so a
+        # single coincidence cannot link anything.
+        overlap = toks[i] & toks[j]
+        if len(overlap) < 2:
+            return False
+        smaller_mass = min(mass[i], mass[j])
+        if not smaller_mass:
+            return False
+        return (sum(weight[w] for w in overlap) / smaller_mass
+                >= _CLUSTER_WEIGHTED_RATIO)
+
+    # Single-linkage: a question joins a cluster when it matches *any*
+    # member, not only the head. The four usefulness entries pair up as
+    # 9-26, 7-26, 9-27 and 1-9, so a head-only sweep collects two of them
+    # and leaves the other two as their own clusters -- the same question
+    # in three places instead of four.
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if find(i) != find(j) and linked(i, j):
+                parent[find(j)] = find(i)
+
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    # The head is the longest member, which is deliberately the most
+    # informative one -- see the docstring above.
+    return {max(m, key=lambda i: (len(gists[i]), -i)): sorted(m)
+            for m in groups.values()}
+
+
+def prune_open_questions(spec: dict) -> dict:
+    """Drop answered questions and collapse re-asks. Mutates `spec`.
+
+    Run at the end of the review rather than per round, on purpose. A
+    question raised in round 0 and repaired in round 2 is stale only once the
+    last round has run, and a question that looks like a duplicate of one the
+    next round is about to withdraw should not be the entry that survives.
+    Stale first for the same reason: run 6's `0xBEC` question was both stale
+    and the longest member of its cluster, so deduping first would have kept
+    the wrong one and dropped the question that was still live.
+    """
+    questions = list(spec.get("open_questions") or [])
+    if not questions:
+        return {"before": 0, "stale": 0, "merged": 0, "after": 0}
+
+    stale = _stale_questions(spec, questions)
+    stale.update(_off_topic_source_notes(spec, questions))
+    live = [q for i, q in enumerate(questions) if i not in stale]
+
+    clusters = _question_clusters(live)
+    kept: list[str] = []
+    merged = 0
+    for head in sorted(clusters):
+        members = clusters[head]
+        merged += len(members) - 1
+        # Every pointer the cluster carried, so a merged question is still
+        # reachable from each place it was raised. One tag, not several:
+        # `_question_pointer` reads a single leading `[...]`, and a second
+        # bracket would leave the rest of the tag inside the question body
+        # where the next round's dedup cannot key on it. The extras go in a
+        # sentence instead.
+        pointers, seen = [], set()
+        for m in members:
+            ptr, _ = _question_pointer(live[m])
+            if ptr and ptr not in seen:
+                seen.add(ptr)
+                pointers.append(ptr)
+        _, body = _question_pointer(live[head])
+        if len(pointers) > 1:
+            body = f"{body} Also raised at {', '.join(pointers[1:])}."
+        kept.append(f"[{pointers[0]}] {body}" if pointers else body)
+
+    spec["open_questions"] = kept
+    return {"before": len(questions), "stale": len(stale),
+            "merged": merged, "after": len(kept)}
+
+
 # A knob only reaches the simulator through dse.py, which emits
 # `#define SR_<NAME> <value>`. A candidate that is an English sentence produces
 # uncompilable garbage, so only token-like literals may become knobs. Prose
@@ -756,7 +1714,129 @@ def _candidate_key(cands) -> frozenset:
     )
 
 
-def _promotion_rank(rec: Record, consensus: dict, notes: set) -> tuple:
+# The fewest name tokens a parameter must have before a question that
+# mentions all of them counts as being *about* that parameter.
+#
+# One token is too little. `num_banks` reduces to {bank} and `digest_width`
+# to {digest}, and half the questions in a register-file spec say "bank" or
+# "digest" in passing; refusing to mint on that would silently drop real
+# ambiguities, which is the expensive direction -- a duplicate knob wastes a
+# search dimension, a dropped one loses the question. Two tokens is the
+# first bar at which `usefulness_threshold` is caught and nothing else in
+# run 7's list is.
+_KNOB_SUBJECT_MIN_TOKENS = 2
+
+
+def _duplicates_existing_knob(question: str, params: list) -> str | None:
+    """The existing parameter `question` is really about, if there is one.
+
+    `promote_unsupported` already refuses an ambiguity raised *at* a
+    `/parameters/` pointer, on the reasoning that it belongs in that knob's
+    range rather than in a second knob whose values are range strings. That
+    guard reads the pointer only, and run 7 walked straight past it: a
+    reviewer raised the usefulness gate at `/algorithms/0/pseudocode`, so the
+    stage minted `algorithms_0_pseudocode_variant` (`ge_zero|gt_zero`) beside
+    the `usefulness_threshold` knob (default 0) that already encoded exactly
+    that decision. Stage 4 sweeps both, and they disagree.
+
+    So ask what the question is *about*, not where it was filed. A question
+    naming every token of a knob's name is a question about that knob.
+    """
+    subject = tokens(question or "")
+    if not subject:
+        return None
+    for p in params or []:
+        if str(p.get("origin", "")).startswith("review:"):
+            continue  # the minted-question pass below owns these
+        sig = tokens(str(p.get("name", "")))
+        if len(sig) >= _KNOB_SUBJECT_MIN_TOKENS and sig <= subject:
+            return str(p.get("name"))
+    return None
+
+
+def _raised_against_a_parameter(rec: Record, records: list, params: list) -> str | None:
+    """The knob another reviewer filed this same ambiguity against.
+
+    `_duplicates_existing_knob` asks whether a question names every token of
+    a knob's name, which needs the reviewer to have used the knob's own
+    words. Run 7's escape did not: `usefulness_threshold` was already
+    declared with default 0, one reviewer asked "What is the exact
+    usefulness threshold value?" at `/parameters/15/default` -- correctly
+    refused, an ambiguity about a knob belongs in its range -- and another
+    asked "Does the usefulness gate open at >= 0 or > 0?" at
+    `/algorithms/0/pseudocode`, which was minted as a second knob for the
+    same decision.
+
+    The second reviewer's filing is the evidence the first one's wording
+    lacked. So compare only against the parameters *this round's reviewers
+    themselves* pointed at -- a handful, not all twenty-three.
+
+    Even scoped that way, one shared word is too loose. `num_logical_
+    registers` reduces to the single token {logical}, and "What is the
+    mapping of logical registers to banks?" shares it with "The default
+    number of logical registers is 65" while asking something else
+    entirely; the first version of this guard refused a real dimension on
+    that. So the knob's name must have at least two tokens, and the two
+    questions must cover all of them *between* them -- one reviewer saying
+    "usefulness gate" and the other "usefulness threshold" is the pair
+    naming `usefulness_threshold`, which a single word is not.
+    """
+    subject = tokens(rec.open_question or rec.claim or "")
+    if not subject:
+        return None
+    for other in records or []:
+        if other is rec or other.verdict != "UNSUPPORTED":
+            continue
+        m = re.match(r"^/parameters/(\d+)", other.pointer or "")
+        if not m:
+            continue
+        idx = int(m.group(1))
+        if idx >= len(params or []):
+            continue
+        name = str((params or [])[idx].get("name", ""))
+        sig = tokens(name)
+        if len(sig) < _KNOB_SUBJECT_MIN_TOKENS:
+            continue
+        theirs = tokens(other.open_question or other.claim or "")
+        # The shared word has to be the knob's own, not incidental prose the
+        # two questions happen to have in common -- and between them the two
+        # questions have to name the whole knob.
+        if (subject & theirs & sig) and sig <= (subject | theirs):
+            return name
+    return None
+
+
+def _duplicates_minted_knob(question: str, params: list) -> str | None:
+    """The already-minted knob whose question is this question, if any.
+
+    `_candidate_key` dedups on the candidate *values*, so one ambiguity
+    reduced to `ge_zero|gt_zero` by one reviewer and to `zero|positive` by
+    the next reads as two dimensions. The question text is what the two have
+    in common, and `_question_clusters` is already calibrated to decide when
+    two questions are one. Minted knobs carry their question for this.
+    """
+    prior = [p for p in params or []
+             if str(p.get("origin", "")).startswith("review:") and p.get("question")]
+    if not prior or not (question or "").strip():
+        return None
+    clusters = _question_clusters([str(p["question"]) for p in prior] + [question])
+    mine = len(prior)
+    for members in clusters.values():
+        # Whether the new question or an old one ends up the cluster head is
+        # decided by length, which says nothing about which knob exists. Any
+        # cluster-mate that is not the candidate itself is a knob that
+        # already covers it.
+        if mine not in members:
+            continue
+        for other in members:
+            if other != mine:
+                return str(prior[other].get("name"))
+    return None
+
+
+def _promotion_rank(
+    rec: Record, consensus: dict, notes: set, flagged: set | None = None,
+) -> tuple:
     """How much a knob slot is worth spending on this ambiguity.
 
     The cap is a real budget -- every knob is a dimension the evolver has to
@@ -770,15 +1850,33 @@ def _promotion_rank(rec: Record, consensus: dict, notes: set) -> tuple:
     resolve outranks one a reviewer merely noticed, and one that several
     reviewers independently reduced to the same candidate set outranks a
     one-off.
+
+    Between those two sits code corroboration. A deterministic check that
+    already flagged the same element found the hole without being asked, so an
+    ambiguity there is load-bearing rather than merely noticeable: in the sR
+    run the cap was spent on decay bookkeeping and a tie-break rule while
+    `update`'s invented usefulness-training rule -- whose pointer
+    `_check_carried_state` had flagged for reading digests nothing produces --
+    got no slot at all. This key is also what keeps the ordering meaningful on
+    an unmarked source, where `declared` is uniformly false and the rank
+    otherwise collapses to a bare consensus count.
     """
     text = f"{rec.open_question or ''} {rec.claim or ''} {rec.why or ''}"
-    declared = bool(notes and re.findall(r"\bU\d+\b", text) and
-                    set(re.findall(r"\bU\d+\b", text)) & notes)
-    return (-int(declared), -consensus.get(_candidate_key(rec.enum_candidates), 0))
+    # Both hedged tiers count as declared, but not equally: an UNCERTAIN note
+    # names the fork and refuses to pick, while an INFERRED one has already
+    # picked and only admits where the pick came from. The first is a question
+    # the source is asking, the second a question it did not notice it was
+    # answering, so the first gets the slot when they compete.
+    cited = set(paper_markers.NOTE_ID_RE.findall(text)) & set(notes or ())
+    declared = max((2 if n.startswith("U") else 1 for n in cited), default=0)
+    corroborated = _element_pointer(rec.pointer) in (flagged or set())
+    return (-declared, -int(corroborated),
+            -consensus.get(_candidate_key(rec.enum_candidates), 0))
 
 
 def promote_unsupported(
     spec: dict, records: list[Record], source_notes: set | None = None,
+    findings: list[Finding] | None = None,
 ) -> dict:
     """Turn UNSUPPORTED verdicts into open questions and DSE enum knobs.
 
@@ -794,6 +1892,12 @@ def promote_unsupported(
     """
     out = copy.deepcopy(spec)
     notes = set(source_notes or ())
+    # Elements the deterministic checks independently flagged this round.
+    # `info` is excluded: it exists to inform a reviewer, not to rank one.
+    flagged = {
+        _element_pointer(f.pointer) for f in (findings or [])
+        if f.severity in ("error", "warn")
+    }
     # Consensus is counted over every UNSUPPORTED record, including those at
     # pointers no knob can resolve: a reviewer raising the same fork against a
     # unit test is still a second reviewer raising that fork.
@@ -810,12 +1914,36 @@ def promote_unsupported(
         1 for p in (out.get("parameters") or [])
         if str(p.get("origin", "")).startswith("review:")
     )
+    # Which existing knob each ambiguity is really about, decided before the
+    # question is recorded so the recorded text can say so. Appending the
+    # explanation afterwards does not work: `_append_open_question` dedups
+    # within a pointer, so the second, more useful wording is swallowed by
+    # the first.
+    duplicates: dict = {}
+    for r in records:
+        if r.verdict != "UNSUPPORTED" or not r.enum_candidates:
+            continue
+        if not _PROMOTABLE_RE.match(r.pointer or ""):
+            continue
+        question = r.open_question or r.claim or ""
+        dup = (_duplicates_existing_knob(question, out.get("parameters") or [])
+               or _raised_against_a_parameter(r, records,
+                                              spec.get("parameters") or []))
+        if dup:
+            duplicates[id(r)] = dup
+
     promotable: list[Record] = []
     for r in records:
         if r.verdict != "UNSUPPORTED":
             continue
         if r.open_question:
-            _append_open_question(out, r.open_question, r.pointer)
+            dup = duplicates.get(id(r))
+            _append_open_question(
+                out,
+                f"{r.open_question} This is the same decision '{dup}' already "
+                f"carries; resolve it in that knob's range rather than as a "
+                f"second knob." if dup else r.open_question,
+                r.pointer)
 
         # An ambiguity about an existing knob belongs in that knob's range, not
         # in a second knob whose values are range strings.
@@ -846,12 +1974,24 @@ def promote_unsupported(
 
     minted: set = set()
     for r in sorted(promotable,
-                    key=lambda rec: _promotion_rank(rec, consensus, notes)):
+                    key=lambda rec: _promotion_rank(
+                        rec, consensus, notes, flagged)):
         if promoted >= C.REVIEW_MAX_PROMOTED:
             break
         key = _candidate_key(r.enum_candidates)
         if key in minted:
             # One question, asked at three sibling pointers, is one dimension.
+            continue
+        # Two knobs encoding one decision is worse than no knob at all: the
+        # evolver sweeps both, and the candidate it settles on states the
+        # decision twice, in two ways, with nothing making them agree.
+        # Neither guard loses anything -- the question was recorded above,
+        # and the first of them said in the question which knob already
+        # carries the decision. Only the search dimension is declined.
+        if id(r) in duplicates:
+            continue
+        question = r.open_question or r.claim or ""
+        if _duplicates_minted_knob(question, out.get("parameters") or []):
             continue
         minted.add(key)
         cands = _literal_candidates(r.enum_candidates)
@@ -869,6 +2009,11 @@ def promote_unsupported(
             # pseudocode, so it must not trip the unreferenced-knob warning.
             "origin": "review:unsupported",
             "resolves": r.pointer,
+            # The question this knob stands in for, kept so a later round can
+            # tell that its own reviewer is asking it again. Without it the
+            # only identity a minted knob has is its candidate values, and
+            # two reviewers rarely spell one fork the same way twice.
+            "question": question,
         })
     return out
 
@@ -880,6 +2025,17 @@ def _enum_name(rec: Record, taken: set) -> str:
     while name in taken:
         name, n = f"{base}_{n}", n + 1
     return name
+
+
+def review_knobs(spec: dict) -> int:
+    """How many knobs this stage has minted, across every round so far.
+
+    Reads the provenance marker `promote_unsupported` writes, which is also
+    what the spec-wide cap counts, so "did this round mint anything" and "is
+    the budget spent" stay the same question.
+    """
+    return sum(1 for p in (spec.get("parameters") or [])
+               if str(p.get("origin", "")).startswith("review:"))
 
 
 # ------------------------------------------------------- regression differ
@@ -942,9 +2098,28 @@ def _findings_for(findings: list[Finding], unit: ReviewUnit) -> list[Finding]:
     return [f for f in findings if unit.owns(f.pointer)]
 
 
+# Fields whose content is this pipeline's own invention rather than a reading
+# of the paper. Marking them inline is what the prose exemption in reviewer.md
+# cannot do on its own: the reviewer sees the element as JSON, and an
+# unannotated `"range": "[8, 16]"` looks exactly like a transcribed fact.
+_INVENTED_FIELDS = {"range": "search space set by this pipeline, not the paper"}
+
+
+def _annotate_invented(element: dict) -> dict:
+    value = element.get("value")
+    if not isinstance(value, dict):
+        return element
+    marks = {k: why for k, why in _INVENTED_FIELDS.items() if k in value}
+    if not marks:
+        return element
+    return {**element, "_not_paper_claims": marks}
+
+
 def _render_unit(unit: ReviewUnit) -> str:
     return json.dumps(
-        {"unit_id": unit.unit_id, "elements": unit.elements}, indent=2, default=str
+        {"unit_id": unit.unit_id,
+         "elements": [_annotate_invented(e) for e in unit.elements]},
+        indent=2, default=str,
     )
 
 
@@ -963,14 +2138,60 @@ def _render_caveats(ann: "paper_markers.Annotation") -> str:
         "copied from the figure, `INFERRED` is a reading of the layout that "
         "the paper never states, and `UNCERTAIN` marks a point the source "
         "says must be carried forward as an open question rather than "
-        "resolved by guessing. Every `UNCERTAIN` note in the whole input is "
-        "listed here:\n\n"
+        "resolved by guessing. Every `UNCERTAIN` note (`U1`, `U2`, ...) and "
+        "every `INFERRED` one (`I1`, `I2`, ...) in the whole input is listed "
+        "here, tagged with which it is:\n\n"
         + body
         + "\n\nBefore returning SUPPORTED, check this list. If a note bears "
         "on your claim, the verdict is UNSUPPORTED however definite the "
         "surrounding transcription looks -- including a `LITERAL` block, "
         "whose derived columns a note in the same figure section may retract. "
+        "An `INFERRED` note reads as settled and is not: it states a "
+        "conclusion and then says the conclusion was read off a drawing, so "
+        "treat the conclusion as one candidate rather than as the answer. "
         "Give `enum_candidates` naming the readings the note lists."
+    )
+
+
+def _render_rejections(rejections: list[dict], unit: ReviewUnit) -> str:
+    """Last round's refused patches in this unit's scope, as a prompt section.
+
+    A reviewer that cannot see why its patch was refused proposes the same
+    patch again. The sR decay-interval correction was re-derived in the round
+    after the one that rejected it, same pointer, same value, same quote, and
+    refused again for the same reason -- two rounds spent on a fix that was
+    right about the paper and incomplete about the spec. What the gate knows
+    and the reviewer does not is the refusing check's message, which names
+    the other fields that have to move with it.
+
+    Scoped by pointer rather than by unit id, because unit ids are derived
+    from the partition and the partition changes between rounds.
+    """
+    mine = [r for r in rejections
+            if r.get("value") and unit.owns(str(r.get("pointer") or ""))]
+    if not mine:
+        return ""
+    lines = [
+        f"- {r['pointer']} ({r.get('verdict')}) proposed: {r['value']}\n"
+        f"  refused: {r.get('reason')}"
+        + (f"\n  the check that refused it says: {r['detail']}"
+           if r.get("detail") else "")
+        for r in mine
+    ]
+    return (
+        "\n\n## Patches refused last round in this scope\n\n"
+        + "\n".join(lines)
+        + "\n\nThese were refused by code, not by another reviewer. A patch "
+        "refused for introducing a new error was incomplete, not wrong: the "
+        "gate applies a round's patches as one set and reverts the set if "
+        "the spec ends less self-consistent than it started. If you still "
+        "believe the finding, emit EVERY edit the repair needs as its own "
+        "record this round -- the parameter default, the range that bounds "
+        "it, and each line of pseudocode that stores it -- so the spec is "
+        "consistent once all of them are applied together. Re-proposing the "
+        "same single edit will be refused the same way. If the elements you "
+        "were given do not contain every field the repair needs, say which "
+        "field is missing in `why` and return the verdict without a patch."
     )
 
 
@@ -1002,14 +2223,16 @@ def chunk_text(text: str, limit: int) -> list[str]:
 
 
 def review_spec(
-    dump, spec: dict, paper_text: str, budget_bits: int | None = None
+    dump, spec: dict, paper_text: str, budget_bits: int | None = None,
+    feature_budget_bits: int | None = None,
 ) -> tuple[dict, dict]:
-    """Run review rounds until the spec stops changing. Returns (spec, summary).
+    """Run review rounds until the spec stops improving. Returns (spec, summary).
 
     Rounds matter because resolving one ambiguity spawns the next: fixing the
     scope of a mechanism immediately raises the question of what controls it,
     and a single pass answers the second by assumption. The loop stops when a
-    round lands no patches, a round is rejected, or the cap is reached.
+    round lands no patch and mints no knob, a round is rejected, or the cap is
+    reached.
     """
     from llm import load_prompt, make_llm, submit_llm, collect_llm  # lazy: needs chia
 
@@ -1017,14 +2240,39 @@ def review_spec(
     # Parsed once: the grading is a property of the source, not of a round.
     ann = paper_markers.annotate(paper_text)
     caveats = _render_caveats(ann)
+    # When a round's only unfinished business is a reviewer whose call died,
+    # the next round is that unit's retry -- not a re-derivation of the
+    # answers every other unit already gave. Carried across iterations rather
+    # than recomputed, because `partition` reads the spec and the spec cannot
+    # know which backend call came back empty.
+    #
+    # One observed round lost a single unit to an empty response and spent the
+    # next hour re-reviewing all nine to get it back, with the retry queued
+    # behind seven reviews that returned the same verdicts as before.
+    retry_only: set[str] | None = None
+    # Carried into the next round's prompts so a reviewer sees why the gate
+    # refused its last patch, instead of re-deriving it unchanged.
+    prev_rejections: list[dict] = []
+
     summary["source_ambiguities"] = [
-        {"id": n.note_id, "where": n.where, "text": " ".join(n.text.split())}
+        {"id": n.note_id, "tier": n.tier, "where": n.where,
+         "text": " ".join(n.text.split())}
         for n in ann.notes
     ]
 
     for rnd in range(C.REVIEW_ROUNDS):
-        findings = spec_checks.run_checks(spec, budget_bits)
+        findings = spec_checks.run_checks(spec, budget_bits, feature_budget_bits)
         units = partition(spec)
+        retrying = retry_only
+        if retrying:
+            scoped = [u for u in units if u.unit_id in retrying]
+            # A unit id can legitimately vanish between rounds: minted knobs
+            # change which unit owns which parameter, and `orphan` exists only
+            # while something is unreferenced. Falling back to the full
+            # partition is the safe direction to fail -- reviewing too much
+            # costs time, reviewing nothing would let the run report a spec as
+            # fully reviewed when the failed unit never was.
+            units = scoped or units
 
         # One fresh session per unit. Reviewers never see the distiller's
         # transcript: independence from its reasoning is the whole point.
@@ -1039,13 +2287,21 @@ def review_spec(
                 f"\n\n## Elements under review\n\n```json\n{_render_unit(unit)}\n```"
                 f"\n\n## Deterministic findings in this scope\n\n"
                 f"{_render_findings(_findings_for(findings, unit))}"
+                f"{_render_rejections(prev_rejections, unit)}"
                 f"{caveats}"
                 f"\n\n## The paper\n\n{paper_text}"
             )
             llm = make_llm(C.LLM_BACKEND, [], resume=False)
             jobs.append((unit.unit_id, llm, submit_llm(llm, prompt, [])))
 
-        for ci, chunk in enumerate(chunk_text(paper_text, C.COVERAGE_CHUNK_CHARS)):
+        # Coverage reads the whole spec against the whole paper, so it is the
+        # most expensive single call in a round and the least unit-scoped.
+        # A retry round re-runs it only if coverage is itself what failed.
+        chunks = (
+            [] if retrying and not any(u.startswith("coverage") for u in retrying)
+            else chunk_text(paper_text, C.COVERAGE_CHUNK_CHARS)
+        )
+        for ci, chunk in enumerate(chunks):
             prompt = load_prompt(
                 "coverage.md", feature_name=C.FEATURE_NAME
             ) + (
@@ -1088,12 +2344,14 @@ def review_spec(
             parse_errors += errs
 
         verify_evidence(records, paper_text, ann)
-        candidate, rejections = apply_patches(spec, records, units, findings)
+        candidate, rejections = apply_patches(
+            spec, records, units, findings, budget_bits, feature_budget_bits)
         candidate = promote_unsupported(
-            candidate, records, {n.note_id for n in ann.notes})
-        carried = carry_uncertainties(candidate, records, ann)
+            candidate, records, {n.note_id for n in ann.notes}, findings)
+        carried = carry_source_notes(candidate, records, ann)
 
-        new_findings = spec_checks.run_checks(candidate, budget_bits)
+        new_findings = spec_checks.run_checks(
+            candidate, budget_bits, feature_budget_bits)
         uncovered = uncovered_regressions(spec, candidate, records)
         schema_errs = _schema_errors(candidate)
 
@@ -1118,7 +2376,7 @@ def review_spec(
             "hedged_evidence": sum(
                 1 for r in records if r.tier in paper_markers.HEDGED_TIERS
             ),
-            "carried_uncertainties": carried,
+            "carried_source_notes": carried,
             "regressions": [f.as_dict() for f in uncovered],
             "schema_errors": schema_errs,
             "verdicts": _verdict_counts(records),
@@ -1142,22 +2400,64 @@ def review_spec(
                 f"{errors_after})"
             )
 
+        # What this round actually accomplished: a patch that rewrote a field,
+        # or a knob minted for an ambiguity. A later round can build on
+        # either. Appending an open question cannot be progress -- and it is
+        # the one thing EVERY round does, once per UNSUPPORTED record, so the
+        # old `candidate != spec` test never went False and the round cap
+        # rather than convergence ended every run. One observed round cost an
+        # hour, landed no patch, left all three check counts identical, and
+        # added ten lines of prose; the loop then started another.
+        #
+        # The knob cap is spec-wide, so `knobs_minted` is permanently zero
+        # once it is spent. From that point the loop stops at the first round
+        # that lands no patch, which is what this function has always claimed
+        # to do.
+        patched = sum(1 for r in records if r.patch and not r.rejected)
+        minted = review_knobs(candidate) - review_knobs(spec)
+
+        if reject_reason:
+            stop_reason = f"round rejected: {reject_reason}"
+        elif quota_exhausted:
+            stop_reason = "backend quota exhausted"
+        elif not patched and not minted and not failed_units:
+            # A failed unit is not convergence: it was never reviewed, so the
+            # next round is its retry.
+            stop_reason = "converged: no patch landed and no knob was minted"
+        else:
+            stop_reason = None
+
         round_log["accepted"] = reject_reason is None
         round_log["reject_reason"] = reject_reason
+        round_log["patches_landed"] = patched
+        round_log["knobs_minted"] = minted
+        round_log["stop_reason"] = stop_reason
+        round_log["retry_of"] = sorted(retrying) if retrying else None
         dump.json(f"review_round{rnd}.json", round_log)
         summary["rounds"].append({k: round_log[k] for k in (
             "round", "units", "failed_units", "quota_exhausted",
             "checks_before", "checks_after", "inconsistent_patches",
-            "hedged_evidence", "carried_uncertainties",
-            "verdicts", "accepted", "reject_reason"
+            "hedged_evidence", "carried_source_notes",
+            "verdicts", "accepted", "reject_reason",
+            "patches_landed", "knobs_minted", "stop_reason", "retry_of",
         )})
 
+        # A rejected round is discarded, not adopted: its candidate never
+        # becomes the spec.
         if reject_reason:
             break
-        changed = candidate != spec
         spec = candidate
-        if quota_exhausted or (not changed and not failed_units):
+        if stop_reason:
             break
+        prev_rejections = rejections
+
+        # The next round is a scoped retry only when nothing else is left to
+        # do. A round that landed a patch or minted a knob changed the spec
+        # under every unit, so the round after it has to be a full one.
+        retry_only = (
+            set(failed_units) if failed_units and not patched and not minted
+            else None
+        )
 
     # A unit whose reviewer died was never checked, and a spec that reaches the
     # integration agents unmarked looks identical either way. Rolling the round
@@ -1170,11 +2470,14 @@ def review_spec(
             for v in r2["units"]
         }
     })
-    final_checks = spec_checks.run_checks(spec, budget_bits)
+    # Last, once no further round can repair a field or re-ask a question.
+    pruned = prune_open_questions(spec)
+    final_checks = spec_checks.run_checks(spec, budget_bits, feature_budget_bits)
     summary["final"] = {
         "checks": [f.as_dict() for f in final_checks],
         "errors": spec_checks.severity_counts(final_checks)["error"],
         "open_questions": len(spec.get("open_questions") or []),
+        "questions_pruned": pruned,
         "parameters": len(spec.get("parameters") or []),
         "complete": not unreviewed,
         "unreviewed_units": unreviewed,

@@ -28,10 +28,21 @@ Two granularities matter, and they are not the same:
   UNCERTAIN paragraph cannot establish what the paper says, and code can
   enforce that without judgement.
 * A *section* (one `--- (b) FP registers ---` division of a figure block)
-  carries the ambiguity. An UNCERTAIN note can retract a number printed two
-  paragraphs above it inside a LITERAL block -- in Figure 6(b) it retracts a
-  whole derived column -- so relevance of a note is scoped to its section,
+  carries the ambiguity. A note can retract a number printed two paragraphs
+  above it inside a LITERAL block -- in Figure 6(b) an UNCERTAIN note retracts
+  a whole derived column -- so relevance of a note is scoped to its section,
   not to its own paragraph.
+
+Both hedged tiers raise a note, because both describe something the paper
+does not state, and the difference between them is how loudly the source says
+so rather than whether the spec would be guessing. An UNCERTAIN paragraph
+declares the ambiguity and names the alternatives; an INFERRED paragraph
+quietly resolves it and says only in passing that the resolution was read off
+a drawing. The second is the more dangerous of the two downstream: Figure 6(a)
+grades "the three fields are XORed together" INFERRED, and an implementation
+that takes it as settled produces every integer digest value in the design and
+passes every test it is given. Notes are tagged `U1`, `U2`, ... and `I1`,
+`I2`, ... so a reader -- model or human -- can tell which kind it is holding.
 """
 
 from __future__ import annotations
@@ -52,8 +63,18 @@ CROSSCHECK = "crosscheck"
 INFERRED = "inferred"
 UNCERTAIN = "uncertain"
 
-# Only these two cannot settle a claim about what the paper says.
+# Only these two cannot settle a claim about what the paper says. Both also
+# raise a note: see the module docstring on why INFERRED needs one.
 HEDGED_TIERS = (INFERRED, UNCERTAIN)
+# The mirror set: paragraphs the source does assert. A value printed in one of
+# these is the paper's own, whatever a reviewer managed to quote for it.
+AUTHORITATIVE_TIERS = (LITERAL, CROSSCHECK)
+
+_NOTE_PREFIX = {UNCERTAIN: "U", INFERRED: "I"}
+# How a note is referred to once it has left this module -- in a reviewer's
+# prose, in an open question, in a spec. Defined here so the promotion ranking
+# and the note ids cannot drift apart.
+NOTE_ID_RE = re.compile(r"\b[UI]\d+\b")
 
 _TIER_BY_MARKER = {
     "LITERAL": LITERAL, "CROSS-CHECK": CROSSCHECK,
@@ -69,13 +90,64 @@ _SECTION_RE = re.compile(r"^---+\s*(.*?)\s*-*$")
 _MARKER_RE = re.compile(
     r"^(LITERAL|CROSS-CHECK|INFERRED|UNCERTAIN)\b\s*[-.:]?\s*(.*)$"
 )
+# A note's text begins at its own marker line, so the word is otherwise
+# repeated in every rendering: "**I1** (INFERRED, Figure 2): INFERRED The SC
+# output ...". The tier is carried on the Note now, so drop it from the body.
+_LEADING_MARKER_RE = re.compile(
+    r"^(?:LITERAL|CROSS-CHECK|INFERRED|UNCERTAIN)\b\s*[-.:]?\s*"
+)
+
+# Numbers as a claim spells them, for `corroborates`. The left lookbehind
+# excludes digits and letters, so "UT0" yields nothing. On the right, a
+# following "." is only disqualifying when a digit follows it -- otherwise
+# "...is 65." at the end of a sentence yields no numbers at all, and every
+# claim written as an English sentence became ineligible.
+#
+# Decimals and integers need different left-hand rules. An integer running on
+# from a letter is part of an identifier -- UT0, WT1, FP16, R64, h23 -- and
+# yielding its digits matches noise. A decimal never is, and this paper writes
+# every multiplier glued to an "x": the figure prints "x0 or x2.5", so an
+# integer-strength lookbehind finds no 2.5 anywhere and the one claim that
+# quotes it stays uncorroborated.
+_NUMERIC_RE = re.compile(
+    r"(?<![\d.])(\d+\.\d+)(?!\.?\d)(?!\w)"
+    r"|(?<![\w.])(\d+)(?!\.?\d)(?!\w)"
+)
+
+
+def _numbers(text: str) -> set[str]:
+    return {m.group(1) or m.group(2) for m in _NUMERIC_RE.finditer(text or "")}
+
+# Function words carry no evidence. Everything else a claim says -- including
+# the domain nouns `tokens()` treats as generic, like "register" and "table"
+# -- is what ties a number to the structure it belongs to.
+_STOPWORDS = frozenset((
+    "a", "an", "and", "are", "as", "at", "be", "by", "each", "for", "from",
+    "in", "is", "it", "its", "of", "on", "or", "per", "that", "the", "this",
+    "to", "with",
+))
+
+
+def _evidence_tokens(text: str) -> set[str]:
+    # spec_checks' stemmer, not a second one: a claim and a paragraph have to
+    # be reduced the same way for their overlap to mean anything, and two
+    # tokenizers that agree today drift. The dependency runs this way only --
+    # spec_checks imports nothing from here.
+    from spec_checks import tokens as _tokens
+    return {t for t in _tokens(text, drop_generic=False)
+            if t not in _STOPWORDS and not t.isdigit()}
 
 
 @dataclass(frozen=True)
 class Note:
-    """One UNCERTAIN paragraph: an ambiguity the source refuses to resolve."""
+    """One hedged paragraph: something the source declines to state as fact.
+
+    `tier` is UNCERTAIN when the source refuses to resolve the point at all,
+    and INFERRED when it resolved the point by reading a figure's layout.
+    """
 
     note_id: str
+    tier: str
     block: str
     section: str
     text: str
@@ -138,6 +210,57 @@ class Annotation:
         return [n for n in self.notes
                 if n.block == span.block and n.section == span.section]
 
+    def text_of(self, span: Span) -> str:
+        return self._text[span.start:span.end]
+
+    def corroborates(self, claim: str) -> Span | None:
+        """A LITERAL or CROSS-CHECK paragraph printing every number in *claim*.
+
+        This exists to catch a reviewer failure, not a spec failure. A quote
+        that cannot be found in the source is rejected -- correctly, a bad
+        citation must never carry a patch -- and the claim it was offered for
+        is then written into `open_questions` as unsettled. That step is the
+        bug when the claim is one the source states outright: the sR spec
+        shipped six of them, asking what the multiplier is next to a figure
+        that prints "x0 or x2.5", and what UT0's depth is next to one that
+        prints "8 ent. UT0". Each reads as a gap in the paper. None is.
+
+        A single span has to print all of them, and has to share a word with
+        the claim besides. Numbers alone are not enough: "the maximum number
+        of in-flight branches is 256" is a value this paper never states, and
+        256 nonetheless appears in a LITERAL span as the sI component's UT
+        depth. The shared word is what ties a number to the structure it
+        belongs to, so that one is left standing as the open question it is.
+
+        Function words are excluded from that overlap and domain nouns are
+        not, which is the opposite of what `tokens()` does by default:
+        "register" and "table" are exactly the words that identify which
+        row of Table 3 a claim is about.
+
+        Known limitation: a claim whose only number is incidental to it can
+        still match -- "the digest is left-aligned in the 12-bit field"
+        shares both 12 and "digest" with the CROSS-CHECK that derives the
+        digest width, while the alignment itself is marked UNCERTAIN two
+        paragraphs above. That costs nothing here, because an UNCERTAIN point
+        the spec leans on is carried into open_questions by
+        `carry_source_notes` regardless of what any reviewer said about it.
+        """
+        wanted = _numbers(claim)
+        if not wanted:
+            return None
+        said = _evidence_tokens(claim)
+        if not said:
+            return None
+        for span in self.spans:
+            if span.tier not in AUTHORITATIVE_TIERS:
+                continue
+            body = self.text_of(span)
+            if not wanted <= _numbers(body):
+                continue
+            if said & _evidence_tokens(body):
+                return span
+        return None
+
     # -- rendering -------------------------------------------------------
 
     def render_notes(self) -> str:
@@ -146,7 +269,8 @@ class Annotation:
         out = []
         for n in self.notes:
             body = " ".join(n.text.split())
-            out.append(f"- **{n.note_id}** ({n.where}): {body}")
+            where = f", {n.where}" if n.where else ""
+            out.append(f"- **{n.note_id}** ({n.tier.upper()}{where}): {body}")
         return "\n".join(out)
 
 
@@ -188,7 +312,7 @@ def annotate(text: str) -> Annotation:
     tier = PROSE
     start = 0
     offset = 0
-    n_uncertain = 0
+    counts = {UNCERTAIN: 0, INFERRED: 0}
     note_start = 0
 
     def close(at: int) -> None:
@@ -198,12 +322,12 @@ def annotate(text: str) -> Annotation:
         start = at
 
     def close_note(at: int) -> None:
-        nonlocal n_uncertain
-        if tier != UNCERTAIN:
+        if tier not in HEDGED_TIERS:
             return
-        n_uncertain += 1
-        notes.append(Note(f"U{n_uncertain}", block, section,
-                          text[note_start:at]))
+        counts[tier] += 1
+        body = _LEADING_MARKER_RE.sub("", text[note_start:at], count=1)
+        notes.append(Note(f"{_NOTE_PREFIX[tier]}{counts[tier]}", tier,
+                          block, section, body))
 
     for line in text.splitlines(keepends=True):
         bare = line.rstrip("\n")
@@ -234,3 +358,46 @@ def annotate(text: str) -> Annotation:
     close(offset)
     return Annotation([s for s in spans if s.tier != PROSE or s.block],
                       notes, text)
+
+# A transcription block the source opened but graded nowhere. Anything read
+# out of such a block is treated as the paper's own prose, which is only safe
+# when the block really is verbatim.
+_TRANSCRIPTION_RE = re.compile(r"^\[(?:Figure|Table)\s", re.I | re.M)
+
+
+class UngradedSource(RuntimeError):
+    """A figure-bearing source text that carries no provenance markers."""
+
+
+def require_markers(text: str, ann: "Annotation", where: str = "<source>") -> None:
+    """Refuse a source that transcribes figures and grades none of them.
+
+    The markers are not decoration. `verify_evidence` needs them to refuse a
+    quote lifted out of an INFERRED or UNCERTAIN paragraph, and the review
+    stage's promotion ranking needs them to spend a capped knob budget on the
+    ambiguities the source itself declares. An ungraded input yields no notes,
+    so both degrade to no-ops -- silently, because a paper with no figures to
+    transcribe is a legitimate input and must stay one.
+
+    So the trigger is the contradiction rather than the absence: a text that
+    opens figure or table transcription blocks and grades none of them has
+    almost certainly lost its annotations. That is what happened between this
+    module being written and the run that shipped the sR floating-point digest
+    alignment as a fact -- the marked source said in as many words that the
+    alignment was read off the drawing, and the text the run actually read had
+    been replaced by an unmarked extraction.
+    """
+    if ann.notes or any(s.tier != PROSE for s in ann.spans):
+        return
+    blocks = _TRANSCRIPTION_RE.findall(text or "")
+    if not blocks:
+        return
+    raise UngradedSource(
+        f"{where}: {len(blocks)} figure/table transcription block(s), none of "
+        f"them graded. The provenance layer is inert for this input: "
+        f"hedged-evidence rejection cannot fire and the knob budget cannot be "
+        f"ranked by declared ambiguity, so a reading of a drawing will reach "
+        f"the integration agents as something the paper states. Add LITERAL / "
+        f"CROSS-CHECK / INFERRED / UNCERTAIN markers to the transcriptions, or "
+        f"set P2P_REQUIRE_SOURCE_MARKERS=0 to accept an ungraded source."
+    )

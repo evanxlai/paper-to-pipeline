@@ -15,7 +15,7 @@ export GOOGLE_CLOUD_PROJECT=$GCP_PROJECT
 
 export HEAD_IP=$(hostname -I | awk '{print $1}')
 export THIS_MACHINE=$(hostname -I | awk '{print $1}')
-export GCP_PRIVATE_KEY_PATH=/home/laievan/.ssh/id_rsa
+export GCP_PRIVATE_KEY_PATH=/home/ragen/.ssh/id_ed25519
 
 # TS_AUTHKEY is deliberately absent: the tailnet: block in cluster/cluster.yaml
 # is commented out, so nothing substitutes it. Add it here if that block is

@@ -7,7 +7,9 @@ and collection, evidence checking, patch merging, the regression gate and the
 accept/reject decision -- without a cluster.
 """
 
+import copy
 import json
+import re
 import sys
 import types
 
@@ -99,6 +101,22 @@ def test_driver_terminates_when_no_reviewer_patches(monkeypatch, dump, spec):
     assert summary["rounds"][0]["accepted"]
 
 
+def test_the_feature_budget_reaches_the_rounds(monkeypatch, dump, spec):
+    """A feature budget the reviewers never see is one the gate can only
+    refuse the spec over, with no round left in which to repair it. Before
+    this, only the final gate in `adopt_a_paper_loop` was passed the
+    figure, so every round scored the spec against the whole track."""
+    install_stub_llm(monkeypatch, {})
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 1)
+
+    _, loose = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+    assert loose["rounds"][0]["checks_before"]["error"] == 0
+
+    _, tight = spec_review.review_spec(
+        dump, spec, PAPER, 1 << 20, feature_budget_bits=1000)
+    assert tight["rounds"][0]["checks_before"]["error"] == 1
+
+
 def test_driver_applies_an_evidenced_patch(monkeypatch, dump, spec):
     reply = record(
         pointer="/state/0/size_bits", verdict="CONTRADICTED",
@@ -143,17 +161,24 @@ def test_driver_refuses_an_evidenced_patch_that_guts_a_field(monkeypatch, dump, 
     out, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
     assert out["algorithms"][0]["pseudocode"] == spec["algorithms"][0]["pseudocode"]
     assert summary["rounds"][0]["accepted"]
-    assert any("shorten" in q for q in out["open_questions"])
+    # Escalated as a question about the field, tagged with it. "Reviewer
+    # wanted to shorten /x" was the loop's own bookkeeping, and untagged it
+    # was invisible to the pointer-scoped dedup as well.
+    escalated = [q for q in out["open_questions"] if "rule is wrong" in q]
+    assert escalated and escalated[0].startswith("[/algorithms/0/pseudocode]")
 
 
 def test_driver_rolls_back_collateral_loss_inside_a_rewritten_object(
-    monkeypatch, dump, spec
+    monkeypatch, dump, spec, tmp_path
 ):
     """Rewriting a whole element must not launder a dropped field.
 
     The patch replaces /algorithms/0 wholesale and silently omits `notes`.
     The patch justifies its own pointer but not the key lost beneath it, so
-    the round is rejected and the spec rolls back.
+    it is dropped -- and only it. The round is no longer rejected over one
+    attributable loss: blaming the round discarded every correct patch beside
+    the offender and ended the stage, which is how a run once shipped with an
+    unresolved `missing_recovery_algorithm` the reviewer had already fixed.
     """
     spec["algorithms"][0]["notes"] = "saturating counter; ties break toward LRU"
     reply = json.dumps({"records": [
@@ -166,10 +191,16 @@ def test_driver_rolls_back_collateral_loss_inside_a_rewritten_object(
     ]})
     install_stub_llm(monkeypatch, {"algo:predict": reply})
     monkeypatch.setattr(C, "REVIEW_ROUNDS", 2)
+    before = copy.deepcopy(spec)
     out, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
-    assert out == spec                                   # rolled back
-    assert summary["rounds"][0]["accepted"] is False
-    assert "regression" in summary["rounds"][0]["reject_reason"]
+    # The loss never lands: the only patch in the round was the offender.
+    assert out["algorithms"][0] == before["algorithms"][0]
+    assert summary["rounds"][0]["accepted"] is True
+    assert summary["rounds"][0]["patches_landed"] == 0
+    log = json.loads(next(tmp_path.glob("*review_round0.json")).read_text())
+    assert log["regressions"] == []
+    assert any("no patch this round claimed" in r["reason"]
+               for r in log["rejections"])
 
 
 def test_driver_survives_one_dead_reviewer(monkeypatch, dump, spec):
@@ -262,22 +293,35 @@ def test_ordinary_failure_is_not_read_as_quota():
 
 
 def test_driver_honours_the_round_cap(monkeypatch, dump, spec):
-    """A reviewer that keeps appending open questions never converges."""
+    """A reviewer that makes progress every round is stopped by the cap.
+
+    Progress has to be real for the cap to be what ends the loop: this
+    reviewer surfaces a *different* ambiguity each round, so each round mints
+    a knob. Driving it with a reviewer that only appends open questions tests
+    nothing about the cap -- see
+    test_open_questions_alone_do_not_buy_another_round for why that case must
+    converge at round 1 instead.
+    """
     counter = {"n": 0}
 
     def reply_factory(ref, llm=None):
         counter["n"] += 1
+        n = counter["n"]
         body = json.dumps({"records": [{
             "pointer": "/algorithms/0/pseudocode", "verdict": "UNSUPPORTED",
-            "claim": "c", "open_question": f"q{counter['n']}",
+            "claim": f"c{n}", "open_question": f"q{n}",
+            "enum_candidates": [f"a{n}", f"b{n}"],
         }]}) if "algo:predict" in ref else '{"records": []}'
         return types.SimpleNamespace(result=body, stream_result="", success=True, usage={})
 
     install_stub_llm(monkeypatch, {})
     sys.modules["llm"].collect_llm = reply_factory
     monkeypatch.setattr(C, "REVIEW_ROUNDS", 3)
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 10)   # not the binding limit
     _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
     assert len(summary["rounds"]) == 3
+    assert all(r["knobs_minted"] for r in summary["rounds"])
+    assert summary["rounds"][-1]["stop_reason"] is None  # the cap ended it
 
 
 def test_driver_writes_an_auditable_artifact_per_round(monkeypatch, dump, spec, tmp_path):
@@ -376,3 +420,239 @@ def test_summary_reports_outstanding_errors(monkeypatch, dump, contradicted_spec
     monkeypatch.setattr(C, "REVIEW_ROUNDS", 1)
     _, summary = spec_review.review_spec(dump, contradicted_spec, PAPER, 1 << 20)
     assert summary["final"]["errors"] == 1
+
+
+# ------------------------------------------- convergence, not document churn
+
+
+def test_open_questions_alone_do_not_buy_another_round(monkeypatch, dump, spec):
+    """The bug this exists for: every round grows open_questions, so the old
+    `candidate != spec` test never went False and the cap, not convergence,
+    ended every run.
+
+    An observed round cost an hour of wall clock, landed no patch, left all
+    three deterministic check counts byte-identical, and added ten lines of
+    prose -- and the loop then started another.
+    """
+    # UNSUPPORTED at a pointer no knob can resolve: the question is recorded,
+    # so the document changes, but nothing an implementer can act on does.
+    reply = record(
+        pointer="/summary", verdict="UNSUPPORTED", evidence=None,
+        open_question="Does the paper give a fill policy?",
+    )
+    install_stub_llm(monkeypatch, {"global": reply})
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 3)
+    out, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert len(summary["rounds"]) == 1
+    assert summary["rounds"][0]["stop_reason"].startswith("converged")
+    assert summary["rounds"][0]["patches_landed"] == 0
+    assert summary["rounds"][0]["knobs_minted"] == 0
+    # The question is still recorded -- stopping early loses nothing.
+    assert any("fill policy" in q for q in out["open_questions"])
+
+
+def test_a_minted_knob_does_buy_another_round(monkeypatch, dump, spec):
+    """Progress must still keep the loop alive, or the fix is just a cap of 1."""
+    reply = record(
+        pointer="/algorithms/0/pseudocode", verdict="UNSUPPORTED", evidence=None,
+        open_question="Is the tag checked before use?",
+        enum_candidates=["checked", "unchecked"],
+    )
+    install_stub_llm(monkeypatch, {"algo:predict": reply})
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 3)
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 6)
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert summary["rounds"][0]["knobs_minted"] == 1
+    assert summary["rounds"][0]["stop_reason"] is None
+    assert len(summary["rounds"]) > 1
+
+
+def test_an_exhausted_knob_budget_ends_the_loop(monkeypatch, dump, spec):
+    """The shape this run actually hit.
+
+    The cap is spec-wide, so once it is spent no later round can mint
+    anything; a round that also lands no patch cannot advance the spec and the
+    loop has to stop instead of burning the remaining rounds.
+    """
+    reply = record(
+        pointer="/algorithms/0/pseudocode", verdict="UNSUPPORTED", evidence=None,
+        open_question="Is the tag checked before use?",
+        enum_candidates=["checked", "unchecked"],
+    )
+    install_stub_llm(monkeypatch, {"algo:predict": reply})
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 5)
+    monkeypatch.setattr(C, "REVIEW_MAX_PROMOTED", 1)
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert [r["knobs_minted"] for r in summary["rounds"]] == [1, 0]
+    assert summary["rounds"][-1]["stop_reason"].startswith("converged")
+
+
+def test_a_failed_unit_is_not_convergence(monkeypatch, dump, spec):
+    """A unit whose reviewer died was never reviewed, so the next round is
+    its retry -- not a round that found nothing."""
+    install_stub_llm(monkeypatch, {}, fail_on="algo:predict")
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 2)
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert summary["rounds"][0]["failed_units"]
+    assert summary["rounds"][0]["stop_reason"] is None
+    assert len(summary["rounds"]) == 2
+
+
+def test_review_knobs_counts_only_this_stage_s_parameters():
+    """It reads the provenance marker promote_unsupported writes, which is
+    also what the spec-wide cap counts."""
+    assert spec_review.review_knobs({}) == 0
+    assert spec_review.review_knobs({"parameters": [
+        {"name": "hand_written", "type": "int"},
+        {"name": "from_review", "type": "enum", "origin": "review:unsupported"},
+    ]}) == 1
+
+# --------------------------------------------- a retry reviews only the loss
+
+
+def spy_llm(monkeypatch, fail_unit=None, fail_rounds=(), replies=None):
+    """Stub the `llm` module and record which units each round submitted.
+
+    The unit id is parsed back out of the prompt header the stub itself
+    builds, which is how this harness pairs a reply to a unit; coverage has no
+    unit_id, so it reads back as "coverage".
+    """
+    rounds: list[list[str]] = []
+
+    def unit_of(ref):
+        m = re.match(r"\[prompt (\S+) ([^\]]*)\]", ref)
+        if not m:
+            return "?"
+        name, unit_id = m.group(1), m.group(2).strip()
+        return unit_id or ("coverage" if "coverage" in name else "?")
+
+    def collect_llm(ref, llm=None):
+        unit = unit_of(ref)
+        rounds[-1].append(unit)
+        if unit == fail_unit and (len(rounds) - 1) in fail_rounds:
+            raise RuntimeError("backend exploded")
+        body = '{"records": []}'
+        for key, reply in (replies or {}).items():
+            if key == unit:
+                body = reply
+                break
+        return types.SimpleNamespace(
+            result=body, stream_result="", success=True, usage={})
+
+    install_stub_llm(monkeypatch, {})
+    sys.modules["llm"].collect_llm = collect_llm
+
+    real_partition = spec_review.partition
+
+    def partition(sp, max_units=None):
+        rounds.append([])
+        return real_partition(sp, max_units)
+
+    monkeypatch.setattr(spec_review, "partition", partition)
+    return rounds
+
+
+def test_a_retry_round_reviews_only_the_failed_unit(monkeypatch, dump, spec):
+    """The shape this run hit: one empty response cost a whole round.
+
+    Round 0 loses `global` to a dead backend call. Nothing else is left to do
+    -- no patch landed, no knob minted -- so round 1 is that unit's retry, and
+    re-asking the units that already answered would only re-derive verdicts
+    the round log already holds.
+    """
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 3)
+    rounds = spy_llm(monkeypatch, fail_unit="global", fail_rounds=(0,))
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert len(rounds) == 2
+    assert sorted(rounds[0]) == ["algo:predict", "coverage", "global"]
+    # Only the loss -- and not the whole-spec coverage pass, which succeeded
+    # and is the most expensive call in a round.
+    assert rounds[1] == ["global"]
+    assert summary["rounds"][1]["retry_of"] == ["global"]
+    assert summary["rounds"][1]["units"] == ["global"]
+
+
+def test_a_retry_that_answers_ends_the_loop(monkeypatch, dump, spec):
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 5)
+    rounds = spy_llm(monkeypatch, fail_unit="global", fail_rounds=(0,))
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert len(rounds) == 2                       # not the full cap of 5
+    assert summary["rounds"][1]["failed_units"] == []
+    assert summary["rounds"][1]["stop_reason"].startswith("converged")
+
+
+def test_a_unit_that_keeps_failing_keeps_being_retried_alone(monkeypatch, dump, spec):
+    """A repeated failure is worth re-asking now that it costs one call.
+
+    What must not happen is the whole partition going again each time.
+    """
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 3)
+    rounds = spy_llm(monkeypatch, fail_unit="global", fail_rounds=(0, 1, 2))
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert rounds[1] == ["global"] and rounds[2] == ["global"]
+    assert summary["final"]["unreviewed_units"] == ["global"]
+
+
+def test_a_round_that_made_progress_is_not_narrowed(monkeypatch, dump, spec):
+    """A patch changed the spec under every unit, so the next round is full.
+
+    Narrowing here would re-review the failed unit against a spec none of the
+    others have been re-checked against.
+    """
+    reply = record(
+        pointer="/state/0/size_bits", verdict="CONTRADICTED",
+        patch={"op": "replace", "pointer": "/state/0/size_bits", "value": 3072},
+    )
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 2)
+    rounds = spy_llm(monkeypatch, fail_unit="global", fail_rounds=(0,),
+                     replies={"algo:predict": reply})
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert summary["rounds"][0]["patches_landed"] == 1
+    assert summary["rounds"][0]["failed_units"] == ["global"]
+    assert summary["rounds"][1]["retry_of"] is None
+    assert sorted(rounds[1]) == ["algo:predict", "coverage", "global"]
+
+
+def test_a_vanished_retry_target_falls_back_to_the_full_partition(
+        monkeypatch, dump, spec):
+    """Unit ids are derived, so a retry target can stop existing.
+
+    Reviewing nothing would let the run report a spec as fully reviewed when
+    the failed unit never was, so the fallback errs towards reviewing too much.
+    """
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 2)
+    rounds: list[list[str]] = []
+
+    def collect_llm(ref, llm=None):
+        m = re.match(r"\[prompt (\S+) ([^\]]*)\]", ref)
+        unit = (m.group(2).strip() or "coverage") if m else "?"
+        rounds[-1].append(unit)
+        if unit == "global" and len(rounds) == 1:
+            raise RuntimeError("backend exploded")
+        return types.SimpleNamespace(
+            result='{"records": []}', stream_result="", success=True, usage={})
+
+    install_stub_llm(monkeypatch, {})
+    sys.modules["llm"].collect_llm = collect_llm
+    real_partition = spec_review.partition
+
+    def partition(sp, max_units=None):
+        rounds.append([])
+        units = real_partition(sp, max_units)
+        # Round 1: the failed unit is gone from the partition entirely.
+        return [u for u in units if u.unit_id != "global"] if rounds[1:] else units
+
+    monkeypatch.setattr(spec_review, "partition", partition)
+    _, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+
+    assert summary["rounds"][1]["retry_of"] == ["global"]
+    assert rounds[1] and rounds[1] != []          # reviewed something, not nothing
+    assert "algo:predict" in rounds[1]            # the full remaining partition

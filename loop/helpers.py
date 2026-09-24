@@ -119,6 +119,74 @@ def load_trace_list(path: Path) -> list[str]:
     return [t.strip() for t in lines if t.strip() and not t.strip().startswith("#")]
 
 
+def feature_budget_bits(budget: str, host: str = "cbp2025") -> int | None:
+    """What this one feature may spend, against a measured host.
+
+    A track is the whole predictor. Checking one feature against it answers
+    a question nobody asked -- run 7's sR came in at 81639 bits against a
+    1572864-bit track and stayed quiet -- so `_check_storage` wants a
+    feature-level figure, and grades an overrun `error` only when a caller
+    committed to one. Nothing was passing it, so every run fell back to the
+    figure scraped out of the spec's own prose and warned.
+
+    The allowance is the track minus what the host already spends, by the
+    host's own accounting rather than recalled: `host_storage.baseline_bits`
+    is `measure_host_storage`'s figure, which stage 2 refuses a plan without
+    (`host_storage_unmeasured`) and refuses to let disagree with the live
+    measurement (`host_storage_disagrees`). It is also the number stage 4
+    costs every candidate against, so the gate and the search argue about
+    one number.
+
+    Read off the persisted plan, NOT measured here. Measuring calls a
+    `ChiaFunction` reserving `cbp2025_host`, and the first version of this
+    did exactly that -- which asked the autoscaler for a host node during
+    stage 1 and hung the run on "No available node types can fulfill
+    resource request {'cbp2025_host': 1.0}". Distillation in paper_only mode
+    holds no tools and needs no worker; giving it a hard dependency on the
+    host is a worse bug than the warning it was trying to upgrade. The
+    `try/except` there could not have saved it either, because an
+    unschedulable request blocks rather than raises.
+
+    None when no plan has been written yet, which leaves the check on its
+    prose fallback at `warn`. That is the honest answer on a first run:
+    distillation precedes the port, so there is nothing measured to compare
+    against. A re-distil -- which is when this matters -- has the previous
+    run's plan on disk. `P2P_FEATURE_BUDGET_BITS` overrides all of it.
+
+    The other reading, considered and not taken: charge the feature against
+    what the *paper's* chip has left, `track - (paper total - the paper's
+    own line for this feature)`. On sR that is 1572864 - (1570890 - 53863)
+    = 55837 bits, which run 7's 81639 exceeds by 25802 -- a real fact, and
+    the one the 2026-09-23 audit quoted. It is a fact about reproducing the
+    paper's design, though, not about the predictor this loop builds:
+    TAGE-SC-L plus sR is 606254 bits, 74 KiB inside a 192 KiB cap. The gate
+    exists to refuse artifacts that do not fit, so it asks about the
+    artifact. The paper's own crowding is `logic_cost_notes`' subject and
+    is disclosed there.
+    """
+    # Imported here, not at module scope: `plan_revision` reads
+    # `plan_paths` out of this module, so a top-level import is a cycle.
+    import plan_revision
+
+    if C.FEATURE_BUDGET_BITS is not None:
+        return C.FEATURE_BUDGET_BITS
+    if budget not in C.BUDGET_TRACKS_BITS:
+        return None
+    try:
+        port_plan, _tests, _rev = plan_revision.latest(host, C.FEATURE_NAME)
+    except (OSError, ValueError):       # no plan yet, or an unreadable one
+        return None
+    host_bits = (port_plan.get("host_storage") or {}).get("baseline_bits")
+    if not isinstance(host_bits, int) or host_bits <= 0:
+        return None
+    allowance = C.BUDGET_TRACKS_BITS[budget] - host_bits
+    if allowance <= 0:
+        return None
+    print(f"[distill] feature budget: {C.BUDGET_TRACKS_BITS[budget]} track - "
+          f"{host_bits} measured host = {allowance} bits")
+    return allowance
+
+
 def plan_paths(host: str, feature: str | None = None) -> tuple[Path, Path]:
     """Where stage 2's two artifacts land for one host."""
     feature = feature or C.FEATURE_NAME
