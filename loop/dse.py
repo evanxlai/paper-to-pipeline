@@ -16,7 +16,7 @@ Which config the dse stage uses is C.DSE_CONFIG / $P2P_DSE_CONFIG; it
 defaults to experiments/config_adaevolve.yaml.
 
 Candidate representation: NOT free-form code. The evolver mutates one
-params header (sr_params.h) that instantiates the feature spec's
+feature-specific params header that instantiates the feature spec's
 `parameters` block (SR_* macros) and the port plan's `host_knobs` (HOST_*
 macros), so the search can shrink a host structure to pay for the feature.
 Build+run+score is done by CBP2025Node (chia_nodes/cbp2025/cbp2025_node.py),
@@ -162,6 +162,14 @@ def _renamed(formula: str, names: dict) -> str:
         if isinstance(node, ast.Name) and node.id in names:
             node.id = names[node.id]
     return ast.unparse(tree)
+
+
+def params_header_name(spec: dict) -> str:
+    """The generated header a port includes for this feature's DSE knobs."""
+    feature = str((spec or {}).get("feature_name") or "").lower()
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", feature):
+        raise ValueError(f"invalid feature name for params header: {feature!r}")
+    return f"{feature}_params.h"
 
 
 def params_header(
@@ -473,11 +481,12 @@ def candidates_summary(path: Path | str) -> dict:
     }
 
 
-def evolver_actor_name(host: str) -> str:
+def evolver_actor_name(host: str, feature_name: str = C.FEATURE_NAME) -> str:
     """The detached actor a running search lives in. run_dse kills any
     actor of this name before it starts, and promotion refuses to run
     while one exists."""
-    return f"p2p-dse-evolver-{host}"
+    feature = re.sub(r"[^a-zA-Z0-9_]", "_", feature_name)
+    return f"p2p-dse-evolver-{feature}-{host}"
 
 
 def run_dse(
@@ -494,7 +503,9 @@ def run_dse(
             f"{screening_list_path} has no trace entries yet (still the "
             "TODO(week 1) placeholder) -- populate it before running DSE"
         )
-    output_dir = str(C.OUT_DIR / "dse" / host)
+    feature_name = str(spec.get("feature_name") or C.FEATURE_NAME)
+    header_name = params_header_name(spec)
+    output_dir = str(C.OUT_DIR / "dse" / feature_name / host)
     os.makedirs(output_dir, exist_ok=True)
 
     port_plan = _port_plan(host, spec)
@@ -504,6 +515,7 @@ def run_dse(
     start = K.check_static(initial, spec, port_plan, constraints)
     summary = {
         "host": host,
+        "feature": feature_name,
         "budget": budget_name,
         "constraints": [c.as_dict() for c in constraints],
         "host_knobs": len(port_plan.get("host_knobs") or []),
@@ -524,7 +536,7 @@ def run_dse(
                 "error": "; ".join(summary["llm_check"]["errors"])}
 
     # A copy of the ported tree. Not the pristine checkout, because
-    # sr_params.h means nothing until stage 3 has written a predictor that
+    # The feature params header means nothing until stage 3 has written a predictor that
     # includes it, and screening the pristine kit would build the baseline
     # once per candidate and report that no parameter matters. Not the
     # ported tree itself either, because the evolver overwrites that header
@@ -542,7 +554,7 @@ def run_dse(
         def build(header_text: str):
             result = get(CBP2025Node.build.options(
                 resources={C.CBP2025_HOST_RESOURCE: 1.0}
-            ).chia_remote(search_root, {"sr_params.h": header_text.encode()},
+            ).chia_remote(search_root, {header_name: header_text.encode()},
                           C.BUILD_TIMEOUT_S, feature_env))
             return result.binary if result.success else None
 
@@ -557,6 +569,7 @@ def run_dse(
         feature_env=feature_env,
         spec=spec, port_plan=port_plan,
         constraints=[c.as_dict() for c in constraints],
+        params_header_name=header_name,
     )
     config_content = Path(config_path).read_text()
     evolver_input = EvolverInput(
@@ -565,7 +578,7 @@ def run_dse(
         config_content=config_content,
     )
 
-    actor_name = evolver_actor_name(host)
+    actor_name = evolver_actor_name(host, feature_name)
     try:
         ray.kill(ray.get_actor(actor_name))
     except ValueError:
@@ -789,12 +802,12 @@ def compare_variants(per_trace: dict, traces: list, finalists: list[str],
     return result
 
 
-def search_running(host: str) -> bool:
+def search_running(host: str, feature_name: str = C.FEATURE_NAME) -> bool:
     """Whether a stage-4 search holds the search tree right now."""
     import ray
 
     try:
-        ray.get_actor(evolver_actor_name(host))
+        ray.get_actor(evolver_actor_name(host, feature_name))
         return True
     except ValueError:
         return False
@@ -817,7 +830,7 @@ def promote_finalists(
 
     Each variant runs every trace. All the runs are submitted at once, so
     the cluster's trace slots stay busy; the builds go one at a time,
-    because every candidate is written to the same sr_params.h."""
+    because every candidate is written to the same feature params header."""
     # Before anything else, including the reset of the pristine CBP2025
     # checkout below, which a gem5 promotion has no business touching.
     require_searchable(host)
@@ -826,6 +839,8 @@ def promote_finalists(
     from hosts.cbp2025 import adapter as cbp2025_adapter
 
     traces = helpers.load_trace_list(promote_list_path)
+    feature_name = str(spec.get("feature_name") or C.FEATURE_NAME)
+    header_name = params_header_name(spec)
     port_plan = _port_plan(host, spec)
     constraints = constraint_set(budget_name)
     finalists, passed_over = select_finalists(population, spec, port_plan, constraints, top_k)
@@ -833,6 +848,7 @@ def promote_finalists(
     defaults_header = params_header(spec, port_plan, constraint_set=constraints)
     summary = {
         "host": host,
+        "feature": feature_name,
         "budget": budget_name,
         "promote_list": str(promote_list_path),
         "traces": traces,
@@ -859,7 +875,7 @@ def promote_finalists(
                 "error": f"none of the {len(population)} programs qualifies: {passed_over}. "
                          f"If they all fail the static check, the plan in force is probably "
                          f"not the one the search ran under."}
-    if search_running(host):
+    if search_running(host, feature_name):
         return {**summary, "status": "search_running",
                 "error": f"a stage-4 search for {host} is running in the search tree; "
                          f"promote after it ends"}
@@ -870,7 +886,7 @@ def promote_finalists(
     search_root = cbp2025_adapter.dse_tree()
 
     def build(root: str, header: str | None, env: dict | None):
-        sources = None if header is None else {"sr_params.h": header.encode()}
+        sources = None if header is None else {header_name: header.encode()}
         return get(CBP2025Node.build.options(resources={C.CBP2025_HOST_RESOURCE: 1.0})
                    .chia_remote(root, sources, C.BUILD_TIMEOUT_S, env))
 

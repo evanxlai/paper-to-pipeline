@@ -46,7 +46,38 @@ if clean != raw:
     print(f'stripped {len(raw) - len(clean)} control bytes from {p}')
 " "$TP/runlts/runlts.txt"
 
-# 3. RUNLTS reference artifact (Google Drive zip; paper_plus_reference arm).
+# 3. Wormhole paper (Albericio et al., MICRO 2014). No reference
+# implementation is known, so the first pass is paper-only.
+mkdir -p "$TP/wormhole"
+PDF="$TP/wormhole/wormhole.pdf"
+test -f "$PDF" || curl -fL -o "$PDF" \
+  "https://jsm.ece.wisc.edu/docs/albericio-micro2014.pdf"
+if [ ! -f "$TP/wormhole/wormhole.txt" ]; then
+  if command -v pdftotext >/dev/null; then
+    pdftotext -layout "$PDF" "$TP/wormhole/wormhole.txt"
+  else
+    python3 - "$PDF" "$TP/wormhole/wormhole.txt" <<'PY'
+import sys
+from pypdf import PdfReader
+
+pdf, out = sys.argv[1], sys.argv[2]
+text = "\n".join((page.extract_text() or "") for page in PdfReader(pdf).pages)
+with open(out, "w") as f:
+    f.write("".join(c for c in text if c >= " " or c in "\t\n\r"))
+PY
+  fi
+fi
+python3 -c "
+import sys
+p = sys.argv[1]
+raw = open(p, 'rb').read()
+clean = bytes(b for b in raw if b >= 32 or b in (9, 10, 13))
+if clean != raw:
+    open(p, 'wb').write(clean)
+    print(f'stripped {len(raw) - len(clean)} control bytes from {p}')
+" "$TP/wormhole/wormhole.txt"
+
+# 4. RUNLTS reference artifact (Google Drive zip; paper_plus_reference arm).
 #    pip install gdown
 ARTIFACT_ID="1VcjlfeyKgEqgwvUhXWGCeT4Nul8oGlkO"
 if [ ! -d "$TP/runlts/artifact" ]; then
@@ -55,7 +86,7 @@ if [ ! -d "$TP/runlts/artifact" ]; then
   mkdir -p "$TP/runlts/artifact" && unzip -o "$TP/runlts/artifact.zip" -d "$TP/runlts/artifact"
 fi
 
-# 4. CBP2025 training traces: the 105-trace "competition" set (~11.3 GiB
+# 5. CBP2025 training traces: the 105-trace "competition" set (~11.3 GiB
 #    compressed .tar.xz per workload). Big: `chia up` now fetches these onto
 #    each sim_worker node directly (cluster/cluster.yaml, cbp2025_worker
 #    worker_setup_commands), not onto this machine.
@@ -64,7 +95,7 @@ fi
 #    instead of the competition set.)
 echo "Traces: provisioned per-node by 'chia up' (see cluster/cluster.yaml)."
 
-# 5. Hosts.
+# 6. Hosts.
 test -d "$TP/ChampSim" || git clone https://github.com/ChampSim/ChampSim "$TP/ChampSim"
 test -d "$TP/gem5" || git clone --branch v25.1.0.0 --depth 1 https://github.com/gem5/gem5 "$TP/gem5"
 

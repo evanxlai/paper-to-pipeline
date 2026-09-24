@@ -1,4 +1,4 @@
-"""The ChiaEvaluator that scores one sr_params.h candidate for stage-3 DSE.
+"""The ChiaEvaluator that scores one feature params-header candidate for stage-3 DSE.
 
 Overlays the candidate header onto the cbp2025 checkout, builds it, fans the
 screening traces out, and aggregates to the DSE screening metric.
@@ -129,6 +129,7 @@ class SRParamsEvaluator(ChiaEvaluator):
         spec: dict | None = None,
         port_plan: dict | None = None,
         constraints: list | None = None,
+        params_header_name: str = "sr_params.h",
     ):
         self._cbp_root = cbp_root
         self._screening_traces = list(screening_traces)
@@ -150,6 +151,7 @@ class SRParamsEvaluator(ChiaEvaluator):
         self._port_plan = port_plan or {}
         self._constraints = [K.Constraint(c["metric"], c["comparison"], c["allowance"],
                                           c.get("name", "")) for c in constraints or []]
+        self._params_header_name = params_header_name
         # Candidates this search has already screened, by candidate_key. On
         # 2026-09-23, 7 of 24 iterations re-proposed a header the search had
         # scored, and each one spent about 18 minutes of trace slots to learn
@@ -224,9 +226,9 @@ class SRParamsEvaluator(ChiaEvaluator):
             print(f"[sr_evaluator] could not write {self.candidates_log}: {e}")
 
     def _build(self, program_solution: str):
-        # program_solution is the evolver's mutated sr_params.h content;
+        # program_solution is the evolver's mutated feature params-header content;
         # overlaying just this file assumes the checkout's predictor already
-        # #includes "sr_params.h" (stage-2 integration's job -- until then the
+        # #includes that header (stage-2 integration's job -- until then the
         # header is inert and every candidate scores identically).
         # Pinned to the node that holds the checkout. The default token on
         # CBP2025Node.build is "cbp2025", which every trace node also
@@ -236,7 +238,7 @@ class SRParamsEvaluator(ChiaEvaluator):
             resources={C.CBP2025_HOST_RESOURCE: 1.0}
         ).chia_remote(
             self._cbp_root,
-            {"sr_params.h": program_solution.encode()},
+            {self._params_header_name: program_solution.encode()},
             self._build_timeout_s,
             self._feature_env,
         )

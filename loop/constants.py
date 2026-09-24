@@ -18,6 +18,12 @@ OUT_DIR = REPO_ROOT / "out"
 
 FEATURE_NAME = os.environ.get("P2P_FEATURE_NAME", "sr")
 
+# Preserve the original sR checkout names while giving every additional
+# feature a private pair of mutable CBP2025 trees. Specs and plans already
+# include FEATURE_NAME; without this suffix, a second feature would overwrite
+# sR's integration or DSE tree on the one CBP2025 host.
+_FEATURE_TREE_SUFFIX = "" if FEATURE_NAME == "sr" else f"_{FEATURE_NAME}"
+
 # ---------------------------------------------------------------- inputs
 # Paper text (extracted) + optional reference artifact, per the two
 # distillation ablation arms.
@@ -85,7 +91,7 @@ HOSTS = tuple(os.environ.get("P2P_HOSTS", "cbp2025").split(","))
 # port instead of the host. The adapter copies CBP2025_ROOT here at the start
 # of stage 3, so every attempt also starts from a clean tree.
 CBP2025_PORT_ROOT = os.environ.get(
-    "P2P_CBP2025_PORT_ROOT", str(_WORKER_HOME / "cbp2025_port")
+    "P2P_CBP2025_PORT_ROOT", str(_WORKER_HOME / f"cbp2025{_FEATURE_TREE_SUFFIX}_port")
 )
 # Whether stage 3 throws that tree away and copies a fresh one at the start
 # of a run. On by default, because every attempt should begin from the same
@@ -102,7 +108,7 @@ CBP2025_PORT_FRESH = os.environ.get("P2P_CBP2025_PORT_FRESH", "1") == "1"
 # promoted would no longer be the port on disk. A copy also lets a stage-3
 # re-run and a stage-4 search coexist without fighting over one checkout.
 CBP2025_DSE_ROOT = os.environ.get(
-    "P2P_CBP2025_DSE_ROOT", str(_WORKER_HOME / "cbp2025_dse")
+    "P2P_CBP2025_DSE_ROOT", str(_WORKER_HOME / f"cbp2025{_FEATURE_TREE_SUFFIX}_dse")
 )
 
 # Ray resource tokens, matching cluster/cluster.yaml available_node_types.

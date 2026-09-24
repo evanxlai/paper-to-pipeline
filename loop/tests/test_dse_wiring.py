@@ -112,6 +112,16 @@ def test_overrides_replace_defaults(spec):
     assert "#define SR_TABLE_ENTRIES 128" in header
 
 
+def test_feature_scopes_its_header_and_evolver_actor():
+    sr = {"feature_name": "sr"}
+    wormhole = {"feature_name": "wormhole"}
+
+    assert dse.params_header_name(sr) == "sr_params.h"
+    assert dse.params_header_name(wormhole) == "wormhole_params.h"
+    assert dse.evolver_actor_name("cbp2025", "sr") != \
+        dse.evolver_actor_name("cbp2025", "wormhole")
+
+
 # ------------------------------------------------- bug 1: relative trace paths
 
 def test_run_prefixes_relative_trace_with_trace_dir(skydiscover, tmp_path, monkeypatch):

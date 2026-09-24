@@ -841,7 +841,7 @@ def integrate(
         f"\n\n## Test plan\n\n```json\n{json.dumps(test_plan, indent=2)}\n```"
         f"\n\n## Feature spec\n\n```json\n{json.dumps(spec, indent=2)}\n```"
         f"\n\n## The params header\n\n"
-        f"Create `sr_params.h` with exactly this content. Stage 4 regenerates "
+        f"Create `{dse.params_header_name(spec)}` with exactly this content. Stage 4 regenerates "
         f"it from the same spec and plan, with the values changed and nothing "
         f"else, so every macro below must be one the port reads.\n\n"
         f"```c\n{dse.params_header(spec, port_plan)}```"
