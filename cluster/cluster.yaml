@@ -43,12 +43,11 @@ gcp_nodes:
     # chia has no auto-heal watchdog to refill preempted nodes (see
     # docs/handover-spot-preemption.md).
     sim_worker:
-        #machine_type: c2d-standard-32
-        #machine_type: n1-standard-1
-        #machine_type: e2-small  # too weak: make -j OOMs at 2GB RAM (ray.exceptions.OutOfMemoryError)
-        #machine_type: n2-standard-4  # 4 vCPU each; head(4)+host_worker(2)+2x this(8)=14 > this project's 12-vCPU CPUS_ALL_REGIONS quota
-        machine_type: n2-standard-2  # same 2 vCPU as e2-small but 8GB RAM (vs. 2GB) -- fits the quota and fixes the OOM
-        count: 2
+        # Each trace is single-threaded. Sixteen 32-vCPU VMs provide 512
+        # physical cores, enough for eight concurrent 60-trace candidates
+        # while leaving the CBP2025 integration host's checkout isolated.
+        machine_type: n2-standard-32
+        count: 16
         image: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
         disk_size_gb: 100
         spot: false
@@ -157,6 +156,31 @@ gcp_nodes:
         spot: false
         ssh_user: ${USER}
         ssh_private_key: ${GCP_PRIVATE_KEY_PATH}
+        ssh_timeout: 300
+        # Same reason as sim_worker and host_worker: the apt install and the
+        # gem5 clone do not fit worker_setup_commands' hardcoded 600s. That
+        # 600 is chia/cluster/ssh.py's run_script default, applied because
+        # node_setup.py's setup_worker_node calls it with no timeout, and no
+        # available_node_types key can raise it. This phase is the only one
+        # with a configurable budget.
+        setup_commands:
+            # gem5's own dependency list for Ubuntu 22.04, plus ccache.
+            - >
+              sudo apt-get update -q && sudo apt-get install -y -q build-essential git m4
+              scons zlib1g zlib1g-dev libprotobuf-dev protobuf-compiler libprotoc-dev
+              libgoogle-perftools-dev python3-dev pkg-config libhdf5-serial-dev
+              libpng-dev libelf-dev ccache
+            - test -d ~/gem5 || git clone --branch v25.1.0.0 --depth 1 https://github.com/gem5/gem5 ~/gem5
+            # base_dir makes ccache hash paths under $HOME as relative ones, so
+            # the port tree and the search tree, which are copies of ~/gem5 at
+            # other paths, hit the pristine build's cache instead of
+            # recompiling gem5 from scratch.
+            - >
+              mkdir -p ~/.config/ccache &&
+              printf 'base_dir = %s\nmax_size = 60G\n' "$HOME" > ~/.config/ccache/ccache.conf
+        # Budget for the 14 default commands (miniconda + chia + docker) plus
+        # the apt install and the clone above. Default is 1800s.
+        setup_timeout: 3600
     # Integration host: on-demand (agents keep long-lived state in the checkouts).
     host_worker:
         #machine_type: c2d-standard-16
@@ -191,7 +215,7 @@ available_node_types:
     # build would then compile a checkout nobody had edited -- a green gate on
     # an unported tree, which is the one failure the gate cannot see.
     #
-    # It also advertises "cbp2025" so this node can take trace work when the
+    # It also advertises "cbp2025" so this node can take two trace runs when the
     # fan-out below is busy. That is safe in the other direction: a trace run
     # receives the binary as bytes (CBP2025Node.run) and never reads the
     # checkout.
@@ -213,18 +237,29 @@ available_node_types:
             - 'test -x ~/cbp2025/cbp || { echo "FATAL: ~/cbp2025/cbp missing -- sim_worker provisioning did not complete" >&2; exit 1; }'
             - 'test -f ~/traces/cbp2025/int/int_0_trace.gz || { echo "FATAL: CBP2025 training traces missing -- sim_worker provisioning did not complete" >&2; exit 1; }'
 
-    # Trace fan-out for the gate's performance entries and the DSE screening
-    # sweep: one single-threaded ./cbp process per trace, binary shipped as
-    # bytes, so this node never needs the edited checkout.
-    #
-    # The slot count is the machine's vCPU count, not the 32 this block asked
-    # for while sim_worker was still c2d-standard-32. Oversubscribing a
-    # 2-vCPU VM 16x does not run 32 traces faster; it runs all 32 slower and
-    # makes RUN_TIMEOUT_S meaningless.
+    # Trace fan-out for the gate's performance entries, DSE screening, and
+    # promotion: one single-threaded ./cbp process per trace, binary shipped
+    # as bytes, so this node never needs the edited checkout. The 32 slots
+    # match the n2-standard-32 VM's vCPU count.
     cbp2025_worker:
-        resources: {"cbp2025": 2}
-        num_workers: 1
-        compatible_ips: ["@sim_worker:1"]
+        resources: {"cbp2025": 32}
+        num_workers: 15
+        compatible_ips:
+            - "@sim_worker:1"
+            - "@sim_worker:2"
+            - "@sim_worker:3"
+            - "@sim_worker:4"
+            - "@sim_worker:5"
+            - "@sim_worker:6"
+            - "@sim_worker:7"
+            - "@sim_worker:8"
+            - "@sim_worker:9"
+            - "@sim_worker:10"
+            - "@sim_worker:11"
+            - "@sim_worker:12"
+            - "@sim_worker:13"
+            - "@sim_worker:14"
+            - "@sim_worker:15"
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
         worker_setup_commands: *cbp2025_assert
 
@@ -259,25 +294,18 @@ available_node_types:
         num_workers: 1
         compatible_ips: ["@gem5_node:0"]
         worker_env_commands: ["source ~/.bashrc && conda activate chia_env"]
+        # Cheap assertions only; the apt install, the gem5 clone and the
+        # ccache config all moved to gcp_nodes.gem5_node.setup_commands
+        # (see the note there). This phase's budget is a hardcoded 600s
+        # that no config key can raise, and the clone did not fit it.
+        #
+        # The pristine build is not done in either phase. It takes most of
+        # an hour, and it runs as a chia job instead (hosts/gem5/adapter.py),
+        # so a failed build is a job with a log rather than a node that
+        # never joined.
         worker_setup_commands:
-            # gem5's own dependency list for Ubuntu 22.04, plus ccache.
-            - >
-              sudo apt-get update -q && sudo apt-get install -y -q build-essential git m4
-              scons zlib1g zlib1g-dev libprotobuf-dev protobuf-compiler libprotoc-dev
-              libgoogle-perftools-dev python3-dev pkg-config libhdf5-serial-dev
-              libpng-dev libelf-dev ccache
-            - test -d ~/gem5 || git clone --branch v25.1.0.0 --depth 1 https://github.com/gem5/gem5 ~/gem5
-            # base_dir makes ccache hash paths under $HOME as relative ones, so
-            # the port tree and the search tree, which are copies of ~/gem5 at
-            # other paths, hit the pristine build's cache instead of
-            # recompiling gem5 from scratch.
-            - >
-              mkdir -p ~/.config/ccache &&
-              printf 'base_dir = %s\nmax_size = 60G\n' "$HOME" > ~/.config/ccache/ccache.conf
-            # The pristine build is not done here. It takes most of an hour,
-            # and it runs as a chia job instead (hosts/gem5/adapter.py), so a
-            # failed build is a job with a log rather than a node that never
-            # joined.
+            - 'test -d ~/gem5 || { echo "FATAL: ~/gem5 missing -- gem5_node provisioning did not complete" >&2; exit 1; }'
+            - 'command -v scons >/dev/null || { echo "FATAL: scons missing -- gem5_node provisioning did not complete" >&2; exit 1; }'
 
     # Gemini agent (Antigravity CLI). Sign in with `agy` on the head machine
     # first so ~/.gemini exists; the mount must be writable.
