@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+import paper_markers as pm
 import spec_checks
 import spec_review
 from spec_review import (
@@ -116,6 +117,175 @@ def test_unit_ownership_is_prefix_scoped(spec):
     unit = {u.unit_id: u for u in partition(spec)}["algo:predict"]
     assert unit.owns("/algorithms/0/pseudocode")
     assert not unit.owns("/algorithms/1/pseudocode")
+
+
+def test_the_global_unit_owns_the_algorithm_append_pointer(spec):
+    """A finding about something the spec does not contain yet has no element
+    pointer to anchor to -- a unit owns `/algorithms/0`, not the array's next
+    slot. Without append scope such a finding reaches no reviewer and can be
+    patched by none, so an `error` of that shape deadlocks the stage instead
+    of gating it."""
+    units = {u.unit_id: u for u in partition(spec)}
+    assert units["global"].owns("/algorithms/-")
+    assert not units["algo:predict"].owns("/algorithms/-")
+
+
+def test_a_deterministic_finding_at_the_append_pointer_reaches_a_reviewer(spec):
+    import spec_checks
+    f = spec_checks.Finding("/algorithms/-", "missing_recovery_algorithm",
+                            "error", "speculative state, nothing unwinds it")
+    units = {u.unit_id: u for u in partition(spec)}
+    assert spec_review._findings_for([f], units["global"]) == [f]
+
+
+def test_the_global_unit_may_append_the_algorithm_a_finding_asks_for(spec):
+    """The repair has to close, not just route: an error the loop can detect
+    and cannot clear is worse than no check at all."""
+    import spec_checks
+    f = spec_checks.Finding("/algorithms/-", "missing_recovery_algorithm",
+                            "error", "speculative state, nothing unwinds it")
+    r = Record(unit_id="global", pointer="/algorithms/-",
+               claim="nothing unwinds the table on a flush",
+               verdict="INCONSISTENT", why="w",
+               patch={"op": "add", "pointer": "/algorithms/-",
+                      "value": {"name": "recover_squash",
+                                "trigger": "pipeline flush",
+                                "pseudocode": "tbl[r].valid = 0"}})
+    new, rejections = apply_patches(spec, [r], partition(spec), [f])
+    assert rejections == []
+    assert new["algorithms"][-1]["name"] == "recover_squash"
+
+
+def test_an_append_missing_a_required_field_is_rejected_alone(spec):
+    """The observed failure: the global reviewer wrote the recovery algorithm
+    the checks were asking for and called its body `logic`. Schema-invalid, so
+    the round-level gate threw the round away -- with nine correct patches in
+    it -- and the stage stopped at round 0 with the error still standing."""
+    import spec_checks
+    f = spec_checks.Finding("/algorithms/-", "missing_recovery_algorithm",
+                            "error", "speculative state, nothing unwinds it")
+    bad = Record(unit_id="global", pointer="/algorithms/-",
+                 claim="nothing unwinds the table on a flush",
+                 verdict="INCONSISTENT", why="w",
+                 patch={"op": "add", "pointer": "/algorithms/-",
+                        "value": {"name": "recover_on_flush",
+                                  "trigger": "pipeline flush",
+                                  "logic": "clear every valid bit"}})
+    good = Record(unit_id="algo:predict", pointer="/algorithms/0/pseudocode",
+                  claim="the lookup reads the tag field",
+                  verdict="UNDERSPECIFIED", why="w",
+                  patch={"op": "replace", "pointer": "/algorithms/0/pseudocode",
+                         "value": "v = victim_tag_table[PC]; return v.tag if "
+                                  "v.valid else NO_PREDICTION"})
+    new, rejections = apply_patches(spec, [bad, good], partition(spec), [f])
+    assert len(rejections) == 1
+    assert "pseudocode" in rejections[0]["reason"]
+    # The correct patch beside it survives, which is the whole point.
+    assert "NO_PREDICTION" in new["algorithms"][0]["pseudocode"]
+    assert [a["name"] for a in new["algorithms"]] == ["predict", "decay"]
+
+
+def test_an_append_that_is_not_an_object_is_rejected(spec):
+    r = Record(unit_id="global", pointer="/algorithms/-", claim="c",
+               verdict="UNDERSPECIFIED", why="w",
+               patch={"op": "add", "pointer": "/algorithms/-",
+                      "value": "recover the table on a flush"})
+    new, rejections = apply_patches(spec, [r], partition(spec))
+    assert len(rejections) == 1
+    assert len(new["algorithms"]) == 2
+
+
+def test_open_questions_append_is_untyped_and_still_lands(spec):
+    """`/open_questions/-` holds bare strings, so a required-field check that
+    assumed every append is an object would refuse the append the coverage
+    reviewer makes for every ambiguity the paper leaves open."""
+    spec["open_questions"] = []
+    r = Record(unit_id="coverage", pointer="/open_questions/-", claim="c",
+               verdict="UNDERSPECIFIED", why="w", evidence_ok=True,
+               patch={"op": "add", "pointer": "/open_questions/-",
+                      "value": "Does the table survive a flush?"})
+    new, rejections = apply_patches(spec, [r], partition(spec))
+    assert rejections == []
+    assert new["open_questions"][-1] == "Does the table survive a flush?"
+
+
+def test_a_schema_breaking_patch_does_not_cost_the_round_its_other_patches(spec):
+    """The general case, below the per-append shape check: any patch that
+    leaves the document unparseable as a spec is dropped on its own."""
+    bad = Record(unit_id="algo:predict", pointer="/algorithms/0/pseudocode",
+                 claim="c", verdict="UNDERSPECIFIED", why="w",
+                 patch={"op": "replace", "pointer": "/algorithms/0/pseudocode",
+                        "value": {"not": "a string"}})
+    good = Record(unit_id="global", pointer="/algorithms/-", claim="c",
+                  verdict="UNDERSPECIFIED", why="w",
+                  patch={"op": "add", "pointer": "/algorithms/-",
+                         "value": {"name": "recover_squash",
+                                   "trigger": "pipeline flush",
+                                   "pseudocode": "tbl[r].valid = 0"}})
+    new, rejections = apply_patches(spec, [bad, good], partition(spec))
+    assert [r["pointer"] for r in rejections] == ["/algorithms/0/pseudocode"]
+    assert new["algorithms"][-1]["name"] == "recover_squash"
+    assert spec_review._schema_errors(new) == []
+
+
+def test_a_laundering_patch_does_not_cost_the_round_its_other_patches(spec):
+    """The other half of the observed failure: a correct, paper-backed
+    rewrite of /state/1 that cut `indexing` down to a stub in passing. The
+    loss is real and must not land -- but it is attributable to one patch,
+    and the round-level verdict blamed all ten."""
+    launders = Record(
+        unit_id="algo:decay", pointer="/state/1", claim="c",
+        verdict="CONTRADICTED", why="w", evidence_ok=True,
+        patch={"op": "replace", "pointer": "/state/1",
+               "value": {"name": "decay shadow counters",
+                         "organization": "8 counters",
+                         "entry_format": "decay_ctr (8)",
+                         "size_bits": 64,
+                         "indexing": "bank"}})
+    good = Record(unit_id="global", pointer="/algorithms/-", claim="c",
+                  verdict="UNDERSPECIFIED", why="w",
+                  patch={"op": "add", "pointer": "/algorithms/-",
+                         "value": {"name": "recover_squash",
+                                   "trigger": "pipeline flush",
+                                   "pseudocode": "tbl[r].valid = 0"}})
+    spec["state"][1]["indexing"] = (
+        "indexed by the bank number and the logical register index, with the "
+        "low bit of the PC breaking ties"
+    )
+    new, rejections = apply_patches(spec, [launders, good], partition(spec))
+    assert [r["pointer"] for r in rejections] == ["/state/1"]
+    # The loss is reverted...
+    assert new["state"][1]["indexing"].startswith("indexed by the bank number")
+    # ...and the unrelated patch beside it still lands.
+    assert new["algorithms"][-1]["name"] == "recover_squash"
+    assert spec_review.uncovered_regressions(spec, new, [launders, good]) == []
+
+
+def test_append_required_fields_are_read_from_the_schema():
+    """Restating them here would let the schema rename a field without this
+    check or the reviewer prompt noticing."""
+    assert spec_review._append_required("/algorithms/-") == [
+        "name", "trigger", "pseudocode"]
+    assert spec_review._append_required("/open_questions/-") == []
+
+
+def test_an_algorithm_unit_may_mint_the_knob_its_pseudocode_should_read(spec):
+    """`hardcoded_tuning_constant` asks for two edits in one round: the knob
+    added and the pseudocode changed to read it. They sit in different
+    top-level arrays, and a round's patches land as a set -- without append
+    scope the reviewer can only ever propose half, and half is a regression."""
+    unit = {u.unit_id: u for u in partition(spec)}["algo:predict"]
+    assert unit.owns("/parameters/-")
+    assert unit.owns("/algorithms/0/pseudocode")
+
+
+def test_merging_units_keeps_append_scope(spec):
+    """The cap merges units; a merged unit that dropped its append scope
+    would put the finding back out of everyone's reach."""
+    a = spec_review.ReviewUnit("a", "global", [], ["/algorithms/-"])
+    b = spec_review.ReviewUnit("b", "algorithm", [])
+    assert spec_review._merge_units(a, b).owns("/algorithms/-")
+    assert spec_review._merge_units(b, a).owns("/algorithms/-")
 
 
 def test_partition_merges_algorithms_that_write_the_same_state(spec):
@@ -373,9 +543,13 @@ def test_refused_contradiction_survives_as_an_open_question(spec):
     verify_evidence([r], PAPER)
     new, _ = apply_patches(spec, [r], units_for(spec))
     q = "\n".join(new["open_questions"])
-    assert "Unrepaired contradiction" in q
+    assert "The table holds 256 entries, not 4." in q
     assert "holds 256 entries of 12 bits each" in q
     assert "[/algorithms/1/pseudocode]" in q
+    assert "still says what it said" in q
+    # Which internal gate rejected the patch is this loop talking to itself.
+    # Integration agents read this list.
+    assert "refused by code" not in q
 
 
 def test_a_fabricated_contradiction_is_not_escalated(spec):
@@ -793,6 +967,95 @@ def test_the_same_question_at_two_pointers_is_kept_twice(spec):
     out = promote_unsupported(spec, rs)
     assert len(out["open_questions"]) == 2
     assert all(o.startswith("[/") for o in out["open_questions"])
+
+
+# ------------------------------------- one decision, one knob
+
+
+def test_a_question_naming_an_existing_knob_does_not_mint_a_second(spec):
+    """Two knobs for one decision is worse than no knob: stage 4 sweeps both
+    and the winner states the decision twice, in two ways, with nothing
+    making them agree."""
+    r = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+            claim="c",
+            open_question="What decay window should the counters use?",
+            enum_candidates=["short", "long"])
+    out = promote_unsupported(spec, [r])
+    assert [p for p in out["parameters"]
+            if str(p.get("origin", "")).startswith("review:")] == []
+    # The information is kept, and it says where the decision already lives.
+    assert any("decay_window" in q for q in out["open_questions"])
+
+
+def test_a_question_sharing_one_generic_word_still_mints(spec):
+    """`decay_window` is two tokens and a question naming only one of them
+    is a different question. Refusing on a single word loses real
+    dimensions -- it cost `stride_by_8|contiguous` its slot in testing."""
+    r = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+            claim="c",
+            open_question="Does decay run every cycle or every commit?",
+            enum_candidates=["per_cycle", "per_commit"])
+    out = promote_unsupported(spec, [r])
+    assert [p for p in out["parameters"]
+            if str(p.get("origin", "")).startswith("review:")]
+
+
+def test_a_reviewer_filing_the_same_hole_at_a_parameter_blocks_the_mint(spec):
+    """Run 7's escape. One reviewer asks at `/parameters/N`, correctly
+    refused because an ambiguity about a knob belongs in its range; another
+    asks the same thing in different words at an algorithm, and a second
+    knob is minted for the decision the first one already carries."""
+    at_param = rec(verdict="UNSUPPORTED", pointer="/parameters/0/default",
+                   claim="c",
+                   open_question="What is the exact decay window value?")
+    at_algo = rec(verdict="UNSUPPORTED", pointer="/algorithms/1/pseudocode",
+                  claim="c",
+                  open_question="Does the decay counter reach zero before or "
+                                "after the window?",
+                  enum_candidates=["before", "after"])
+    out = promote_unsupported(spec, [at_param, at_algo])
+    assert [p for p in out["parameters"]
+            if str(p.get("origin", "")).startswith("review:")] == []
+
+
+def test_a_parameter_filing_about_something_else_does_not_block(spec):
+    """The two questions must name the whole knob between them. Sharing one
+    word with a one-token knob name is how the guard refused a real
+    dimension the first time it was written."""
+    at_param = rec(verdict="UNSUPPORTED", pointer="/parameters/0/default",
+                   claim="c",
+                   open_question="Is the decay window 200 or 255?")
+    at_algo = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                  claim="c",
+                  open_question="How is the victim tag hashed into the table?",
+                  enum_candidates=["xor_fold", "low_bits"])
+    out = promote_unsupported(spec, [at_param, at_algo])
+    assert [p for p in out["parameters"]
+            if str(p.get("origin", "")).startswith("review:")]
+
+
+def test_a_minted_knob_carries_its_question_for_the_next_round(spec):
+    """Candidate values are not an identity: two reviewers rarely spell one
+    fork the same way twice, so `_candidate_key` alone lets the same
+    ambiguity through as a second dimension a round later."""
+    first = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                claim="c",
+                open_question="Is the victim tag hashed by an XOR fold of the "
+                              "PC bits or taken from the low PC bits?",
+                enum_candidates=["xor_fold", "low_bits"])
+    after = promote_unsupported(spec, [first])
+    knob = [p for p in after["parameters"]
+            if str(p.get("origin", "")).startswith("review:")][0]
+    assert "XOR fold" in knob["question"]
+
+    second = rec(verdict="UNSUPPORTED", pointer="/algorithms/0/pseudocode",
+                 claim="c",
+                 open_question="Is the victim tag hashed by an XOR fold of the "
+                               "PC bits, or simply the low PC bits taken raw?",
+                 enum_candidates=["fold_xor", "raw_low_bits"])
+    out = promote_unsupported(after, [second])
+    assert len([p for p in out["parameters"]
+                if str(p.get("origin", "")).startswith("review:")]) == 1
 
 
 # ------------------------------------- INCONSISTENT: self-contradiction
@@ -1453,3 +1716,309 @@ def test_a_parameter_range_is_marked_as_this_pipeline_s_invention(spec):
 def test_non_parameter_elements_are_not_annotated(spec):
     element = {"pointer": "/state/0", "value": spec["state"][0]}
     assert spec_review._annotate_invented(element) == element
+
+
+# ------------------------- a bad citation for a claim the paper does state
+
+GRADED_PAPER = (
+    "The predictor corrects the base prediction.\n\n"
+    "[Figure 4: the register component.\n\n"
+    "LITERAL\n"
+    "    Weight tables: 512 ent. WT0, 256 ent. WT1.\n"
+    "    Output multiplier: x0 or x2.5.\n\n"
+    "UNCERTAIN\n"
+    "    What switches the multiplier is not stated; the figure draws no\n"
+    "    control line and names no threshold.\n]\n"
+)
+
+
+def test_a_misquoted_claim_the_source_prints_raises_no_open_question():
+    """The live bug, and a reviewer failure rather than a spec failure. The
+    quote is rejected -- a citation nobody can find must never carry a patch
+    -- but the claim was written into open_questions anyway, so the spec
+    shipped six questions the paper had already answered, each phrased as
+    the paper's silence rather than the reviewer's slip."""
+    r = rec(claim="The default multiplier is 2.5.",
+            quote="the multiplier is set to two and a half",
+            patch={"op": "replace", "pointer": "/state/0/size_bits", "value": 1})
+    verify_evidence([r], GRADED_PAPER)
+    assert r.verdict == "UNSUPPORTED"
+    assert r.patch is None                     # the bad citation still disarms
+    assert r.open_question is None             # but there is nothing open
+    assert "only the citation is bad" in r.rejected
+
+
+def test_a_misquoted_claim_the_source_does_not_print_still_opens_one():
+    r = rec(claim="The default multiplier is 9.75.",
+            quote="the multiplier is set to nine and three quarters")
+    verify_evidence([r], GRADED_PAPER)
+    assert r.verdict == "UNSUPPORTED"
+    assert r.open_question and "9.75" in r.open_question
+
+
+def test_a_hedged_quote_still_opens_a_question_even_if_numbers_match():
+    """A reviewer who quoted accurately from an UNCERTAIN paragraph has found
+    a real gap. Corroboration must not reach that branch and close it: the
+    numbers in the claim are printed two lines above, in LITERAL."""
+    r = rec(claim="The multiplier is gated at 2.5 when usefulness is 0.",
+            quote="What switches the multiplier is not stated")
+    verify_evidence([r], GRADED_PAPER)
+    assert r.verdict == "UNSUPPORTED"
+    assert r.tier == pm.UNCERTAIN
+    assert r.open_question
+
+
+def test_a_reviewer_authored_open_question_is_never_discarded():
+    r = rec(claim="The default multiplier is 2.5.",
+            quote="fabricated",
+            open_question="Does the multiplier apply per bank or once?")
+    verify_evidence([r], GRADED_PAPER)
+    assert r.open_question == "Does the multiplier apply per bank or once?"
+
+
+# --------------------------------------------- pruning the question list
+
+
+def _oq(spec, *questions):
+    spec["open_questions"] = list(questions)
+    return spec
+
+
+def test_a_question_quoting_a_value_the_spec_no_longer_holds_is_dropped(spec):
+    """Run 6 carried "the expected value 0xBEC" against a unit test that had
+    already been repaired to 0x0BDC. The repair landed and nobody withdrew
+    the question, which is how the list grows while the spec improves."""
+    spec["unit_tests"] = [{"name": "t", "given": "an INT register completes",
+                           "expect": "the digest is 0x0BDC"}]
+    _oq(spec, "[/unit_tests/0/expect] The expected value 0xBEC assumes the "
+              "overlapping XOR layout. Is it correct?")
+    assert spec_review.prune_open_questions(spec)["stale"] == 1
+    assert spec["open_questions"] == []
+
+
+def test_a_question_quoting_a_value_the_spec_still_holds_is_kept(spec):
+    spec["unit_tests"] = [{"name": "t", "given": "an INT register completes",
+                           "expect": "the digest is 0x0BDC"}]
+    _oq(spec, "[/unit_tests/0/expect] Does 0x0BDC assume the XOR layout?")
+    assert spec_review.prune_open_questions(spec)["stale"] == 0
+
+
+def test_a_short_hex_argument_is_not_a_citation(spec):
+    """One source note explains that "a 64-bit register yields a count of 64
+    for 0x0". Reading that as a quotation of the spec withdrew a hedge the
+    paper never resolved."""
+    _oq(spec, "A 64-bit register yields a count of 64 for 0x0, which needs "
+              "seven bits. Saturate or mask?")
+    assert spec_review.prune_open_questions(spec)["stale"] == 0
+
+
+def test_a_question_contradicting_a_declared_default_is_dropped(spec):
+    """Run 6's OQ6 said the defaults set wt0_entries to 128. They were 512,
+    matching the figure -- the discrepancy had been repaired and the
+    question was not withdrawn."""
+    spec["parameters"] = [{"name": "wt0_entries", "type": "int",
+                           "default": 512, "range": "[64, 1024] pow2",
+                           "storage_impact": "scales WT0"}]
+    _oq(spec, "WT sizes: Figure 5(c) says 512 for WT0, but the parameter "
+              "defaults set wt0_entries to 128.")
+    out = spec_review.prune_open_questions(spec)
+    assert out["stale"] == 1 and spec["open_questions"] == []
+
+
+def test_the_same_question_at_two_pointers_becomes_one(spec):
+    """`_append_open_question` dedups within a pointer only, so one
+    ambiguity raised against two algorithms survives as two entries."""
+    _oq(spec,
+        "[/algorithms/0/pseudocode] How is the PC skewed for UT indexing?",
+        "[/algorithms/1/pseudocode] How is the PC skewed for UT indexing?")
+    out = spec_review.prune_open_questions(spec)
+    assert out["merged"] == 1 and len(spec["open_questions"]) == 1
+    # Both places it was raised survive on the entry that remains.
+    kept = spec["open_questions"][0]
+    assert kept.startswith("[/algorithms/0/pseudocode]")
+    assert "/algorithms/1/pseudocode" in kept
+
+
+def test_two_questions_about_one_subject_collapse_onto_the_fuller_one(spec):
+    """Rare-word overlap, not prose overlap. The head is the longest member
+    because a carried source note states the ambiguity, quotes the paper and
+    records the duty not to resolve it; the re-ask states only the
+    ambiguity."""
+    _oq(spec,
+        "U5: How is FP format classified? Assumed all treated as FP64.",
+        "[/algorithms/0/pseudocode] How is the floating-point format "
+        "classified dynamically? By treating all as FP64, using NaN boxing, "
+        "or relying on an external opcode width?")
+    spec_review.prune_open_questions(spec)
+    assert len(spec["open_questions"]) == 1
+    assert "NaN boxing" in spec["open_questions"][0]
+
+
+def test_two_questions_on_different_subjects_both_survive(spec):
+    """The bar is set for precision. A surviving duplicate costs a reviewer
+    a second read; a wrongly merged pair loses a question for good."""
+    _oq(spec,
+        "[/algorithms/1/pseudocode] How should the usefulness table entries "
+        "be updated?",
+        "[/host_interfaces/0] The paper defers recovery, stating that "
+        "recovering the Tomasulo-like table may present some challenges. "
+        "Should a squash use the ROB index for precise invalidation, flush "
+        "all uncommitted entries, or take no action?")
+    spec_review.prune_open_questions(spec)
+    assert len(spec["open_questions"]) == 2
+
+
+def test_this_loops_own_boilerplate_does_not_make_questions_look_alike(spec):
+    """Every carried source note shares thirty words of template. Unstripped,
+    that dominates any word overlap and merges unrelated hedges -- in run 6
+    it pulled four distinct source notes into one cluster."""
+    duty = ("the input marks this UNCERTAIN, so it must not be resolved by "
+            "assumption: ")
+    _oq(spec,
+        f"[source U3: Figure 6 (a)] {duty}The victim tag field is drawn "
+        f"twelve bits wide, but the address range printed beside it needs "
+        f"thirteen.",
+        f"[source U5: Figure 6 (b)] {duty}What the decay counter is seeded "
+        f"to at allocation is unstated; the window, the window minus one "
+        f"and zero are all consistent with the figure.")
+    spec_review.prune_open_questions(spec)
+    assert len(spec["open_questions"]) == 2
+
+
+def test_a_carried_note_the_spec_draws_nothing_from_is_dropped(spec):
+    """`carry_source_notes` decides relevance by citation, and a section is
+    coarse: one quote out of Section 6 inherits every hedge in it. Run 7
+    shipped Figure 7's note -- no per-feature MPKI delta can be read off a
+    stacked bar chart -- into a spec that never reads that chart."""
+    _oq(spec,
+        "[source I5: Figure 7] the input marks this INFERRED -- a reading of "
+        "the figure's layout that the paper never states: No per-feature MPKI "
+        "delta can be read off this chart to better than the gridline "
+        "spacing; the bars are stacked and unlabelled.")
+    report = spec_review.prune_open_questions(spec)
+    assert report["stale"] == 1 and spec["open_questions"] == []
+
+
+def test_a_carried_note_the_spec_does_draw_on_survives(spec):
+    """The same shape, about something this spec is made of."""
+    _oq(spec,
+        "[source U3: Figure 6 (a)] the input marks this UNCERTAIN, so it must "
+        "not be resolved by assumption: What the decay counter is seeded to "
+        "at allocation is unstated; the decay window, the window minus one "
+        "and zero are all consistent with the victim tag figure.")
+    spec_review.prune_open_questions(spec)
+    assert len(spec["open_questions"]) == 1
+
+
+def test_an_off_topic_question_that_is_not_a_carried_note_survives(spec):
+    """A reviewer-written question is *supposed* to name things the spec does
+    not contain -- that is what a gap is. Applying the relevance rule to one
+    would delete the list."""
+    _oq(spec,
+        "[/algorithms/0/pseudocode] No per-feature MPKI delta can be read off "
+        "the stacked bar chart; what should the gridline spacing imply?")
+    spec_review.prune_open_questions(spec)
+    assert len(spec["open_questions"]) == 1
+
+
+# The weighted clustering rule scores a word by how rare it is across the
+# whole list, so it says nothing about a list of two -- there, every shared
+# word has frequency 2 of 2 and weighs zero. It was calibrated on a list of
+# thirty-five and needs one to be exercised at all, so these tests carry
+# filler: eighteen invented questions on eighteen distinct subjects, none
+# of which is a carried source note and none of which quotes a value.
+_FILLER = [
+    "[/algorithms/0/pseudocode] Is the victim tag read before or after the "
+    "allocation check?",
+    "[/algorithms/1/pseudocode] Should decay run on a stall cycle?",
+    "[/state/0/indexing] Which address bits index the table, and is the "
+    "index folded?",
+    "[/state/0/entry_format] Are the stored tags truncated or hashed?",
+    "[/state/1/organization] How many shadow counters does each bank own?",
+    "[/host_interfaces/0] What signals eviction to the predictor?",
+    "[/resource_accounting/total_storage_bits] Does the total include the "
+    "allocation queue?",
+    "[/unit_tests/0/given] Should the fill be warm or cold?",
+    "[/summary] Does this feature interact with prefetch?",
+    "[/algorithms/0/trigger] Is lookup driven by fetch or by rename?",
+    "[/state/0/size_bits] Is the valid flag counted separately?",
+    "[/algorithms/1/notes] What happens on a counter underflow?",
+    "[/host_interfaces/0/need] Is the evicted way reported alongside?",
+    "[/unit_tests/0/expect] Should a miss return a sentinel or nothing?",
+    "[/parameters/0/range] May the window exceed the counter span?",
+    "[/algorithms/0/notes] Is a partial match ever accepted?",
+    "[/state/1/indexing] Does the bank come from the set or the way?",
+    "[/source/inputs_used] Were any figures beyond the first consulted?",
+]
+
+
+def _pruned(spec, *questions):
+    """Prune `questions` in a list long enough for the rule to mean
+    something, and return the ones under test that survived."""
+    _oq(spec, *(_FILLER + list(questions)))
+    spec_review.prune_open_questions(spec)
+    kept = spec["open_questions"]
+    return [q for q in kept if q not in _FILLER]
+
+
+def test_one_question_asked_four_ways_collapses_to_one(spec):
+    """The rare-word rule has a blind spot that grows with the thing it is
+    looking for: run 7 asked the usefulness threshold four times, which put
+    "usefulness" at eight occurrences against a cutoff of four, and the four
+    entries did not cluster at all."""
+    kept = _pruned(
+        spec,
+        "[/algorithms/0/pseudocode] Does the usefulness gate open at >= 0 "
+        "or > 0?",
+        "[/parameters/15/default] What is the exact usefulness threshold "
+        "value?",
+        "[/algorithms/0] What is the minimum usefulness threshold required "
+        "to activate the x2.5 multiplier?",
+        "[/parameters/22/default] The paper does not specify the exact "
+        "threshold for the usefulness gate on the multiplier. The gate could "
+        "open for usefulness at or above zero, or strictly above it.")
+    assert len(kept) == 1
+
+
+def test_a_short_pair_sharing_two_words_still_collapses(spec):
+    """The theta pair missed for the opposite reason to the one above: both
+    questions are short, so their two genuinely shared words could never
+    reach a floor of three."""
+    kept = _pruned(
+        spec,
+        "[/parameters/16] The paper budgets storage for dynamic update "
+        "thresholds but does not state the initial or default value for "
+        "theta. What should the default be?",
+        "[/parameters/16/default] What is the correct default value for the "
+        "theta parameter?")
+    assert len(kept) == 1
+
+
+def test_two_questions_sharing_only_their_framing_stay_apart(spec):
+    """"The paper does not specify the exact ..." is how half a question
+    list opens, and it is four words about how a question is phrased and
+    none about its subject. Unfiltered it linked an ROB-size question to a
+    usefulness-gate one at run 7 -- the closest false pair to the bar."""
+    kept = _pruned(
+        spec,
+        "[/parameters/0/default] The paper does not specify the exact "
+        "maximum number of in-flight branches the structures must hold.",
+        "[/state/1/entry_format] The paper does not specify the exact "
+        "saturation point of the decay counter.")
+    assert len(kept) == 2
+
+
+def test_the_stopword_list_is_matched_against_stems(spec):
+    """The list is written as words and subtracted from stems -- the same
+    mismatch `_GENERIC_STEMS` fixed for `GENERIC_TOKENS`. `stem("does")` is
+    "doe" and leaked through as a content word."""
+    from spec_checks import stem
+
+    assert stem("does") in spec_review._QUESTION_STOPWORD_STEMS
+    assert stem("using") in spec_review._QUESTION_STOPWORD_STEMS
+    assert stem("paper") in spec_review._QUESTION_STOPWORD_STEMS
+
+
+def test_pruning_a_spec_with_no_questions_is_a_no_op(spec):
+    spec.pop("open_questions", None)
+    assert spec_review.prune_open_questions(spec)["after"] == 0

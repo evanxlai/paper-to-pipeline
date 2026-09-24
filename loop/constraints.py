@@ -425,6 +425,38 @@ def check_measured(aggregate: dict, constraints: list[Constraint]) -> list[str]:
 # ------------------------------------------------------------------ preflight
 
 
+def is_pinned(knob: Knob) -> bool:
+    """Does `knob`'s range admit exactly one legal value?
+
+    A structural constant is not a broken knob. sR's register file is 65
+    entries and its figure draws eight banks, so `num_logical_registers` has
+    range `[65, 65]` and `num_banks` has `[8, 8]`, and both are honest. The
+    alternative -- moving them out of `parameters` -- would leave three
+    `size_formula` strings referencing a name nothing declares.
+
+    Declaring them tells the integrator both the value *and* that it is not
+    free, which is more than burying either in prose. So stage 4's preflight
+    reports them as `pinned` and does not warn: there is no second value to
+    build, and nothing is wrong. `_check_pinned_defaults` in `spec_checks`
+    owns the other half, that the default is the value the range pins.
+
+    Distinguished from the other reasons `alternate_value` returns None --
+    an unparsable range, a non-numeric default -- which stay warnings,
+    because those are knobs the DSE cannot search *and* nobody declared so.
+    """
+    from spec_checks import parse_range
+
+    if knob.type == "bool":
+        return False  # a flag always has a second value
+    parsed = parse_range(knob.range)
+    if parsed is None:
+        return False
+    if parsed[0] == "choices":
+        return len(parsed[1]) == 1
+    _, lo, hi, _mods = parsed
+    return lo == hi
+
+
 def alternate_value(knob: Knob):
     """A second legal value for `knob`, preferring the smaller direction.
 

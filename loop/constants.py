@@ -203,6 +203,18 @@ BUDGET_TRACKS_BITS = {
     "iso-64KiB": 64 * 1024 * 8,
 }
 
+# What ONE feature may spend inside a track, when we are prepared to commit
+# to a number. A track is the whole predictor, so checking a single feature
+# against it answers a question nobody asked: run 6's sR came in at 87655
+# bits, well inside the 1572864-bit track, and 1.63x over the 53863 bits the
+# paper itself allots the feature. Left unset, `spec_checks` reads the
+# feature's allowance out of the spec's own resource_accounting and reports
+# an overrun as a warning instead of failing the gate closed.
+FEATURE_BUDGET_BITS = (
+    int(os.environ["P2P_FEATURE_BUDGET_BITS"])
+    if os.environ.get("P2P_FEATURE_BUDGET_BITS") else None
+)
+
 # ---------------------------------------------------------------- llm
 LLM_BACKEND = os.environ.get("P2P_LLM_BACKEND", "antigravity")  # claude|antigravity|opencode
 # Gemini per the proposal budget; agy effort tier rides on the model id
@@ -304,7 +316,7 @@ NUM_INTEGRATION_ATTEMPTS = int(os.environ.get("P2P_INTEGRATION_ATTEMPTS", "6"))
 # the integration agents. Off-switchable so ablation 2 can measure what the
 # stage is worth (distill-only vs distill+review, same yardstick).
 SPEC_REVIEW = os.environ.get("P2P_SPEC_REVIEW", "1") == "1"
-REVIEW_ROUNDS = int(os.environ.get("P2P_REVIEW_ROUNDS", "2"))
+REVIEW_ROUNDS = int(os.environ.get("P2P_REVIEW_ROUNDS", "3"))
 # One reviewer per spec unit; merge the smallest units past this many, so a
 # spec with a long algorithm list cannot fan out without bound.
 REVIEW_MAX_UNITS = int(os.environ.get("P2P_REVIEW_MAX_UNITS", "5"))

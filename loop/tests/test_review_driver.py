@@ -7,6 +7,7 @@ and collection, evidence checking, patch merging, the regression gate and the
 accept/reject decision -- without a cluster.
 """
 
+import copy
 import json
 import re
 import sys
@@ -100,6 +101,22 @@ def test_driver_terminates_when_no_reviewer_patches(monkeypatch, dump, spec):
     assert summary["rounds"][0]["accepted"]
 
 
+def test_the_feature_budget_reaches_the_rounds(monkeypatch, dump, spec):
+    """A feature budget the reviewers never see is one the gate can only
+    refuse the spec over, with no round left in which to repair it. Before
+    this, only the final gate in `adopt_a_paper_loop` was passed the
+    figure, so every round scored the spec against the whole track."""
+    install_stub_llm(monkeypatch, {})
+    monkeypatch.setattr(C, "REVIEW_ROUNDS", 1)
+
+    _, loose = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
+    assert loose["rounds"][0]["checks_before"]["error"] == 0
+
+    _, tight = spec_review.review_spec(
+        dump, spec, PAPER, 1 << 20, feature_budget_bits=1000)
+    assert tight["rounds"][0]["checks_before"]["error"] == 1
+
+
 def test_driver_applies_an_evidenced_patch(monkeypatch, dump, spec):
     reply = record(
         pointer="/state/0/size_bits", verdict="CONTRADICTED",
@@ -144,17 +161,24 @@ def test_driver_refuses_an_evidenced_patch_that_guts_a_field(monkeypatch, dump, 
     out, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
     assert out["algorithms"][0]["pseudocode"] == spec["algorithms"][0]["pseudocode"]
     assert summary["rounds"][0]["accepted"]
-    assert any("shorten" in q for q in out["open_questions"])
+    # Escalated as a question about the field, tagged with it. "Reviewer
+    # wanted to shorten /x" was the loop's own bookkeeping, and untagged it
+    # was invisible to the pointer-scoped dedup as well.
+    escalated = [q for q in out["open_questions"] if "rule is wrong" in q]
+    assert escalated and escalated[0].startswith("[/algorithms/0/pseudocode]")
 
 
 def test_driver_rolls_back_collateral_loss_inside_a_rewritten_object(
-    monkeypatch, dump, spec
+    monkeypatch, dump, spec, tmp_path
 ):
     """Rewriting a whole element must not launder a dropped field.
 
     The patch replaces /algorithms/0 wholesale and silently omits `notes`.
     The patch justifies its own pointer but not the key lost beneath it, so
-    the round is rejected and the spec rolls back.
+    it is dropped -- and only it. The round is no longer rejected over one
+    attributable loss: blaming the round discarded every correct patch beside
+    the offender and ended the stage, which is how a run once shipped with an
+    unresolved `missing_recovery_algorithm` the reviewer had already fixed.
     """
     spec["algorithms"][0]["notes"] = "saturating counter; ties break toward LRU"
     reply = json.dumps({"records": [
@@ -167,10 +191,16 @@ def test_driver_rolls_back_collateral_loss_inside_a_rewritten_object(
     ]})
     install_stub_llm(monkeypatch, {"algo:predict": reply})
     monkeypatch.setattr(C, "REVIEW_ROUNDS", 2)
+    before = copy.deepcopy(spec)
     out, summary = spec_review.review_spec(dump, spec, PAPER, 1 << 20)
-    assert out == spec                                   # rolled back
-    assert summary["rounds"][0]["accepted"] is False
-    assert "regression" in summary["rounds"][0]["reject_reason"]
+    # The loss never lands: the only patch in the round was the offender.
+    assert out["algorithms"][0] == before["algorithms"][0]
+    assert summary["rounds"][0]["accepted"] is True
+    assert summary["rounds"][0]["patches_landed"] == 0
+    log = json.loads(next(tmp_path.glob("*review_round0.json")).read_text())
+    assert log["regressions"] == []
+    assert any("no patch this round claimed" in r["reason"]
+               for r in log["rejections"])
 
 
 def test_driver_survives_one_dead_reviewer(monkeypatch, dump, spec):

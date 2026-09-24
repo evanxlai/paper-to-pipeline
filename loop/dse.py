@@ -279,6 +279,8 @@ def preflight(build, spec: dict, port_plan: dict, header: str) -> dict:
     bytes; this kit's builds do (checked by hand, 2026-09-22). Then each knob
     is built once at a second legal value, with every other knob at its
     default. Same bytes as the default build means nothing reads the macro.
+    A knob whose range admits exactly one value is reported `pinned` and
+    skipped -- there is no second value to build, and the spec said so.
 
     `blocking` lists the inert knobs that cost storage. The stage stops on
     any of them: the evaluator would credit a candidate for bits it did not
@@ -316,8 +318,15 @@ def preflight(build, spec: dict, port_plan: dict, header: str) -> dict:
         entry = {"macro": knob.macro, "origin": knob.origin, "default": knob.default,
                  "tested": value, "costs_storage": knob.macro in costed}
         if value is None:
-            entry["result"] = "no second legal value"
-            report["warnings"].append(f"{knob.macro}: no second legal value to test")
+            # A range that admits exactly one value is a declaration, not a
+            # defect: the knob is pinned by the paper's structure, and saying
+            # so in `parameters` tells the integrator the value and that it
+            # is not free. Nothing to build, nothing to warn about.
+            if K.is_pinned(knob):
+                entry["result"] = "pinned"
+            else:
+                entry["result"] = "no second legal value"
+                report["warnings"].append(f"{knob.macro}: no second legal value to test")
             report["knobs"].append(entry)
             continue
         feature = {k.name: k.default for k in K.feature_knobs(spec)}

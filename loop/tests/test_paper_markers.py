@@ -234,3 +234,79 @@ def test_the_adopted_paper_text_is_graded():
            if n.tier == pm.INFERRED and "INT registers" in n.where]
     assert xor, "Figure 6(a) carries no INFERRED note"
     assert any("xor" in n.text.lower() for n in xor)
+
+
+# ------------------------------- corroborating a claim the citation missed
+
+
+def test_numbers_ignores_digits_that_belong_to_an_identifier():
+    """`UT0` and `FP16` are names. Yielding their digits would let a claim
+    match almost any paragraph."""
+    assert pm._numbers("UT0 holds 8 entries") == {"8"}
+    assert pm._numbers("FP16 and R64 and h23") == set()
+
+
+def test_numbers_survives_a_sentence_final_period():
+    """Claims arrive as English sentences. Treating the closing period as
+    part of the number left every one of them with no numbers at all."""
+    assert pm._numbers("The default is 65.") == {"65"}
+
+
+def test_numbers_reads_a_decimal_glued_to_a_letter():
+    """This source prints multipliers as "x0 or x2.5". An integer-strength
+    rule finds no 2.5 anywhere in the paper."""
+    assert pm._numbers("the multiplier is x2.5") == {"2.5"}
+    assert pm._numbers("x1.19 then x1.29") == {"1.19", "1.29"}
+
+
+def test_a_literal_paragraph_corroborates_a_value_it_prints():
+    """The defect this exists for. A reviewer paraphrases instead of copying,
+    the quote is correctly rejected, and the claim is then written into
+    open_questions as unsettled -- asking what the tag width is, next to the
+    figure that prints it."""
+    ann = pm.annotate(SOURCE)
+    span = ann.corroborates("The tag field is 4 bits wide.")
+    assert span is not None and span.tier == pm.LITERAL
+
+
+def test_crosscheck_arithmetic_corroborates():
+    """Recomputed arithmetic settles a claim as well as a printed value --
+    it is where this source states most of its storage totals, so excluding
+    it would leave the majority of value claims uncorroborated."""
+    ann = pm.annotate(SOURCE)
+    span = ann.corroborates("The width matches the column in Table 9.")
+    assert span is not None and span.tier == pm.CROSSCHECK
+
+
+def test_a_number_sharing_no_word_with_the_claim_is_coincidence():
+    """8 occurs in this source many times over. Without a shared word it
+    establishes nothing -- the live case was "the maximum number of in-flight
+    branches is 256", where 256 is elsewhere a component's table depth."""
+    ann = pm.annotate(SOURCE)
+    assert ann.corroborates("The replacement queue holds 8 victims.") is None
+
+
+def test_a_claim_with_no_numbers_is_not_eligible():
+    """Prose can be argued either way, and a paraphrase match would let weak
+    citations through alongside mis-copied ones."""
+    ann = pm.annotate(SOURCE)
+    assert ann.corroborates("The field is a concatenation, not an XOR.") is None
+
+
+def test_a_hedged_paragraph_cannot_corroborate():
+    """The whole point of the tiers. A value only an UNCERTAIN paragraph
+    names is not a value the source states."""
+    ann = pm.annotate(
+        "[Figure 1: a thing.\n\n"
+        "LITERAL\n    The table has 16 entries.\n\n"
+        "UNCERTAIN\n    The victim queue may hold 37 entries; unstated.\n]\n"
+    )
+    assert ann.corroborates("The table has 16 entries.") is not None
+    assert ann.corroborates("The victim queue holds 37 entries.") is None
+
+
+def test_an_unannotated_source_corroborates_nothing():
+    """A paper with no transcription blocks has no authoritative spans, so
+    the gate stays shut and every demotion behaves as it did before."""
+    ann = pm.annotate("The table holds 16 entries, plainly stated in prose.")
+    assert ann.corroborates("The table holds 16 entries.") is None

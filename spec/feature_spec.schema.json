@@ -4,6 +4,8 @@
   "title": "FeatureSpec",
   "description": "Structured spec of a paper's design feature, emitted by the distiller node. Downstream integration agents implement against this document, so it must be complete enough to implement without the paper.",
   "type": "object",
+  "$comment": "The distiller is handed this schema inline, and twelve of sixteen runs copied $schema/$id/title/description/type straight out of it into the instance. Refusing unknown keys here is what stops the schema from being echoed back as data.",
+  "additionalProperties": false,
   "required": [
     "feature_name",
     "source",

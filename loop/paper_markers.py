@@ -66,6 +66,9 @@ UNCERTAIN = "uncertain"
 # Only these two cannot settle a claim about what the paper says. Both also
 # raise a note: see the module docstring on why INFERRED needs one.
 HEDGED_TIERS = (INFERRED, UNCERTAIN)
+# The mirror set: paragraphs the source does assert. A value printed in one of
+# these is the paper's own, whatever a reviewer managed to quote for it.
+AUTHORITATIVE_TIERS = (LITERAL, CROSSCHECK)
 
 _NOTE_PREFIX = {UNCERTAIN: "U", INFERRED: "I"}
 # How a note is referred to once it has left this module -- in a reviewer's
@@ -93,6 +96,46 @@ _MARKER_RE = re.compile(
 _LEADING_MARKER_RE = re.compile(
     r"^(?:LITERAL|CROSS-CHECK|INFERRED|UNCERTAIN)\b\s*[-.:]?\s*"
 )
+
+# Numbers as a claim spells them, for `corroborates`. The left lookbehind
+# excludes digits and letters, so "UT0" yields nothing. On the right, a
+# following "." is only disqualifying when a digit follows it -- otherwise
+# "...is 65." at the end of a sentence yields no numbers at all, and every
+# claim written as an English sentence became ineligible.
+#
+# Decimals and integers need different left-hand rules. An integer running on
+# from a letter is part of an identifier -- UT0, WT1, FP16, R64, h23 -- and
+# yielding its digits matches noise. A decimal never is, and this paper writes
+# every multiplier glued to an "x": the figure prints "x0 or x2.5", so an
+# integer-strength lookbehind finds no 2.5 anywhere and the one claim that
+# quotes it stays uncorroborated.
+_NUMERIC_RE = re.compile(
+    r"(?<![\d.])(\d+\.\d+)(?!\.?\d)(?!\w)"
+    r"|(?<![\w.])(\d+)(?!\.?\d)(?!\w)"
+)
+
+
+def _numbers(text: str) -> set[str]:
+    return {m.group(1) or m.group(2) for m in _NUMERIC_RE.finditer(text or "")}
+
+# Function words carry no evidence. Everything else a claim says -- including
+# the domain nouns `tokens()` treats as generic, like "register" and "table"
+# -- is what ties a number to the structure it belongs to.
+_STOPWORDS = frozenset((
+    "a", "an", "and", "are", "as", "at", "be", "by", "each", "for", "from",
+    "in", "is", "it", "its", "of", "on", "or", "per", "that", "the", "this",
+    "to", "with",
+))
+
+
+def _evidence_tokens(text: str) -> set[str]:
+    # spec_checks' stemmer, not a second one: a claim and a paragraph have to
+    # be reduced the same way for their overlap to mean anything, and two
+    # tokenizers that agree today drift. The dependency runs this way only --
+    # spec_checks imports nothing from here.
+    from spec_checks import tokens as _tokens
+    return {t for t in _tokens(text, drop_generic=False)
+            if t not in _STOPWORDS and not t.isdigit()}
 
 
 @dataclass(frozen=True)
@@ -166,6 +209,57 @@ class Annotation:
             return []
         return [n for n in self.notes
                 if n.block == span.block and n.section == span.section]
+
+    def text_of(self, span: Span) -> str:
+        return self._text[span.start:span.end]
+
+    def corroborates(self, claim: str) -> Span | None:
+        """A LITERAL or CROSS-CHECK paragraph printing every number in *claim*.
+
+        This exists to catch a reviewer failure, not a spec failure. A quote
+        that cannot be found in the source is rejected -- correctly, a bad
+        citation must never carry a patch -- and the claim it was offered for
+        is then written into `open_questions` as unsettled. That step is the
+        bug when the claim is one the source states outright: the sR spec
+        shipped six of them, asking what the multiplier is next to a figure
+        that prints "x0 or x2.5", and what UT0's depth is next to one that
+        prints "8 ent. UT0". Each reads as a gap in the paper. None is.
+
+        A single span has to print all of them, and has to share a word with
+        the claim besides. Numbers alone are not enough: "the maximum number
+        of in-flight branches is 256" is a value this paper never states, and
+        256 nonetheless appears in a LITERAL span as the sI component's UT
+        depth. The shared word is what ties a number to the structure it
+        belongs to, so that one is left standing as the open question it is.
+
+        Function words are excluded from that overlap and domain nouns are
+        not, which is the opposite of what `tokens()` does by default:
+        "register" and "table" are exactly the words that identify which
+        row of Table 3 a claim is about.
+
+        Known limitation: a claim whose only number is incidental to it can
+        still match -- "the digest is left-aligned in the 12-bit field"
+        shares both 12 and "digest" with the CROSS-CHECK that derives the
+        digest width, while the alignment itself is marked UNCERTAIN two
+        paragraphs above. That costs nothing here, because an UNCERTAIN point
+        the spec leans on is carried into open_questions by
+        `carry_source_notes` regardless of what any reviewer said about it.
+        """
+        wanted = _numbers(claim)
+        if not wanted:
+            return None
+        said = _evidence_tokens(claim)
+        if not said:
+            return None
+        for span in self.spans:
+            if span.tier not in AUTHORITATIVE_TIERS:
+                continue
+            body = self.text_of(span)
+            if not wanted <= _numbers(body):
+                continue
+            if said & _evidence_tokens(body):
+                return span
+        return None
 
     # -- rendering -------------------------------------------------------
 
