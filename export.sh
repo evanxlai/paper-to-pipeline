@@ -2,12 +2,12 @@
 # the shell that drives chia:  source export.sh
 # cluster/cluster.yaml substitutes these variables by name.
 
-# The GCP project that owns the cluster VMs, the trace bucket
-# (gs://a3-chia-hack26ath-7728-cbp2025) and the Vertex quota. It is also
-# gcloud's configured default here. The previous value in this file,
-# chia-hackathon-paper2pipeline, no longer resolves for this account --
-# `chia up` failed with a compute.instances.list permission error.
-export GCP_PROJECT=a3-chia-hack26ath-7728
+# The GCP project that owns the cluster VMs and the Vertex quota. It is also
+# gcloud's configured default here. The cluster ran on
+# a3-chia-hack26ath-7728 for a short while; that project, and the trace
+# bucket gs://a3-chia-hack26ath-7728-cbp2025 in it, are no longer the ones in
+# use. Workers fetch traces from Google Drive (cluster/cluster.yaml), not GCS.
+export GCP_PROJECT=chia-hackathon-paper2pipeline
 
 # The same project id under the name the LLM containers read: the opencode and
 # antigravity node types forward it into the container for Vertex.
@@ -15,7 +15,7 @@ export GOOGLE_CLOUD_PROJECT=$GCP_PROJECT
 
 export HEAD_IP=$(hostname -I | awk '{print $1}')
 export THIS_MACHINE=$(hostname -I | awk '{print $1}')
-export GCP_PRIVATE_KEY_PATH=/home/ragen/.ssh/id_ed25519
+export GCP_PRIVATE_KEY_PATH=/home/laievan/.ssh/id_rsa
 
 # TS_AUTHKEY is deliberately absent: the tailnet: block in cluster/cluster.yaml
 # is commented out, so nothing substitutes it. Add it here if that block is

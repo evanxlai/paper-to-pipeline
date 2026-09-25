@@ -350,6 +350,34 @@ def test_a_wrong_direction_blocks_even_though_the_metric_moved(tmp_path, _cc_ava
     verdict = run_gate_over((host, baseline))
     assert not verdict.passed
     assert any("does not beat the 0.0 floor" in r for r in verdict.reasons)
+    # The mechanism fired and did harm; telling the debug agent it is "not
+    # reaching the metric" sends it hunting for wiring that is fine.
+    assert any("moved the wrong way" in r for r in verdict.reasons)
+    assert not any("not reaching the metric" in r for r in verdict.reasons)
+
+
+def test_an_unmoved_metric_is_diagnosed_as_not_reaching_it(tmp_path, _cc_available):
+    verdict = run_gate_over(materialize(tmp_path, ported=False))
+    assert not verdict.passed
+    assert any("not reaching the metric" in r for r in verdict.reasons)
+    assert not any("wrong way" in r for r in verdict.reasons)
+
+
+def test_a_companion_regression_reads_as_a_trade_only_when_the_target_improved(
+        tmp_path, _cc_available):
+    host, baseline = materialize(tmp_path, ported=True)
+    companion = host.test_plan["performance"][0]["block_threshold"]["no_regression"][0]
+    companion["direction"] = "decrease"
+    verdict = run_gate_over((host, baseline))
+    assert any("is buying" in r for r in verdict.reasons)
+
+    host, baseline = materialize(tmp_path / "both", ported=True)
+    perf = host.test_plan["performance"][0]
+    perf["direction"] = "increase"  # the target now got worse too
+    perf["block_threshold"]["no_regression"][0]["direction"] = "decrease"
+    verdict = run_gate_over((host, baseline))
+    assert not any("is buying" in r for r in verdict.reasons)
+    assert any("a cost, not a trade" in r for r in verdict.reasons)
 
 
 def test_a_companion_metric_regression_blocks(tmp_path, _cc_available):

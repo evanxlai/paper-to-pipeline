@@ -465,11 +465,24 @@ def _run_performance(
     reasons = []
     # Strictly greater, per the schema: with a floor of 0.0 an exactly
     # unchanged metric is not evidence that the mechanism fired.
+    # The verdict is the same either way; the diagnosis is not. The debug
+    # agent reads this text, and on 2026-09-24 the gem5 port moved cond_mpki
+    # 7 to 8 percent the wrong way on two attempts while this line told it
+    # the mechanism was "not reaching the metric" -- a wiring hunt, when the
+    # mechanism was plainly firing and doing harm.
     if not out.relative_improvement > floor:
+        if out.relative_improvement < 0:
+            why = ("It moved the wrong way: the mechanism reaches the metric and "
+                   "makes it worse, so look at what it computes and trains, not "
+                   "at whether it is wired in.")
+        elif out.relative_improvement == 0:
+            why = "The mechanism is not reaching the metric."
+        else:
+            why = "It moved the right way, but not far enough."
         reasons.append(
             f"{metric} moved {out.relative_improvement:+.4f} relative "
             f"({out.baseline} -> {out.measured}, {direction} is better), which does not "
-            f"beat the {floor} floor. The mechanism is not reaching the metric."
+            f"beat the {floor} floor. {why}"
         )
     for companion in block.get("no_regression") or []:
         cname = companion["metric"]
@@ -482,11 +495,14 @@ def _run_performance(
         # Non-strict: max_relative_regression 0.0 means "must not get worse",
         # not "must get strictly better" -- it is a noise band, not a target.
         if -ri > companion["max_relative_regression"]:
+            # "Buying X with Y" is a trade, and only a trade when X improved.
+            trade = (f"The feature is buying {metric} with {cname}."
+                     if out.relative_improvement > 0 else
+                     f"{metric} got no better, so this is a cost, not a trade.")
             reasons.append(
                 f"{cname} regressed {-ri:+.4f} relative "
                 f"({base_metrics[cname]} -> {on.metrics[cname]}), beyond the "
-                f"{companion['max_relative_regression']} band. The feature is buying "
-                f"{metric} with {cname}."
+                f"{companion['max_relative_regression']} band. {trade}"
             )
     out.block_passed = not reasons
     out.reason = "; ".join(reasons)

@@ -110,6 +110,13 @@ CBP2025_PORT_FRESH = os.environ.get("P2P_CBP2025_PORT_FRESH", "1") == "1"
 CBP2025_DSE_ROOT = os.environ.get(
     "P2P_CBP2025_DSE_ROOT", str(_WORKER_HOME / f"cbp2025{_FEATURE_TREE_SUFFIX}_dse")
 )
+# Where G6 rebuilds the port once per knob. A copy for the same reason as
+# the DSE tree: each build overlays a varied sr_params.h, and the port tree
+# has to stay as the agent left it. Not the DSE tree itself, because a
+# stage-4 search can be running in that one while a stage-3 gate runs.
+CBP2025_REACH_ROOT = os.environ.get(
+    "P2P_CBP2025_REACH_ROOT", str(_WORKER_HOME / f"cbp2025{_FEATURE_TREE_SUFFIX}_reach")
+)
 
 # Ray resource tokens, matching cluster/cluster.yaml available_node_types.
 #
@@ -186,10 +193,11 @@ GEM5_PERF_LIST = REPO_ROOT / "experiments" / "gem5-perf.list"
 TRACE_DIR = os.environ.get("P2P_TRACE_DIR", str(_WORKER_HOME / "traces" / "cbp2025"))
 SCREENING_LIST = REPO_ROOT / "experiments" / "screening-60.list"
 FULL_LIST = REPO_ROOT / "experiments" / "training-105.list"
-# Stage 4's finalists are re-scored here rather than on FULL_LIST: 16 traces
-# the search never saw, about 30 minutes per candidate instead of 3.5 hours.
-# See its header for how the traces were chosen.
-PROMOTE_LIST = REPO_ROOT / "experiments" / "promote-16.list"
+# Stage 4's finalists are re-scored on the 45 training traces the search never
+# saw: FULL_LIST minus SCREENING_LIST. Screening plus promotion then covers all
+# 105, so the verdict is a baseline-vs-tuned comparison on the full training
+# set. promote-16.list is the older, cheaper subset of these.
+PROMOTE_LIST = REPO_ROOT / "experiments" / "promote-45.list"
 SMOKE_LIST = REPO_ROOT / "experiments" / "smoke-5.list"
 # The list the verify gate's performance entries are meant to use: big enough
 # to carry signal, small enough that six integration attempts do not spend an
@@ -378,16 +386,35 @@ DSE_BACKEND = os.environ.get("P2P_DSE_BACKEND", "adaevolve")  # adaevolve|alphae
 DSE_CONFIG = os.environ.get(
     "P2P_DSE_CONFIG", str(REPO_ROOT / "experiments" / "config_adaevolve.yaml")
 )
-DSE_MAX_ITERATIONS = int(os.environ.get("P2P_DSE_ITERATIONS", "250"))
+# Overrides the search config's max_iterations when set, so one config can run
+# a search of any length. Unset, the config's own value stands. It used to
+# default to 250 here and was read by nothing, so setting it changed nothing.
+DSE_MAX_ITERATIONS = (int(os.environ["P2P_DSE_ITERATIONS"])
+                      if os.environ.get("P2P_DSE_ITERATIONS") else None)
 DSE_SCREEN_METRIC = "brmispki_50perc_amean"
 # 3 finalists plus the default host and the port at the paper's defaults is
-# 5 runs of PROMOTE_LIST, about 2.5 hours on this cluster.
+# 5 runs of PROMOTE_LIST. On promote-16 and 4 trace slots that was about 2.5
+# hours; promote-45 on the scaled-out cluster has not been timed yet.
 DSE_PROMOTE_TOP_K = int(os.environ.get("P2P_DSE_TOP_K", "3"))
 # Stage 4 builds every knob once at a second value before searching, and stops
 # if a knob that costs storage turns out to be wired to nothing (loop/dse.py
 # `preflight`). About one build per knob, ~20 s each on the cluster. Turn it
 # off only to exercise the machinery; the storage figures are then unproven.
 DSE_PREFLIGHT = os.environ.get("P2P_DSE_PREFLIGHT", "1") == "1"
+# G6: the same check inside stage 3's gate, run once G1 to G5 hold, so an
+# unwired knob goes back to the integration agent instead of surfacing only
+# after stage 3 has passed. Measured 2026-09-24 at about 6.5 minutes for 40
+# knobs, on every attempt that gets that far. Turn it off only to exercise
+# the machinery.
+GATE_KNOB_REACH = os.environ.get("P2P_GATE_KNOB_REACH", "1") == "1"
+# Knob macros stage 4 holds at their defaults, comma-separated: an operator's
+# declaration that the port does not realize a knob, so the search may not
+# move it and the preflight does not build it. Its storage is still charged,
+# at the default, so no candidate is credited for bits it did not remove.
+# The summary records every pin. Empty by default: a pin is a known defect
+# in the port, written down, not a way past the preflight.
+DSE_PINNED = tuple(m.strip() for m in os.environ.get("P2P_DSE_PIN", "").split(",")
+                   if m.strip())
 
 RUNTIME_ENV = {
     "working_dir": str(REPO_ROOT),

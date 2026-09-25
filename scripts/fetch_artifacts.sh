@@ -54,7 +54,13 @@ test -f "$PDF" || curl -fL -o "$PDF" \
   "https://jsm.ece.wisc.edu/docs/albericio-micro2014.pdf"
 if [ ! -f "$TP/wormhole/wormhole.txt" ]; then
   if command -v pdftotext >/dev/null; then
-    pdftotext -layout "$PDF" "$TP/wormhole/wormhole.txt"
+    # Not -layout. The paper is two-column, and -layout keeps both columns
+    # side by side on each line, so every sentence the distiller reads is
+    # interleaved with the one beside it. It also pads the gutter with
+    # spaces: 164779 bytes against 57131 in reading order, and the larger
+    # file no longer fits in the one argv string agy takes its prompt as
+    # (128 KiB per argument), so --stage distill failed with E2BIG.
+    pdftotext "$PDF" "$TP/wormhole/wormhole.txt"
   else
     python3 - "$PDF" "$TP/wormhole/wormhole.txt" <<'PY'
 import sys

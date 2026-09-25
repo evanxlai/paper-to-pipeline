@@ -1,0 +1,325 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:allocate_tomasulo+algo:update_tomasulo+algo:decay_tomasulo+algo:recover_tomasulo",
+        "algo:compute_digest",
+        "algo:predict+algo:update",
+        "global"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 8,
+        "info": 5
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 7,
+        "info": 4
+      },
+      "inconsistent_patches": 0,
+      "hedged_evidence": 0,
+      "carried_source_notes": 2,
+      "verdicts": {
+        "SUPPORTED": 38,
+        "UNDERSPECIFIED": 9,
+        "CONTRADICTED": 5,
+        "UNSUPPORTED": 16,
+        "INCONSISTENT": 5
+      },
+      "accepted": true,
+      "reject_reason": null,
+      "patches_landed": 7,
+      "knobs_minted": 2,
+      "stop_reason": null,
+      "retry_of": null
+    },
+    {
+      "round": 1,
+      "units": [
+        "algo:allocate_tomasulo+algo:update_tomasulo+algo:decay_tomasulo+algo:recover_tomasulo",
+        "algo:compute_digest",
+        "algo:predict+algo:update",
+        "global",
+        "orphan"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 7,
+        "info": 4
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 7,
+        "info": 2
+      },
+      "inconsistent_patches": 0,
+      "hedged_evidence": 0,
+      "carried_source_notes": 3,
+      "verdicts": {
+        "SUPPORTED": 33,
+        "CONTRADICTED": 8,
+        "UNDERSPECIFIED": 6,
+        "UNSUPPORTED": 16
+      },
+      "accepted": true,
+      "reject_reason": null,
+      "patches_landed": 5,
+      "knobs_minted": 1,
+      "stop_reason": null,
+      "retry_of": null
+    },
+    {
+      "round": 2,
+      "units": [
+        "algo:allocate_tomasulo+algo:update_tomasulo+algo:decay_tomasulo+algo:recover_tomasulo",
+        "algo:compute_digest",
+        "algo:predict+algo:update",
+        "global",
+        "orphan"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 7,
+        "info": 2
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 7,
+        "info": 2
+      },
+      "inconsistent_patches": 0,
+      "hedged_evidence": 0,
+      "carried_source_notes": 0,
+      "verdicts": {
+        "SUPPORTED": 18,
+        "CONTRADICTED": 4,
+        "UNDERSPECIFIED": 6,
+        "UNSUPPORTED": 16,
+        "INCONSISTENT": 1
+      },
+      "accepted": true,
+      "reject_reason": null,
+      "patches_landed": 2,
+      "knobs_minted": 1,
+      "stop_reason": null,
+      "retry_of": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/resource_accounting/total_storage_bits",
+        "code": "feature_budget_fit",
+        "severity": "warn",
+        "message": "total_storage_bits 81639 is 53863 bits over the 27776 bits budgeted for this feature by the paper, as resource_accounting itself states. That is 2.94x the allowance, and the difference has to be taken from another structure on the chip. Either bring the feature back under the figure or name the donor and the size of the cut in budget_donors."
+      },
+      {
+        "pointer": "/parameters/10",
+        "code": "storage_param_unaccounted",
+        "severity": "warn",
+        "message": "'decay_threshold' says it changes storage ('No direct storage impact, assuming decay_ctr_bits is large enough.'), but no state[].size_formula reads it. Stage 4 would move this knob without its cost moving."
+      },
+      {
+        "pointer": "/parameters/10/default",
+        "code": "ambiguous_counter_span",
+        "severity": "warn",
+        "message": "default 256 is exactly 2^8, and storage_impact ties this knob to the 8-bit field 'decay_ctr' in /state/0/entry_format. That field can count 256 steps (255 down to 0) but cannot hold the value 256, so a reader cannot tell whether the span is 256 or 255. Say which: widen the field, or state that the counter is seeded at 256 - 1 and the span is 255."
+      },
+      {
+        "pointer": "/algorithms/6/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'amt(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/6/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'host_commit_outcome(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/6/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'host_was_bank_useful(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/unit_tests/1/expect",
+        "code": "vacuous_test",
+        "severity": "warn",
+        "message": "expectation leans on a hedge word ('correct') instead of naming the value. The gate cannot fail this test closed; state the expected result explicitly."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'compute_digest' reads 'type', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "cross_algorithm_local",
+        "severity": "warn",
+        "message": "'compute_digest' reads 'val', which is a plain local of update and not state the spec declares. By the time 'compute_digest' runs, that local holds whatever the last iteration of the other algorithm left in it, if anything. Either recompute it here or make it a declared, keyed carry."
+      }
+    ],
+    "errors": 0,
+    "open_questions": 25,
+    "questions_pruned": {
+      "before": 52,
+      "stale": 0,
+      "merged": 27,
+      "after": 25
+    },
+    "parameters": 19,
+    "complete": true,
+    "unreviewed_units": []
+  },
+  "source_ambiguities": [
+    {
+      "id": "I1",
+      "tier": "inferred",
+      "where": "Figure 1",
+      "text": "The figure is a diagnostic-tool screenshot used to motivate the analysis in Section 2.1; it carries no design parameters."
+    },
+    {
+      "id": "I2",
+      "tier": "inferred",
+      "where": "Figure 2",
+      "text": "The final merge is the decision logic detailed in Figure 5(d); the SC both consumes Table out (as the sG / sB inputs) and can override it."
+    },
+    {
+      "id": "I3",
+      "tier": "inferred",
+      "where": "Figure 3",
+      "text": "component-to-history mapping. The bracketed index ranges are GHR bit slices, so component hN uses a history of (high index + 1) bits: h1 -> GHR[5:0] -> 6 bits h2 -> GHR[13:0] -> 14 bits h3 -> GHR[23:0] -> 24 bits h4 -> GHR[35:0] -> 36 bits h5 -> GHR[49:0] -> 50 bits ... h23 -> GHR[4315:0] -> 4316 bits These are exactly the 23 non-zero history lengths listed in Figure 4, in order. Component count also matches: 4 low + 19 high = 23 tagged components, plus the Bimodal for history length 0."
+    },
+    {
+      "id": "I4",
+      "tier": "inferred",
+      "where": "Figure 3",
+      "text": "bank interleaving. Components do not own banks one-to-one: 4 components share 9 banks and 19 components share 25 banks. This is the \"nested large tables\" / bank-interleaving (\"BI\") property flagged in Table 1."
+    },
+    {
+      "id": "I5",
+      "tier": "inferred",
+      "where": "Figure 4",
+      "text": "how to read row 3. In the additive region the second difference is the increment of the additive step itself (+6 -> +8 -> ... -> +24, constant 2), i.e. a second-order arithmetic progression. In the geometric region the second difference is the increment of the RATIO (1.19 -> 1.29 -> 1.39 -> 1.49 -> 1.59 -> 1.69, constant 0.1); it is blank for the run of eight constant x1.19 steps because the ratio is not changing there."
+    },
+    {
+      "id": "I6",
+      "tier": "inferred",
+      "where": "Figure 4",
+      "text": "generator, additive region (verified exact). Lengths 0..150 are L(n+1) = L(n) + (6 + 2n) for n = 0..9. This reproduces 0, 6, 14, 24, 36, 50, 66, 84, 104, 126, 150 exactly."
+    },
+    {
+      "id": "U1",
+      "tier": "uncertain",
+      "where": "Figure 4",
+      "text": "generator, geometric region. The printed ratios are rounded to two decimal places and are NOT the generator: the ratios actually implied by row 1 are 1.1867, 1.1910, 1.1887, 1.1905, 1.1933, 1.1899, 1.1878, 1.1897 (printed as x1.19) and 1.2890, 1.3892, 1.4898, 1.5903, 1.6899 (printed as x1.29 .. x1.69). Iterating L(n+1) = round(L(n) * 1.19) from 150 drifts off the printed lengths within a few steps (it yields 358 -> 357, 426 -> 425, 776 -> 777, 4316 -> 4323), and so does iterating on an unrounded accumulator (4316 -> 4331). No simple closed form recovered from the figure reproduces row 1. CONSEQUENCE FOR IMPLEMENTERS: treat the 24 literal history lengths in row 1 as the authoritative data and hard-code them. Do not regenerate them from the first-difference row."
+    },
+    {
+      "id": "I7",
+      "tier": "inferred",
+      "where": "Figure 4",
+      "text": "The 24 lengths map one-to-one onto the 24 table predictors of Figure 3: length 0 is the Bimodal, lengths 6..4316 are components h1..h23."
+    },
+    {
+      "id": "I8",
+      "tier": "inferred",
+      "where": "Figure 5 (a) Bias Components",
+      "text": "The UT does not contribute to the sum; it gates the magnitude. When the component is judged useful its contribution is doubled, otherwise it passes through at x1. This is the standard TAGE-SC-L per-component usefulness scaling."
+    },
+    {
+      "id": "I9",
+      "tier": "inferred",
+      "where": "Figure 5 (b) History Components",
+      "text": "U is the UT entry count, M the \"useful\" multiplier, and N the index of the last weight table (so a component has WT0..WTN, i.e. N+1 tables). sI's M=3 is the \"greater weight to useful predictions in the sI component\" that Section 3.2 calls out; note sI also has a much larger UT (256 entries)."
+    },
+    {
+      "id": "I10",
+      "tier": "inferred",
+      "where": "Figure 5 (c) Proposed Register Components",
+      "text": "bank membership. Bank 0's register list \"R0, R8, R16, ... R64\" is a stride-8 sequence, i.e. bank i holds the logical registers r with r mod 8 == i. Bank 0 therefore holds 9 registers (R0..R64) and banks 1..7 hold 8 each, totalling 65 - matching the \"eight or nine logical registers\" of Section 4.2, the \"9x6bit\" UT entry annotation, and the factor 65 in Table 3."
+    },
+    {
+      "id": "I11",
+      "tier": "inferred",
+      "where": "Figure 5 (c) Proposed Register Components",
+      "text": "the multiplier is PER BANK, not global. The \"x0 or x2.5\" stage is drawn inside the bank 0 box, downstream of that bank's WT Sigma and upstream of the cross-bank Sigma. Structurally it occupies the same position as \"x1 or x2\" in panel (a) and \"x1 or xM\" in panel (b), both of which are explicitly driven by a \"Useful\" signal from the UT. Reading: each bank's contribution is scaled by 2.5 when that bank's usefulness is positive and suppressed entirely (x0) when it is not; the eight scaled per-bank contributions are then summed to give sR."
+    },
+    {
+      "id": "U2",
+      "tier": "uncertain",
+      "where": "Figure 5 (c) Proposed Register Components",
+      "text": "The figure does not label the wire that selects x0 vs x2.5. The panel (a)/(b) analogy and the \"largest / Most useful in this bank\" output make the bank's own usefulness value the natural driver, but this is not drawn explicitly. The alternative reading - a single global static scale of 2.5 - is not consistent with an \"x0\" option existing at all, but cannot be ruled out from the figure alone."
+    },
+    {
+      "id": "I12",
+      "tier": "inferred",
+      "where": "Figure 5 (d) Decision",
+      "text": "Columns are the confidence class of the TAGE table prediction; rows are the confidence class of the SC sum against threshold Th. A cell naming \"SC\" takes the SC prediction (sign of LSUM), \"Table Out\" takes the TAGE prediction, and \"Choose by Meta1/Meta2\" defers to a meta-predictor (the FirstH / SecondH counters of Table 3). Note the rows are cumulative bands: the |LSUM| > Th/2 row applies first, then |LSUM| > Th/4, then everything else."
+    },
+    {
+      "id": "I13",
+      "tier": "inferred",
+      "where": "Figure 6 (a) INT registers",
+      "text": "the three fields are XOR-folded, not concatenated. Three 6-bit fields would need 18 bits if concatenated, but the digest is 12 bits and the boxes are drawn overlapping with (+) between them. So: digest = (trailing_count & 0x3F) ^ ((leading_count & 0x3F) << 3) ^ ((value & 0x3F) << 6) Resulting overlap structure: digest[2:0] = trailing only digest[5:3] = trailing XOR leading digest[8:6] = leading XOR value digest[11:9] = value only"
+    },
+    {
+      "id": "U3",
+      "tier": "uncertain",
+      "where": "Figure 6 (a) INT registers",
+      "text": "count encoding. Each count field is 6 bits, but a 64-bit register can have 0..64 leading (or trailing) identical bits, which needs 7 bits. The figure does not say whether the count saturates at 63, is taken modulo 64, or counts bits matching the sign bit (which caps at 63 naturally). The prose \"the count of leading zeros (or ones)\" also does not say how the zero/one case is distinguished - whether one extra bit encodes which, or whether the count is simply of bits equal to the MSB (resp. LSB)."
+    },
+    {
+      "id": "I14",
+      "tier": "inferred",
+      "where": "Figure 6 (b) FP registers",
+      "text": "placement. Only the FP32 box carries explicit edge labels (8 and 3), giving digest[8:3] for a 6-bit source field. The three boxes are drawn right-aligned, so all three land with their LSB at digest bit 3, extending upward by their own width. Digest bits [2:0] are then unused for FP registers."
+    },
+    {
+      "id": "I15",
+      "tier": "inferred",
+      "where": "Figure 6 (b) FP registers",
+      "text": "semantics agree with the prose: in each IEEE-754 format the named slice is exactly the sign bit followed by the high-order exponent bits (8 of 11 for FP64, 5 of 8 for FP32, 2 of 5 for FP16)."
+    },
+    {
+      "id": "U4",
+      "tier": "uncertain",
+      "where": "Figure 6 (b) FP registers",
+      "text": "The right-alignment at bit 3 is read off the drawing, not stated. An alternative is that each format's field is right-aligned at bit 0. Also, the format-classification step (\"we inspect the most significant bits to classify the format\") is described only in prose; the figure does not show how the classification is performed, nor what happens for a value that is not a recognisable float."
+    },
+    {
+      "id": "I16",
+      "tier": "inferred",
+      "where": "Figure 6 (c) Flag register",
+      "text": "concatenation (replication), not XOR: there is no (+) symbol in this sub-figure and the boxes abut rather than overlap. digest = Value[3:0] replicated three times, filling all 12 bits. This matches the prose exactly."
+    },
+    {
+      "id": "I17",
+      "tier": "inferred",
+      "where": "Figure 7",
+      "text": "The per-category trace counts sum to the 105 CBP2025 training traces, so the figure enumerates the whole suite and gives its category composition."
+    },
+    {
+      "id": "I18",
+      "tier": "inferred",
+      "where": "Figure 7",
+      "text": "The paper gives no scalar for the sR contribution alone; it is only readable as a stack segment per trace. The strongest quantitative statement available is the prose one: sR is the largest and broadest contributor and improves every trace category."
+    },
+    {
+      "id": "I19",
+      "tier": "inferred",
+      "where": "Figure 8",
+      "text": "The asinh y-scale is used because the distribution spans four orders of magnitude and includes negative values. Consistent with the prose: 7 of 105 traces regress (the curve is below zero), median reduction 0.052 MPKI, first octile 0.323 MPKI."
+    }
+  ]
+}

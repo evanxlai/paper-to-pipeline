@@ -12,7 +12,9 @@ The deterministic gate rejected your integration. The gate output is below. Fix 
 2. A `G2` reason means the feature-off path is not the baseline. Look for state the enable knob does not isolate. Common causes: history updated outside the knob, tables allocated inside a shared structure, a changed seed, a changed order of existing updates.
 3. A `G3` reason names a test the plan declared. Fix the implementation. Do not weaken its pass condition. Do not change the string that condition matches. If the test's *command* is wrong about this tree, that is a plan defect, and the next section is how you fix it.
 4. A `G5` reason means the feature does not move the metric the paper's way. That is a wiring fault, not a tuning one. Either the mechanism is not reaching the prediction path, or it is not consulting the state the spec says it should. Do not respond by changing a parameter's default.
-5. Say nothing about storage budgets. Shrink nothing to make room. Resource constraints belong to the tuning stage alone, and no gate condition here weighs one.
+5. A `G6` reason names a macro whose value never reaches the binary: the port rebuilt with it changed is byte-identical. Find the symbol it should set, from the plan's `host_symbol` and `observed` line for a host knob, or the spec structure it sizes for a feature knob, and make that symbol take its value from the macro. Check that the file the symbol lives in includes `sr_params.h`. Keep the default: with every macro at its default the binary must not change, or G2 fails.
+6. Say nothing about storage budgets. Shrink nothing to make room. Resource constraints belong to the tuning stage alone, and no gate condition here weighs one.
+7. Before you end the turn, stop every process you started in a terminal of your own, an `http.server` included. One left running keeps the turn from returning, and the gate never sees your fix.
 
 Anything reported as recorded-not-blocking is not a failure and needs no fix.
 

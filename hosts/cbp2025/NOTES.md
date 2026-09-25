@@ -248,7 +248,7 @@ Before widening a range, read what else the define feeds. Three examples. The ba
 
 **How a host knob is wired.** Every one of these is a file-scope `#define`, and several size file-scope arrays such as `int8_t Bias[(1 << LOGBIAS)]`. So the wiring is textual: `#include "sr_params.h"` at the top of `cbp2016_tage_sc_l.h`, and `#define LOGG 10` becomes `#define LOGG HOST_LOGG`. `cond_branch_predictor_interface.cc` includes `cbp2016_tage_sc_l.h` before `my_cond_branch_predictor.h`, so the include has to be in `cbp2016_tage_sc_l.h` itself. With every macro at its default the binary is the baseline's, and G2 holds.
 
-**Stage 4 proves each knob is wired.** Two builds of the same tree give byte-identical `cbp` binaries on this kit, which was checked by hand. So before searching, stage 4 builds every knob once at a second legal value. It stops if a knob that costs storage produces the default binary, because the search would then credit storage the predictor never gave up.
+**The gate proves each knob is wired.** Two builds of the same tree give byte-identical `cbp` binaries on this kit, which was checked by hand. So G6 builds the port once per knob at a second legal value, in a copy of the port tree, and fails if a knob that costs storage produces the default binary, because stage 4 would then credit storage the predictor never gave up. Stage 4 repeats the check before searching.
 
 **The 64 KiB track has no room at the defaults.** 64 KiB is 524288 bits. The unmodified host alone is 524615 by its own accounting, 327 over, and sR at its paper defaults adds 53863. At that allowance the search starts infeasible and has to shrink something before any candidate scores.
 

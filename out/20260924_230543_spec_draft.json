@@ -1,0 +1,286 @@
+{
+  "feature_name": "sr",
+  "source": {
+    "paper_title": "RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables",
+    "inputs_used": "paper_only"
+  },
+  "summary": "Captures correlations between register values and branch directions by feeding digests of recently produced register values into the statistical corrector (SC). A Tomasulo-like table tracks valid register values, generating a 12-bit digest from integers or floats. At prediction time, for each of the 8 banks, the register with the highest usefulness score is chosen, and its digest is used to look up prediction weights which are summed into the overall SC prediction.",
+  "state": [
+    {
+      "name": "tomasulo_table",
+      "organization": "Flat table with one entry per logical register",
+      "entry_format": "valid (1 bit), payload (14 bits: holds ROB index when valid=0, or 12-bit digest when valid=1), decay_ctr (8 bits)",
+      "size_bits": 1495,
+      "size_formula": "num_logical_regs * (1 + 14 + decay_ctr_bits)",
+      "indexing": "logical register ID (0 to num_logical_regs-1)"
+    },
+    {
+      "name": "ut0",
+      "organization": "Usefulness weight table 0",
+      "entry_format": "Vector of num_logical_regs weights, each ut_weight_bits wide",
+      "size_bits": 3120,
+      "size_formula": "num_logical_regs * ut_weight_bits * ut0_entries",
+      "indexing": "hash of PC % ut0_entries"
+    },
+    {
+      "name": "ut1",
+      "organization": "Usefulness weight table 1",
+      "entry_format": "Vector of num_logical_regs weights, each ut_weight_bits wide",
+      "size_bits": 3120,
+      "size_formula": "num_logical_regs * ut_weight_bits * ut1_entries",
+      "indexing": "hash of PC % ut1_entries"
+    },
+    {
+      "name": "ut2",
+      "organization": "Usefulness weight table 2",
+      "entry_format": "Vector of num_logical_regs weights, each ut_weight_bits wide",
+      "size_bits": 3120,
+      "size_formula": "num_logical_regs * ut_weight_bits * ut2_entries",
+      "indexing": "hash of PC % ut2_entries"
+    },
+    {
+      "name": "wt0",
+      "organization": "Prediction weight table 0, split into num_banks",
+      "entry_format": "1 weight per entry, wt_weight_bits wide",
+      "size_bits": 24576,
+      "size_formula": "num_banks * wt_weight_bits * wt0_entries",
+      "indexing": "bank ID and hash0(PC, digest) % wt0_entries"
+    },
+    {
+      "name": "wt1",
+      "organization": "Prediction weight table 1, split into num_banks",
+      "entry_format": "1 weight per entry, wt_weight_bits wide",
+      "size_bits": 12288,
+      "size_formula": "num_banks * wt_weight_bits * wt1_entries",
+      "indexing": "bank ID and hash1(PC, digest) % wt1_entries"
+    },
+    {
+      "name": "wt2",
+      "organization": "Prediction weight table 2, split into num_banks",
+      "entry_format": "1 weight per entry, wt_weight_bits wide",
+      "size_bits": 6144,
+      "size_formula": "num_banks * wt_weight_bits * wt2_entries",
+      "indexing": "bank ID and hash2(PC, digest) % wt2_entries"
+    },
+    {
+      "name": "inflight_prediction_metadata",
+      "organization": "Queue storing metadata for each in-flight branch to be used at update time",
+      "entry_format": "available_mask (num_logical_regs bits), best_r_per_bank (num_banks * 7 bits), digest_per_bank (num_banks * 12 bits)",
+      "size_bits": 27776,
+      "size_formula": "num_inflight_branches * (num_logical_regs + num_banks * (7 + 12))",
+      "indexing": "Branch ID / ROB index"
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "allocate_tomasulo",
+      "trigger": "instruction decode",
+      "pseudocode": "if instruction_writes_register:\n  r = instruction.dest_logical_reg\n  tomasulo_table[r].valid = 0\n  tomasulo_table[r].payload = instruction.rob_index\n",
+      "notes": "Invalidates the register's digest and records the producer's ROB index."
+    },
+    {
+      "name": "compute_digest",
+      "trigger": "called by update_tomasulo",
+      "pseudocode": "if type == INT:\n  trail = trailing_count(val) % 64\n  lead = leading_count(val) % 64\n  v = val & 0x3F\n  return (trail ^ (lead << 3) ^ (v << 6)) & 0xFFF\nelif type == FP16:\n  return (((val >> 13) & 0x7) << 3) & 0xFFF\nelif type == FP32:\n  return (((val >> 26) & 0x3F) << 3) & 0xFFF\nelif type == FP64:\n  return (((val >> 55) & 0x1FF) << 3) & 0xFFF\nelif type == FLAG:\n  v = val & 0xF\n  return (v | (v << 4) | (v << 8)) & 0xFFF\nreturn 0",
+      "notes": "UNCERTAIN (U3/U4) resolved by: INT counts modulo 64 and zero/one is not distinguished; FP formats are right-aligned at bit 3."
+    },
+    {
+      "name": "update_tomasulo",
+      "trigger": "instruction complete",
+      "pseudocode": "if instruction_writes_register:\n  r = instruction.dest_logical_reg\n  rob = instruction.rob_index\n  if tomasulo_table[r].valid == 0 and tomasulo_table[r].payload == rob:\n    tomasulo_table[r].payload = compute_digest(instruction.value, instruction.type)\n    tomasulo_table[r].valid = 1\n    tomasulo_table[r].decay_ctr = decay_threshold & ((1 << decay_ctr_bits) - 1)",
+      "notes": "Writes the computed digest and sets the valid bit if the entry was waiting for this specific instruction."
+    },
+    {
+      "name": "decay_tomasulo",
+      "trigger": "instruction decode",
+      "pseudocode": "for r in 0 .. num_logical_regs - 1:\n  if tomasulo_table[r].valid == 1:\n    if tomasulo_table[r].decay_ctr > 0:\n      tomasulo_table[r].decay_ctr -= 1\n    if tomasulo_table[r].decay_ctr == 0:\n      tomasulo_table[r].valid = 0",
+      "notes": "Decays the validity of each digest. Triggered per decoded instruction. Threshold is 256."
+    },
+    {
+      "name": "recover_tomasulo",
+      "trigger": "branch squash",
+      "pseudocode": "for r in 0 .. num_logical_regs - 1:\n  if tomasulo_table[r].valid == 0:\n    # Assumed rollback strategy for flushed instructions based on ROB ID age\n    if is_younger(tomasulo_table[r].payload, squashed_branch.rob_index):\n      tomasulo_table[r].valid = 1\n      tomasulo_table[r].payload = 0\n      tomasulo_table[r].decay_ctr = 0",
+      "notes": "The paper leaves recovery as future work (Section 5). This is an assumed lightweight rollback that invalidates entries allocated by squashed instructions."
+    },
+    {
+      "name": "predict",
+      "trigger": "branch lookup",
+      "pseudocode": "sR = 0\nut_idx0 = hash(PC) % ut0_entries\nut_idx1 = hash(PC) % ut1_entries\nut_idx2 = hash(PC) % ut2_entries\nmetadata = new InflightMetadata()\nmetadata.available_mask = 0\nfor r in 0 .. num_logical_regs - 1:\n  if tomasulo_table[r].valid == 1:\n    metadata.available_mask |= (1 << r)\n\nfor b in 0 .. num_banks - 1:\n  max_u = -999999\n  best_r = -1\n  for r in 0 .. num_logical_regs - 1:\n    if (r % num_banks) == b and tomasulo_table[r].valid == 1:\n      u = ut0[ut_idx0][r] + ut1[ut_idx1][r] + ut2[ut_idx2][r]\n      if u > max_u:\n        max_u = u\n        best_r = r\n  \n  metadata.best_r_per_bank[b] = best_r\n  if best_r != -1:\n    digest = tomasulo_table[best_r].payload\n    metadata.digest_per_bank[b] = digest\n    h0 = hash0(PC, digest) % wt0_entries\n    h1 = hash1(PC, digest) % wt1_entries\n    h2 = hash2(PC, digest) % wt2_entries\n    wt_sum = wt0[b][h0] + wt1[b][h1] + wt2[b][h2]\n    if max_u > 0:\n      sR += wt_sum * multiplier_useful\n    else:\n      sR += wt_sum * multiplier_not_useful\n  else:\n    metadata.digest_per_bank[b] = 0\n\ninflight_prediction_metadata[branch_id % num_inflight_branches] = metadata\nreturn sR",
+      "notes": "Aggregates the usefulness of registers per bank, picks the most useful, looks up weights with its digest, and adds to sR."
+    },
+    {
+      "name": "update",
+      "trigger": "branch commit",
+      "pseudocode": "metadata = inflight_prediction_metadata[branch_id % num_inflight_branches]\nut_idx0 = hash(PC) % ut0_entries\nut_idx1 = hash(PC) % ut1_entries\nut_idx2 = hash(PC) % ut2_entries\n\nfor b in 0 .. num_banks - 1:\n  # Update Prediction Tables (WT)\n  best_r = metadata.best_r_per_bank[b]\n  if best_r != -1 and sc_update_needed:\n    digest = metadata.digest_per_bank[b]\n    h0 = hash0(PC, digest) % wt0_entries\n    h1 = hash1(PC, digest) % wt1_entries\n    h2 = hash2(PC, digest) % wt2_entries\n    if outcome == TAKEN:\n      wt0[b][h0] = saturate_add(wt0[b][h0], 1, wt_weight_bits)\n      wt1[b][h1] = saturate_add(wt1[b][h1], 1, wt_weight_bits)\n      wt2[b][h2] = saturate_add(wt2[b][h2], 1, wt_weight_bits)\n    else:\n      wt0[b][h0] = saturate_sub(wt0[b][h0], 1, wt_weight_bits)\n      wt1[b][h1] = saturate_sub(wt1[b][h1], 1, wt_weight_bits)\n      wt2[b][h2] = saturate_sub(wt2[b][h2], 1, wt_weight_bits)\n  \n  # Update Usefulness Tables (UT)\n  available_in_bank = []\n  for r in 0 .. num_logical_regs - 1:\n    if (r % num_banks) == b and (metadata.available_mask & (1 << r)):\n      available_in_bank.append(r)\n  \n  if len(available_in_bank) > 0 and sc_update_needed:\n    rand_r = random_choice(available_in_bank)\n    if was_bank_useful(b, outcome):\n      ut0[ut_idx0][rand_r] = saturate_add(ut0[ut_idx0][rand_r], 1, ut_weight_bits)\n      ut1[ut_idx1][rand_r] = saturate_add(ut1[ut_idx1][rand_r], 1, ut_weight_bits)\n      ut2[ut_idx2][rand_r] = saturate_add(ut2[ut_idx2][rand_r], 1, ut_weight_bits)\n    else:\n      ut0[ut_idx0][rand_r] = saturate_sub(ut0[ut_idx0][rand_r], 1, ut_weight_bits)\n      ut1[ut_idx1][rand_r] = saturate_sub(ut1[ut_idx1][rand_r], 1, ut_weight_bits)\n      ut2[ut_idx2][rand_r] = saturate_sub(ut2[ut_idx2][rand_r], 1, ut_weight_bits)",
+      "notes": "Selects a random available register in each bank to update its UT weights. Updates WT weights corresponding to the selected digest."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "architectural register values at fetch / decode",
+      "description": "Trigger on instruction decode with destination logical register and ROB index to allocate an entry in the Tomasulo-like table.",
+      "fallback": "If unavailable at decode, allocate at dispatch or skip allocating."
+    },
+    {
+      "need": "completed instruction values",
+      "description": "Trigger on instruction completion with the produced value, type (INT, FP16, etc.), and ROB index to compute the digest and mark the Tomasulo table entry valid.",
+      "fallback": "Extract values directly from the physical register file or completion bus if ROB is not tracked."
+    },
+    {
+      "need": "decode rate / count",
+      "description": "Trigger to decay the valid digests in the Tomasulo table per decoded instruction.",
+      "fallback": "Decay based on cycles or fetch packets instead of individual decoded instructions."
+    },
+    {
+      "need": "branch squash signal",
+      "description": "Trigger to roll back the Tomasulo table allocation for flushed instructions.",
+      "fallback": "Clear all valid=0 entries or flush the entire Tomasulo table."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 81639,
+    "storage_breakdown": "tomasulo_table: 1495 bits; ut0: 3120 bits; ut1: 3120 bits; ut2: 3120 bits; wt0: 24576 bits; wt1: 12288 bits; wt2: 6144 bits; inflight_prediction_metadata: 27776 bits.",
+    "logic_cost_notes": "The paper states sR costs 53,863 bits (Table 3). This spec is over budget by 27,776 bits because the paper does not account for the prediction-time metadata (available registers and chosen digests per bank) that must be held until update time. The spec provisions 128 entries for this.",
+    "budget_donors": "Large Bimodal predictor or TAGE high banks can be shrunk to pay for the feature."
+  },
+  "parameters": [
+    {
+      "name": "num_logical_regs",
+      "type": "int",
+      "default": 65,
+      "range": "[1, 256]",
+      "storage_impact": "Linear impact on tomasulo_table, ut0, ut1, ut2, and inflight_prediction_metadata."
+    },
+    {
+      "name": "num_banks",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 32]",
+      "storage_impact": "Linear impact on wt0, wt1, wt2, and inflight_prediction_metadata."
+    },
+    {
+      "name": "ut0_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 256] pow2",
+      "storage_impact": "Linear impact on ut0."
+    },
+    {
+      "name": "ut1_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 256] pow2",
+      "storage_impact": "Linear impact on ut1."
+    },
+    {
+      "name": "ut2_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 256] pow2",
+      "storage_impact": "Linear impact on ut2."
+    },
+    {
+      "name": "wt0_entries",
+      "type": "int",
+      "default": 512,
+      "range": "[1, 4096] pow2",
+      "storage_impact": "Linear impact on wt0."
+    },
+    {
+      "name": "wt1_entries",
+      "type": "int",
+      "default": 256,
+      "range": "[1, 4096] pow2",
+      "storage_impact": "Linear impact on wt1."
+    },
+    {
+      "name": "wt2_entries",
+      "type": "int",
+      "default": 128,
+      "range": "[1, 4096] pow2",
+      "storage_impact": "Linear impact on wt2."
+    },
+    {
+      "name": "ut_weight_bits",
+      "type": "int",
+      "default": 6,
+      "range": "[1, 16]",
+      "storage_impact": "Linear factor for ut0, ut1, ut2."
+    },
+    {
+      "name": "wt_weight_bits",
+      "type": "int",
+      "default": 6,
+      "range": "[1, 16]",
+      "storage_impact": "Linear factor for wt0, wt1, wt2."
+    },
+    {
+      "name": "decay_threshold",
+      "type": "int",
+      "default": 256,
+      "range": "[1, 1024]",
+      "storage_impact": "No direct storage impact, assuming decay_ctr_bits is large enough."
+    },
+    {
+      "name": "decay_ctr_bits",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 16]",
+      "storage_impact": "Linear impact on tomasulo_table."
+    },
+    {
+      "name": "num_inflight_branches",
+      "type": "int",
+      "default": 128,
+      "range": "[1, 1024]",
+      "storage_impact": "Linear impact on inflight_prediction_metadata."
+    },
+    {
+      "name": "multiplier_useful",
+      "type": "float",
+      "default": 2.5,
+      "range": "[0.0, 10.0]",
+      "storage_impact": "None"
+    },
+    {
+      "name": "multiplier_not_useful",
+      "type": "float",
+      "default": 0.0,
+      "range": "[0.0, 10.0]",
+      "storage_impact": "None"
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "decay_counter_expires",
+      "given": "A register is completed (update_tomasulo) setting its decay_ctr to decay_threshold. decay_tomasulo is triggered decay_threshold times.",
+      "expect": "The register's decay_ctr reaches 0, which causes its valid bit in tomasulo_table to be set to 0."
+    },
+    {
+      "name": "digest_computation_int",
+      "given": "update_tomasulo is called for an INT instruction with value 0x...0F, invoking compute_digest.",
+      "expect": "compute_digest computes the correct folded value and stores it in tomasulo_table."
+    },
+    {
+      "name": "predict_chooses_max_u",
+      "given": "predict is called with two registers valid in the same bank, having different weight sums in ut0, ut1, ut2.",
+      "expect": "predict selects the register with the higher usefulness, looks up weights in wt0, wt1, wt2 using its digest, stores choices in inflight_prediction_metadata, and adds the scaled sum to sR."
+    },
+    {
+      "name": "update_modifies_tables",
+      "given": "update is called after predict has populated inflight_prediction_metadata.",
+      "expect": "update reads the chosen digest to adjust wt0, wt1, wt2, and selects an available register from the mask to adjust ut0, ut1, ut2."
+    },
+    {
+      "name": "squash_recovery_clears_invalid_rob",
+      "given": "allocate_tomasulo is called for register R. recover_tomasulo is triggered for an older branch.",
+      "expect": "tomasulo_table[R].valid becomes 1 and its payload is cleared."
+    }
+  ],
+  "open_questions": [
+    "U2: The multiplier x0 or x2.5 is selected based on max_u > 0 (assumed), but the figure does not label the selection wire.",
+    "U3: Count encoding for INT trailing/leading zeroes is assumed modulo 64 and zero/one is not distinguished.",
+    "U4: FP digests are assumed right-aligned at bit 3.",
+    "Tomasulo recovery: The paper leaves this to future work. Assumed a lightweight invalidation of in-flight allocations based on ROB age."
+  ]
+}

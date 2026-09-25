@@ -611,6 +611,11 @@ class HostAdapter:
     # integrate() calls it once, before the agent's first turn. None means
     # the host has no such check.
     preflight: Optional[Callable[[dict, dict], None]] = None
+    # (spec, port_plan) -> dse.preflight report, measured on the port as it
+    # stands. integrate() hands it to gate.check_knob_reach as G6, once G1 to
+    # G5 hold. None means the host has no G6, which is true of every host
+    # stage 4 cannot search: there is no params header to prove.
+    knob_reach: Optional[Callable[[dict, dict], dict]] = None
     # The agent's per-command shell limit, in seconds. `None` is
     # C.BASH_TOOL_TIMEOUT_S, which fits a CBP2025 build. A host whose build
     # does not fit it sets its own here (see HOST_SHELL_TIMEOUT_S).
@@ -648,6 +653,7 @@ def default_adapter(host: str, baseline_key: str,
             baseline=lambda: helpers.load_baseline(host, baseline_key),
             checks_root=checks_root(host),
             run_gate=cbp2025_adapter.run_gate,
+            knob_reach=cbp2025_adapter.knob_reach,
         )
     if host == "gem5":
         gem5_adapter = _gem5_adapter()
@@ -861,9 +867,19 @@ def integrate(
         for attempt in range(C.NUM_INTEGRATION_ATTEMPTS):
             attempts_used = attempt + 1
             g = adapter.run_gate(baseline, port_plan, test_plan)
+            # G6 last, and only on an attempt that passed the rest: it is a
+            # build per knob, and wiring a macro at its default cannot move
+            # G1 to G5, so an earlier attempt would pay for it and learn
+            # nothing the next one cannot.
+            reach = None
+            if g.passed and adapter.knob_reach is not None and C.GATE_KNOB_REACH:
+                reach = adapter.knob_reach(spec, port_plan)
+                g = gate.check_knob_reach(g, reach)
             dump.json(f"gate_{host}_{attempt}.json", {
                 "passed": g.passed, "reasons": g.reasons, "warnings": g.warnings,
                 "plan_revision": revision,
+                "measurements": getattr(g, "measurements", []),
+                "knob_reach": reach,
             })
             if g.passed:
                 status = "passed"
@@ -972,7 +988,8 @@ def main() -> None:
     # winner on four traces.
     ap.add_argument("--screening-list", default=str(C.SCREENING_LIST))
     # Which traces the promote stage scores stage 4's finalists on. The
-    # default is 16 training traces outside both screening lists.
+    # default is the 45 training traces outside the screening set, so screening
+    # plus promotion covers all 105.
     ap.add_argument("--promote-list", default=str(C.PROMOTE_LIST))
     # Where a promote stage finds its candidates when this job runs no dse:
     # a stage-4 summary.json, or an adaevolve output directory holding
@@ -1047,7 +1064,18 @@ def main() -> None:
             # re-plan that changed the design starts the next round from a
             # clean tree.
             def save_port(d, h=h):
-                diff = _port_diff(h)
+                # Evidence, not a verdict: failing to fetch the diff must not
+                # end a job whose gate has already passed. The tree is still
+                # on the worker, so record why and carry on.
+                try:
+                    diff = _port_diff(h)
+                except Exception as e:  # noqa: BLE001
+                    d.text(f"integrate_{h}_diff_unavailable.txt",
+                           f"{type(e).__name__}: {e}\nThe port tree is still on the "
+                           f"worker; fetch it with hosts/{h} port_diff().\n")
+                    print(f"[integrate] {h}: could not fetch the port diff: "
+                          f"{type(e).__name__}")
+                    return
                 if diff is not None:
                     d.text(f"integrate_{h}_diff.patch", diff)
 

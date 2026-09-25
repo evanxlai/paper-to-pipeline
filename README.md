@@ -142,6 +142,7 @@ paper (+ optional artifact)          docs/research/ has the verified APIs
         |   G4 feature-on smoke clean | G5 performance block_threshold:
         |      direction, plus no-regression on companion metrics.
         |      A warn_threshold shortfall is reported and does not block.
+        |   G6 every storage-costed knob reaches the binary (cbp2025)
         v
 [4] DSE (evolve-flows evolver mutates sr_params.h)
         |   the only stage with a constraint set; iso-budget is one allowance
@@ -164,7 +165,7 @@ loop/                    the CHIA loop (head driver + nodes + prompts)
   plan_node.py           stage 2: the planning agent, validate + one repair turn
   plan_checks.py         stage 2: deterministic coverage checks over a plan pair
   plan_runner.py         runs a test plan against a host; feeds the gate
-  gate.py                the deterministic verify gate (G1..G5), judging only
+  gate.py                the deterministic verify gate (G1..G6), judging only
   dse.py                 evolve-flows wiring for the tuning stage
   prompts/               system, distiller, reviewer, planner, integrator, debug
   tests/integrate_smoke.py  stage 3 end to end against a fixture host, minutes

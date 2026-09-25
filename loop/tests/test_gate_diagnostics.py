@@ -327,3 +327,21 @@ def test_g2_missing_metrics_through_the_whole_gate():
     )
     assert "the command exited 134" in g2_reason
     assert "panic: fake gem5 crash" in g2_reason
+
+
+def test_a_passing_gate_records_what_g5_measured():
+    """Reasons carry numbers only for an entry that failed, so a passing gate
+    used to record that the port passed and not by how much."""
+    executor = TraceExecutor(on=clean(mpki=9.0), off=clean(mpki=10.0))
+    _, verdict = judge(executor)
+    assert verdict.passed
+    (m,) = verdict.measurements
+    assert (m["id"], m["metric"], m["baseline"], m["measured"]) == ("mpki_drops", "mpki", 10.0, 9.0)
+    assert abs(m["relative_improvement"] - 0.1) < 1e-9
+
+
+def test_a_failing_gate_records_the_same_numbers():
+    executor = TraceExecutor(on=clean(mpki=11.0), off=clean(mpki=10.0))
+    _, verdict = judge(executor)
+    assert not verdict.passed
+    assert verdict.measurements[0]["measured"] == 11.0

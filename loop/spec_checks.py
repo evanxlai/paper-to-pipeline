@@ -389,6 +389,26 @@ def _check_parameters(spec: dict) -> list[Finding]:
         for fname, bits in field_widths(s.get("entry_format", "")).items():
             widths.append((fname, bits, si))
 
+    # Parameters a size_formula reads are dimensions -- entry counts, bank
+    # counts, widths. They size a structure; their value is stored in no
+    # field, so pairing one with a field by a shared name word is a false
+    # match. The run of 2026-09-24 paired max_in_flight_branches (256, a FIFO
+    # depth) with a 1-bit flag max_useful_positive on the word "max", and
+    # num_banks with bank_was_useful on "bank": errors no review could fix
+    # without distorting the spec.
+    # Only a name outside log2(...) is a dimension: in `4 * ceil(log2(w))` the
+    # formula sizes a counter's width from w's value, so w does live in a
+    # field and stays checked.
+    dimensions: set[str] = set()
+    for s in state:
+        formula = str(s.get("size_formula") or "")
+        while True:
+            stripped = re.sub(r"log2\s*\([^()]*\)", "0", formula)
+            if stripped == formula:
+                break
+            formula = stripped
+        dimensions |= set(re.findall(r"[A-Za-z_]\w*", formula)) - {"ceil", "floor", "log2", "min", "max"}
+
     for pi, p in enumerate(params):
         base = f"/parameters/{pi}"
         default, rng = p.get("default"), p.get("range")
@@ -432,7 +452,8 @@ def _check_parameters(spec: dict) -> list[Finding]:
         # Representability: a knob whose value lives in a declared field must
         # fit in that field. This is the check that catches a 256-cycle timeout
         # stored in an 8-bit counter, which no amount of prose review finds.
-        if isinstance(default, int) and not isinstance(default, bool):
+        if (isinstance(default, int) and not isinstance(default, bool)
+                and p.get("name") not in dimensions):
             for fname, bits, si in widths:
                 if not _shares_identifying_token(p.get("name", ""), fname):
                     continue
@@ -2151,6 +2172,41 @@ _RECOVERY_WORK_RE = re.compile(
     r"(?<![=!<>])=\s*(?:0[xX]0+|0|false|none|null|nil|-1)\b"
     r"|\b(?:clear|invalidate|reset|restore|rollback|unwind|discard|revert"
     r"|purge|deallocate)\w*\s*\(", re.I)
+# The other shape of undoing: a restore rather than a clear. The run of
+# 2026-09-24 wrote a squash algorithm that walks the table and, for each entry
+# holding a squashed ROB index, rewrites it from the architectural value --
+# `valid = 1`, `payload = digest_register(arch_reg_value(reg), ...)`. No
+# clearing value and no clear() call, so the check refused a correct unwind,
+# and review could not land any patch that satisfied it. A store of any value
+# counts when it sits under a guard that names the squashed or in-flight
+# identity, because that guard is what makes it a put-back and not an update.
+_GUARD_LINE_RE = re.compile(r"^(\s*)(?:el)?if\b(.*?):(.*)$")
+_STORE_RE = re.compile(r"[\w\]\)]\s*(?<![=!<>+\-*/%&|^])=(?!=)")
+
+
+def _guarded_restore(body: str) -> bool:
+    """Whether the body stores something under a guard naming the squashed or
+    in-flight entries. A guard that only reads (`if x == 0: log(x)`) does not
+    count: the store has to be under it."""
+    lines = body.splitlines()
+    for i, line in enumerate(lines):
+        m = _GUARD_LINE_RE.match(line)
+        if not m:
+            continue
+        cond = m.group(2)
+        if not (_RECOVERY_TRIGGER_RE.search(cond) or _SPECULATIVE_RE.search(cond)):
+            continue
+        if _STORE_RE.search(m.group(3)):
+            return True   # `if cond: x = y` on one line
+        indent = len(m.group(1))
+        for nxt in lines[i + 1:]:
+            if not nxt.strip():
+                continue
+            if len(nxt) - len(nxt.lstrip()) <= indent:
+                break
+            if _STORE_RE.search(nxt):
+                return True
+    return False
 
 
 def _recovers(algo: dict) -> bool:
@@ -2175,7 +2231,7 @@ def _recovers(algo: dict) -> bool:
             or _RECOVERY_TRIGGER_RE.search(name)):
         return False
     body = str(algo.get("pseudocode", ""))
-    if not _RECOVERY_WORK_RE.search(body):
+    if not (_RECOVERY_WORK_RE.search(body) or _guarded_restore(body)):
         return False
     if _ORDINARY_TRIGGER_RE.search(trigger) and not _RECOVERY_TRIGGER_RE.search(name):
         return bool(_RECOVERY_TRIGGER_RE.search(body))

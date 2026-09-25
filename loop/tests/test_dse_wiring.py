@@ -286,3 +286,31 @@ def test_map_results_unwraps_every_run(skydiscover, tmp_path):
         ev.close()
     assert out.metrics["combined_score"] > 0
     assert out.metrics["brmispki_50perc_amean"] == 2.0
+
+
+# P2P_DSE_ITERATIONS was read into a constant that nothing used, so a run that
+# set it to shorten the search ran the config's full count anyway.
+def test_iteration_override_lands_in_the_text_the_evolver_reads():
+    import yaml
+    from pathlib import Path
+
+    text = (Path(__file__).parents[2] / "experiments" / "config_adaevolve.yaml").read_text()
+    out = dse.with_max_iterations(text, 50)
+    assert yaml.safe_load(out)["max_iterations"] == 50
+    # Only the number changes; the rest of the config is the file as written.
+    assert out.replace("max_iterations: 50", "") == text.replace(
+        f"max_iterations: {dse._max_iterations(text)}", "")
+
+
+def test_no_iteration_override_leaves_the_config_alone():
+    text = "max_iterations: 24\nllm:\n  max_iterations: 7\n"
+    assert dse.with_max_iterations(text, None) == text
+    # Top-level only: a nested key of the same name is not the search length.
+    assert dse.with_max_iterations(text, 3) == "max_iterations: 3\nllm:\n  max_iterations: 7\n"
+
+
+def test_iteration_override_refuses_a_config_it_cannot_apply_to():
+    with pytest.raises(SystemExit):
+        dse.with_max_iterations("llm: {}\n", 50)
+    with pytest.raises(SystemExit):
+        dse.with_max_iterations("max_iterations: 24\n", 0)

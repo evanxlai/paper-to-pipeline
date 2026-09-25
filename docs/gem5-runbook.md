@@ -79,16 +79,42 @@ directory is missing, step 4 stops and names this script.
 ### 2. Add the gem5 node, TODO(measured)
 
 ```bash
-chia up --add cluster/cluster.yaml
+PATH="$(pwd)/cluster/sshwrap:$PATH" chia up cluster/cluster.yaml
 ray status
 ```
 
-`chia up --add` adds the workers that are missing and leaves the others
-alone. The node setup installs gem5's build dependencies. It also clones
-gem5 at `v25.1.0.0` into `~/gem5`. It does not build gem5. Step 3 does that.
+Plain `chia up`, not `chia up --add`. The gem5 node's build dependencies and
+its `v25.1.0.0` clone of `~/gem5` live in `gcp_nodes.gem5_node.setup_commands`,
+because that is the only bring-up phase with a configurable timeout
+(`setup_timeout`, set to 3600 there). `worker_setup_commands`, where they used
+to live, is capped at a hardcoded 600 s that no config key can raise, and the
+apt install plus the clone did not fit. Neither phase builds gem5; step 3 does.
 
-If only some workers fail to start, repair them with `chia up --add` again.
-Do not tear the cluster down for that.
+The two commands run cloud setup on different sets of machines:
+
+| command | which IPs get `gcp_nodes.*.setup_commands` |
+| --- | --- |
+| `chia up` | every discovered instance, new or existing |
+| `chia up --add` | only freshly provisioned instances |
+
+So `--add` against an existing `gem5_node` skips the provisioning phase
+entirely and the node joins with no gem5 on it. The two assertions in
+`available_node_types.gem5_host.worker_setup_commands` exist to make that fail
+loudly instead of silently. The commands are idempotent (`test -d ~/gem5 ||`),
+so a full `chia up` re-running them over the other node types costs only time.
+
+`cluster/sshwrap/ssh` is not optional on a cold boot. chia probes a new node
+with `ssh -o ConnectTimeout=30` inside a 30-second subprocess timeout; a
+still-booting GCP VM black-holes the connect, the subprocess timeout wins, and
+`SSHClient.run` converts it to `SSHError` — which `wait_for_ssh` does not
+catch, so the retry loop aborts on its first probe and the node is reported
+FAILED with none of its `ssh_timeout` budget spent. The wrapper prepends
+`ConnectTimeout=8` so the probe fails cleanly inside `ssh` and the loop
+retries. Read the comment in the file itself.
+
+If only some workers fail to start, repair them with `chia up --add` again —
+but not the gem5 node, for the reason above. If the gem5 node is the one that
+failed, re-run the full `chia up`.
 
 ### 3. Build the pristine checkout, 670 seconds
 

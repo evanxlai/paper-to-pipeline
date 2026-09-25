@@ -501,6 +501,25 @@ def _check_host_storage(plan: dict, measured_bits: int | None = None) -> list[Fi
     return out
 
 
+def enable_names(feature_enable: dict) -> set[str]:
+    """The names the gate sets to turn the feature on or off. Both host
+    adapters' `enable_env` set exactly these (hosts/cbp2025/adapter.py,
+    hosts/gem5/adapter.py); tests/test_plan_checks.py holds the three to
+    the same answer."""
+    fe = feature_enable or {}
+    return {n for n in (fe.get("name"), (fe.get("name") or "").upper() or None,
+                        fe.get("macro")) if n}
+
+
+# How a plan says what the port reads: getenv("X"), #ifdef X, #if X,
+# defined(X), -DX.
+_READ_NAME_RE = re.compile(
+    r"getenv\(\s*\\?[\"']?([A-Za-z_]\w*)"
+    r"|#\s*if(?:n?def)?\s+(?:!?\s*defined\s*\(?\s*)?([A-Za-z_]\w*)"
+    r"|\bdefined\s*\(\s*([A-Za-z_]\w*)"
+    r"|(?<![\w-])-D([A-Za-z_]\w*)")
+
+
 def _check_enable_knob(spec: dict, plan: dict, tests: dict) -> list[Finding]:
     """The enable knob's name lives in the port plan and is referenced, by
     absence, from the test plan. Both halves of every rule here sit in
@@ -544,6 +563,31 @@ def _check_enable_knob(spec: dict, plan: dict, tests: dict) -> list[Finding]:
                     "it wrong; an env entry overrides feature_state and makes the "
                     "entry's declared state a lie.",
                 ))
+
+    # The names the plan says the port reads, against the names the gate sets.
+    # The run of 2026-09-24 named the knob 'sr_enable' and wrote, in the same
+    # block, that the port checks getenv("SR_SR_ENABLE"). The integrator did
+    # exactly that, the gate set sr_enable and SR_ENABLE, and every feature-on
+    # run was a feature-off run: all five unit tests printed nothing and G5
+    # measured the port against itself. Each half is fine alone; only the two
+    # together say the feature can never turn on.
+    sets = enable_names(enable)
+    for pointer, text in _strings(plan, "/plan"):
+        for m in _READ_NAME_RE.finditer(text):
+            read = next(g for g in m.groups() if g)
+            if "enable" not in read.lower() or read in sets:
+                continue
+            out.append(Finding(
+                pointer, "enable_name_unset", "error",
+                f"this says the port reads {read!r} to turn the feature on, but the "
+                f"gate sets only {', '.join(sorted(sets)) or '(nothing)'}: "
+                f"feature_enable.name, that name upper-cased, and feature_enable.macro "
+                f"when there is one. A port written to this plan stays off in both "
+                f"states, so G2 passes trivially and G3 and G5 measure nothing. Name "
+                f"the knob so the gate sets what the port reads, or say that the port "
+                f"reads one of the names above.",
+            ))
+            break  # one finding per string is enough to locate it
 
     off_path = enable.get("off_path") or ""
     hedge = _HEDGE_RE.search(off_path)
@@ -920,6 +964,31 @@ def _check_baseline_pointers(tests: dict, baseline: dict) -> list[Finding]:
                 f"traces under /per_trace, keyed the way the trace list spells them: "
                 f"{', '.join(available) or '(none)'}. Remember that '/' inside a "
                 f"pointer token is written '~1'.",
+            ))
+            continue
+        # Resolving is not enough: the numbers have to be for the workload the
+        # command runs. The run of 2026-09-24 left the pointer out, which reads
+        # as the top level, and the top level holds the same metric names as
+        # the per-trace entries -- averaged over every trace the baseline
+        # stage ran. A port bit-identical on sample_int then failed G2 against
+        # the mean of sample_int and sample_fp, with a message telling the
+        # agent its knob-off path diverges, which it did not.
+        per_trace = baseline.get("per_trace") or {}
+        ran = sorted({key for tok in str(entry.get("command", "")).split()
+                      for key in per_trace
+                      if tok == key or tok.endswith("/" + key)})
+        if len(ran) == 1 and node is not per_trace.get(ran[0]):
+            want = "/per_trace/" + ran[0].replace("~", "~0").replace("/", "~1")
+            holds = ("the aggregate over every trace in "
+                     f"{baseline.get('trace_list') or 'the baseline run'}"
+                     if node is baseline else "another workload's numbers")
+            out.append(Finding(
+                f"/tests/correctness/{i}/pass_condition/baseline_pointer",
+                "baseline_pointer_wrong_workload", "error",
+                f"the command runs {ran[0]}, but {pointer_text} holds {holds}. "
+                f"A port that is bit-identical to the baseline fails this entry, and "
+                f"the integration agent cannot fix it: a pass_condition is frozen. "
+                f"Use \"baseline_pointer\": \"{want}\".",
             ))
             continue
         missing = [k for k in (pc.get("metrics") or declared) if k not in node]

@@ -1,0 +1,6 @@
+{
+  "stage": [
+    "distill"
+  ],
+  "budget": "iso-64KiB"
+}

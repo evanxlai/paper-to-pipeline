@@ -1,0 +1,22 @@
+{
+  "passed": false,
+  "reasons": [
+    "G5 [perf_mpki] brmispki_50perc_amean moved +0.0000 relative (5.093525 -> 5.093525, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric."
+  ],
+  "warnings": [
+    "perf_mpki: brmispki_50perc_amean improved 0.0000 against a claimed 0.01 (Assumed 1% MPKI reduction). Recorded, not blocking: the port is untuned and closing that gap is stage 4's job."
+  ],
+  "plan_revision": 0,
+  "measurements": [
+    {
+      "id": "perf_mpki",
+      "metric": "brmispki_50perc_amean",
+      "direction": "decrease",
+      "baseline": 5.093525,
+      "measured": 5.093525,
+      "relative_improvement": 0.0,
+      "n_traces": 4
+    }
+  ],
+  "knob_reach": null
+}

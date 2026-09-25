@@ -391,3 +391,23 @@ def test_a_missing_source_is_reported_not_raised(tmp_path):
     out = adapter.materialize_port_tree(
         str(tmp_path / "nope"), str(tmp_path / "port"))
     assert out["ok"] is False and "does not exist" in out["error"]
+
+
+# ------------------------------------------------ host_shell never raises
+def test_output_that_is_not_utf8_is_returned_not_raised(tmp_path):
+    """The live one, 2026-09-24. An agent's helper script held one latin-1
+    byte, `git diff` printed it inline, and port_diff raised
+    UnicodeDecodeError out of a function whose contract is to return. The
+    caller that trips it, save_port, runs unguarded after the gate."""
+    (tmp_path / "helper.py").write_bytes(b"# se\xd1or\n")
+    out = adapter.host_shell(str(tmp_path), "cat helper.py", {}, 30)
+    assert out["exit_code"] == 0
+    assert out["output"].startswith("# se") and "�" in out["output"]
+
+
+def test_a_timed_out_command_reports_its_partial_output_as_text(tmp_path):
+    """On a timeout the partial output arrives as bytes whatever text= says,
+    so it used to render as b'...' in the reason the agent reads."""
+    out = adapter.host_shell(str(tmp_path), "echo started; sleep 30", {}, 1)
+    assert out["timed_out"] is True
+    assert out["output"].startswith("started") and "b'" not in out["output"]

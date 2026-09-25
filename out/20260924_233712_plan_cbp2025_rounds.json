@@ -1,0 +1,38 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/steps/1/detail",
+        "code": "enable_name_unset",
+        "severity": "error",
+        "message": "this says the port reads 'SR_SR_ENABLE' to turn the feature on, but the gate sets only SR_ENABLE, sr_enable: feature_enable.name, that name upper-cased, and feature_enable.macro when there is one. A port written to this plan stays off in both states, so G2 passes trivially and G3 and G5 measure nothing. Name the knob so the gate sets what the port reads, or say that the port reads one of the names above."
+      },
+      {
+        "pointer": "/plan/hook_points/3/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'SampleCondPredictor' does not occur in my_cond_branch_predictor.cc. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      },
+      {
+        "pointer": "/plan/hook_points/5/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'includes' does not occur in cbp2016_tage_sc_l.h. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/hook_points/3/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'SampleCondPredictor' does not occur in my_cond_branch_predictor.cc. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  }
+]
