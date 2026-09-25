@@ -1,0 +1,11 @@
+{
+  "stage": "baseline",
+  "budget": "iso-192KiB",
+  "cbp2025_baseline": {
+    "n": 1,
+    "failed": [],
+    "brmispki_50perc_amean": 0.2647,
+    "cycwppki_50perc_amean": 34.3978,
+    "ipc_50perc_amean": 2.947
+  }
+}

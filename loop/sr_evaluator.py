@@ -150,7 +150,8 @@ class SRParamsEvaluator(ChiaEvaluator):
         self._spec = spec
         self._port_plan = port_plan or {}
         self._constraints = [K.Constraint(c["metric"], c["comparison"], c["allowance"],
-                                          c.get("name", "")) for c in constraints or []]
+                                          c.get("name", ""), tuple(c.get("exempt") or ()))
+                             for c in constraints or []]
         self._params_header_name = params_header_name
         # Candidates this search has already screened, by candidate_key. On
         # 2026-09-23, 7 of 24 iterations re-proposed a header the search had

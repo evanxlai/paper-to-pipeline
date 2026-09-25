@@ -1,0 +1,2475 @@
+# Saved by hand after the job crashed in save_port (UnicodeDecodeError). Same command as
+# hosts/cbp2025/adapter.py:port_diff, decoded with errors='replace', plus ':(exclude)out.txt'
+# (a 56.7 MB simulator output dump the agent left in the tree).
+--- diffstat ---
+ cbp2016_tage_sc_l.h                |  12 +-
+ cond_branch_predictor_interface.cc |  18 ++-
+ fix_all.py                         |  51 +++++++
+ fix_mess.py                        |   8 +
+ fix_predict.py                     |   8 +
+ make_pred.py                       | 301 ++++++++++++++++++++++++++++++++++++
+ my_cond_branch_predictor.cc        |   2 +
+ my_cond_branch_predictor.h         | 249 ++++++++++++++++++++++++++++--
+ my_cond_branch_predictor.h.orig    | 306 +++++++++++++++++++++++++++++++++++++
+ my_cond_branch_predictor.h.rej     |  11 ++
+ out_fp.txt                         | 111 ++++++++++++++
+ out_int.txt                        | 111 ++++++++++++++
+ parse_agent_log.py                 |   5 +
+ patch.diff                         |  38 +++++
+ patch.py                           |  36 +++++
+ patch2.py                          |  84 ++++++++++
+ patch_cbp2016.py                   |  28 ++++
+ patch_debug.py                     |  17 +++
+ patch_decay.py                     |   8 +
+ patch_final.py                     |  46 ++++++
+ patch_fixed.py                     |  39 +++++
+ patch_hash.py                      |  13 ++
+ patch_hooks.py                     |   8 +
+ patch_instantiate.py               |   9 ++
+ patch_interface.py                 |  47 ++++++
+ patch_predictor_container.py       |   1 +
+ patch_rand.py                      |   8 +
+ patch_recover.py                   |  20 +++
+ patch_s1.py                        |  26 ++++
+ patch_tests.py                     |  10 ++
+ patch_uncond.py                    |  17 +++
+ patcher.py                         |  44 ++++++
+ pt.py                              |   7 +
+ sr_params.h                        |  63 ++++++++
+ test_fix.py                        |  21 +++
+ test_printf.py                     |   7 +
+ ut_decay                           | Bin 0 -> 46568 bytes
+ ut_decay.cc                        |  32 ++++
+ ut_int_digest                      | Bin 0 -> 46568 bytes
+ ut_int_digest.cc                   |  28 ++++
+ ut_predict_useful                  | Bin 0 -> 46576 bytes
+ ut_predict_useful.cc               |  38 +++++
+ ut_recovery                        | Bin 0 -> 46568 bytes
+ ut_recovery.cc                     |  25 +++
+ ut_update_rand                     | Bin 0 -> 54872 bytes
+ ut_update_rand.cc                  |  37 +++++
+ 46 files changed, 1934 insertions(+), 16 deletions(-)
+--- patch ---
+diff --git a/cbp2016_tage_sc_l.h b/cbp2016_tage_sc_l.h
+index 00eebcb..bedb57a 100644
+--- a/cbp2016_tage_sc_l.h
++++ b/cbp2016_tage_sc_l.h
+@@ -240,6 +240,7 @@ int8_t BIM;
+ int TICK;           // for the reset of the u counter
+ //uint8_t ghist[HISTBUFFERLENGTH];
+ //int ptghist;
++      int sr_sum;
+ //uint64_t phist;      //path history
+ //folded_history ch_i[NHIST + 1];   //utility for computing TAGE indices
+ //folded_history ch_t[2][NHIST + 1];    //utility for computing TAGE tags
+@@ -318,6 +319,7 @@ struct cbp_hist_t
+       std::array<uint8_t, HISTBUFFERLENGTH> ghist;
+       uint64_t phist;      //path history
+       int ptghist;
++      int sr_sum;
+       tage_index_t ch_i;
+       std::array<tage_tag_t, 2> ch_t;
+ 
+@@ -1016,10 +1018,10 @@ class CBP2016_TAGE_SC_L
+             return (pred_inter + (((HitBank+1)/4)<<4) + (HighConf<<1) + (LowConf <<2) +((AltBank!=0)<<3)+ ((PC^(PC>>2))<<7)) & ((1<<LOGBIAS) -1);
+         }
+ 
+-        bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC)
++        bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum)
+         {
+             // checkpoint current hist
+-            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++            active_hist.sr_sum = sr_sum; pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
+             const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
+             return pred_taken;
+         }
+@@ -1070,6 +1072,7 @@ class CBP2016_TAGE_SC_L
+ #ifdef IMLI
+             LSUM += Gpredict (PC, hist_to_use.IMHIST[(hist_to_use.IMLIcount)], IMm, IMGEHL, IMNB, LOGIMNB, WIM);
+             LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);
++            LSUM += hist_to_use.sr_sum;
+ #endif
+             bool SCPRED = (LSUM >= 0);
+             //just  an heuristic if the respective contribution of component groups can be multiplied by 2 or not
+@@ -1241,11 +1244,11 @@ class CBP2016_TAGE_SC_L
+             //    assert(false);
+             //} 
+             // remove checkpointed hist
+-            update(PC, resolveDir, pred_taken, nextPC, pred_time_history);
++            update(PC, resolveDir, pred_taken, nextPC, pred_time_history, seq_no, piece);
+             pred_time_histories.erase(pred_hist_key);
+         }
+ 
+-        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)
++        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no, uint8_t piece)
+         {
+ #ifdef SC
+ #ifdef LOOPPREDICTOR
+@@ -1284,6 +1287,7 @@ class CBP2016_TAGE_SC_L
+ 
+             if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
+             {
++                cond_predictor_impl.update_sr_weights(seq_no, piece, PC, resolveDir);
+                 {
+                     if (SCPRED != resolveDir)
+                     {
+diff --git a/cond_branch_predictor_interface.cc b/cond_branch_predictor_interface.cc
+index b189157..1a83499 100644
+--- a/cond_branch_predictor_interface.cc
++++ b/cond_branch_predictor_interface.cc
+@@ -17,8 +17,8 @@
+ // This file provides a sample predictor integration based on the interface provided.
+ 
+ #include "lib/sim_common_structs.h"
+-#include "cbp2016_tage_sc_l.h"
+ #include "my_cond_branch_predictor.h"
++#include "cbp2016_tage_sc_l.h"
+ #include <cassert>
+ 
+ //
+@@ -53,7 +53,8 @@ void notify_instr_fetch(uint64_t seq_no, uint8_t piece, uint64_t pc, const uint6
+ //
+ bool get_cond_dir_prediction(uint64_t seq_no, uint8_t piece, uint64_t pc, const uint64_t pred_cycle)
+ {
+-    const bool tage_sc_l_pred =  cbp2016_tage_sc_l.predict(seq_no, piece, pc);
++    int sr_sum = cond_predictor_impl.predict_sr(seq_no, piece, pc);
++    const bool tage_sc_l_pred =  cbp2016_tage_sc_l.predict(seq_no, piece, pc, sr_sum);
+     const bool my_prediction = cond_predictor_impl.predict(seq_no, piece, pc, tage_sc_l_pred);
+     return my_prediction;
+ }
+@@ -115,6 +116,11 @@ void spec_update(uint64_t seq_no, uint8_t piece, uint64_t pc, InstClass inst_cla
+ // For the sample predictor implementation, we do not leverage decode information
+ void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
+ {
++    int dest_reg = -1;
++    if (_decode_info.dst_reg_info.has_value()) {
++        dest_reg = _decode_info.dst_reg_info.value();
++    }
++    cond_predictor_impl.allocate_register(seq_no, piece, dest_reg);
+ }
+ 
+ //
+@@ -137,6 +143,14 @@ void notify_agen_complete(uint64_t seq_no, uint8_t piece, uint64_t pc, const Dec
+ // At the moment, we do not consider updating any other structure, but the contestants are allowed to  update any other predictor state.
+ void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
+ {
++    int dest_reg = -1;
++    if (_exec_info.dec_info.dst_reg_info.has_value()) {
++        dest_reg = _exec_info.dec_info.dst_reg_info.value();
++    }
++    if (_exec_info.dst_reg_value.has_value()) {
++        cond_predictor_impl.write_register_digest(seq_no, piece, dest_reg, _exec_info.dst_reg_value.value());
++    }
++
+     const bool is_branch = is_br(_exec_info.dec_info.insn_class);
+     if(is_branch)
+     {
+diff --git a/fix_all.py b/fix_all.py
+new file mode 100644
+index 0000000..9b16e1c
+--- /dev/null
++++ b/fix_all.py
+@@ -0,0 +1,51 @@
++import subprocess
++import base64
++import re
++
++# 1. Regenerate my_cond_branch_predictor.h
++cmd = "python3 /home/laievan/cbp2025_port/make_pred.py"
++res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
++with open('/home/laievan/cbp2025_port/my_cond_branch_predictor.h', 'wb') as f:
++    f.write(base64.b64decode(res.stdout))
++
++with open('/home/laievan/cbp2025_port/my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++# 2. Add public: at the top of class SampleCondPredictor
++text = text.replace('class SampleCondPredictor\n{', 'class SampleCondPredictor\n{\n    public:')
++
++# 3. Add sr_payloads to SampleHist
++text = text.replace('std::bitset<SR_NUM_LOGICAL_REGS> sr_inflight;', 'std::bitset<SR_NUM_LOGICAL_REGS> sr_inflight;\n      uint32_t sr_payloads[SR_NUM_LOGICAL_REGS];')
++text = text.replace('sr_inflight.reset();', 'sr_inflight.reset();\n          for(int i=0; i<SR_NUM_LOGICAL_REGS; ++i) sr_payloads[i] = 0;')
++
++# 4. Add sr_payloads assignment in predict_sr
++text = text.replace('active_hist.sr_inflight[r] = sR_RegTable[r].valid;', 'active_hist.sr_inflight[r] = sR_RegTable[r].valid;\n                active_hist.sr_payloads[r] = sR_RegTable[r].payload;')
++
++# 5. Use sr_payloads in update_sr_weights
++text = text.replace('uint32_t digest = sR_RegTable[chosen_reg].payload;', 'uint32_t digest = p_hist.sr_payloads[chosen_reg] & 0xFFF;')
++
++# 6. Replace rand()
++better_hash = """uint32_t hash = PC ^ p_hist.ghist;
++                    hash ^= hash >> 13;
++                    hash ^= hash >> 7;
++                    int chosen_idx = hash % num_available;"""
++text = re.sub(r'int chosen_idx = rand\(\) % num_available;', better_hash, text)
++
++# 7. Add recover
++recover_method = """
++        void recover(uint32_t payload)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (!sR_RegTable[r].valid && sR_RegTable[r].payload == payload) {
++                    sR_RegTable[r].payload = 0;
++                }
++            }
++        }
++"""
++text = text.replace('public:\n\n        SampleCondPredictor (void)', 'public:\n' + recover_method + '\n        SampleCondPredictor (void)')
++
++with open('/home/laievan/cbp2025_port/my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
++
++print("Patched my_cond_branch_predictor.h!")
+diff --git a/fix_mess.py b/fix_mess.py
+new file mode 100644
+index 0000000..c633261
+--- /dev/null
++++ b/fix_mess.py
+@@ -0,0 +1,8 @@
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++import re
++text = re.sub(r'static int sr_calls = 0;\n.*?\n', '', text)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/fix_predict.py b/fix_predict.py
+new file mode 100644
+index 0000000..afa59dd
+--- /dev/null
++++ b/fix_predict.py
+@@ -0,0 +1,8 @@
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    text = f.read()
++
++text = text.replace('predict_using_given_hist(seq_no, piece, PC, active_hist, true, sr_sum);', 
++                    'predict_using_given_hist(seq_no, piece, PC, active_hist, true);')
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(text)
+diff --git a/make_pred.py b/make_pred.py
+new file mode 100644
+index 0000000..f91acf9
+--- /dev/null
++++ b/make_pred.py
+@@ -0,0 +1,301 @@
++import sys
++
++content = """
++#ifndef _PREDICTOR_H_
++#define _PREDICTOR_H_
++
++#include <stdlib.h>
++#include <bitset>
++#include <unordered_map>
++#include "sr_params.h"
++
++struct SampleHist
++{
++      uint64_t ghist;
++      bool tage_pred;
++      std::bitset<SR_NUM_LOGICAL_REGS> sr_inflight;
++      
++      SampleHist()
++      {
++          ghist = 0;
++          sr_inflight.reset();
++      }
++};
++
++struct sR_RegTableEntry {
++    bool valid;
++    uint32_t payload;
++    uint32_t decay_ctr;
++};
++
++class SampleCondPredictor
++{
++        SampleHist active_hist;
++        std::unordered_map<uint64_t, SampleHist> pred_time_histories;
++        
++        bool sr_enabled;
++        
++        int sR_WT0[SR_NUM_BANKS][SR_WT0_ENTRIES];
++        int sR_WT1[SR_NUM_BANKS][SR_WT1_ENTRIES];
++        int sR_WT2[SR_NUM_BANKS][SR_WT2_ENTRIES];
++
++        int sR_UT0[SR_NUM_BANKS][SR_UT0_ENTRIES][SR_NUM_LOGICAL_REGS];
++        int sR_UT1[SR_NUM_BANKS][SR_UT1_ENTRIES][SR_NUM_LOGICAL_REGS];
++        int sR_UT2[SR_NUM_BANKS][SR_UT2_ENTRIES][SR_NUM_LOGICAL_REGS];
++
++        sR_RegTableEntry sR_RegTable[SR_NUM_LOGICAL_REGS];
++
++    public:
++
++        SampleCondPredictor (void)
++        {
++        }
++
++        void setup()
++        {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            
++            if (sr_enabled) {
++                for (int b=0; b<SR_NUM_BANKS; ++b) {
++                    for (int i=0; i<SR_WT0_ENTRIES; ++i) sR_WT0[b][i] = 0;
++                    for (int i=0; i<SR_WT1_ENTRIES; ++i) sR_WT1[b][i] = 0;
++                    for (int i=0; i<SR_WT2_ENTRIES; ++i) sR_WT2[b][i] = 0;
++                    
++                    for (int i=0; i<SR_UT0_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT0[b][i][r] = 0;
++                    for (int i=0; i<SR_UT1_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT1[b][i][r] = 0;
++                    for (int i=0; i<SR_UT2_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT2[b][i][r] = 0;
++                }
++                for (int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                    sR_RegTable[r].valid = false;
++                    sR_RegTable[r].payload = 0;
++                    sR_RegTable[r].decay_ctr = 0;
++                }
++            }
++        }
++
++        void terminate()
++        {
++        }
++
++        uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
++        {
++            return (seq_no << 4) | (piece & 0x000F);
++        }
++
++        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
++        {
++            active_hist.tage_pred = tage_pred;
++            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true);
++            return pred_taken;
++        }
++
++        bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict)
++        {
++            return hist_to_use.tage_pred;
++        }
++
++        void history_update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC)
++        {
++            active_hist.ghist = active_hist.ghist << 1;
++            if(taken)
++            {
++                active_hist.ghist |= 1;
++            }
++        }
++
++        void update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC)
++        {
++            const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if(pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++            update(PC, resolveDir, predDir, nextPC, pred_time_history);
++            pred_time_histories.erase(pred_hist_key);
++        }
++
++        void update (uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use)
++        {
++        }
++
++        void allocate_register(uint64_t seq_no, uint8_t piece, int dest_reg)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (sR_RegTable[r].decay_ctr > 0) {
++                    sR_RegTable[r].decay_ctr--;
++                } else if (sR_RegTable[r].decay_ctr == 0) {
++                    sR_RegTable[r].valid = false;
++                }
++            }
++            if (dest_reg >= 0 && dest_reg < SR_NUM_LOGICAL_REGS) {
++                sR_RegTable[dest_reg].valid = false;
++                sR_RegTable[dest_reg].payload = get_unique_inst_id(seq_no, piece);
++            }
++        }
++
++        uint32_t extract_fp_sign_and_exp(uint64_t val) {
++            return (val >> 55) & 0x1FF;
++        }
++
++        void write_register_digest(uint64_t seq_no, uint8_t piece, int dest_reg, uint64_t val)
++        {
++            if (!sr_enabled) return;
++            if (dest_reg >= 0 && dest_reg < SR_NUM_LOGICAL_REGS) {
++                if (!sR_RegTable[dest_reg].valid && sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {
++                    uint32_t digest = 0;
++                    if (dest_reg < 32) {
++                        uint64_t t = val;
++                        int trailing = 0;
++                        if (t == 0) trailing = 64;
++                        else while ((t & 1) == 0) { trailing++; t >>= 1; }
++                        
++                        uint64_t l = val;
++                        int leading = 0;
++                        if (l == 0) leading = 64;
++                        else while ((l & (1ULL << 63)) == 0) { leading++; l <<= 1; }
++                        
++                        trailing = trailing > 63 ? 63 : trailing;
++                        leading = leading > 63 ? 63 : leading;
++                        
++                        uint32_t val6 = val & 0x3F;
++                        digest = (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ (val6 << 6);
++                    } else if (dest_reg < 64) {
++                        digest = extract_fp_sign_and_exp(val) << 3;
++                    } else if (dest_reg == 64) {
++                        uint32_t val4 = val & 0xF;
++                        digest = val4 | (val4 << 4) | (val4 << 8);
++                    }
++                    
++                    sR_RegTable[dest_reg].payload = digest & 0xFFF;
++                    sR_RegTable[dest_reg].valid = true;
++                    sR_RegTable[dest_reg].decay_ctr = (1 << SR_DECAY_CTR_BITS) - 1;
++                }
++            }
++        }
++
++        int predict_sr(uint64_t seq_no, uint8_t piece, uint64_t PC)
++        {
++            if (!sr_enabled) return 0;
++            
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                active_hist.sr_inflight[r] = sR_RegTable[r].valid;
++            }
++            
++            int sR = 0;
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                
++                int max_u = -99999;
++                int best_reg = -1;
++                
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                    if ((r % SR_NUM_BANKS) == b && sR_RegTable[r].valid) {
++                        int u_sum = sR_UT0[b][u_idx0][r] + sR_UT1[b][u_idx1][r] + sR_UT2[b][u_idx2][r];
++                        if (u_sum > max_u) {
++                            max_u = u_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                
++                int bank_sum = 0;
++                if (best_reg != -1) {
++                    uint32_t digest = sR_RegTable[best_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                }
++                
++                if (max_u > 0) {
++                    sR += (int)(bank_sum * SR_USEFUL_MULTIPLIER);
++                }
++            }
++            return sR;
++        }
++
++        void update_sr_weights(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir)
++        {
++            if (!sr_enabled) return;
++            
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& p_hist = pred_time_histories.at(pred_hist_key);
++            
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int num_available = 0;
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                    if ((r % SR_NUM_BANKS) == b && p_hist.sr_inflight[r]) {
++                        num_available++;
++                    }
++                }
++                
++                if (num_available > 0) {
++                    int chosen_idx = rand() % num_available; 
++                    int current_idx = 0;
++                    int chosen_reg = 0;
++                    for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                        if ((r % SR_NUM_BANKS) == b && p_hist.sr_inflight[r]) {
++                            if (current_idx == chosen_idx) {
++                                chosen_reg = r;
++                            }
++                            current_idx++;
++                        }
++                    }
++                    
++                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                    
++                    uint32_t digest = sR_RegTable[chosen_reg].payload; 
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                    bool bank_pred = bank_sum >= 0;
++                    int u_delta = (bank_pred == resolveDir) ? 1 : -1;
++                    
++                    sR_UT0[b][u_idx0][chosen_reg] = saturate(sR_UT0[b][u_idx0][chosen_reg] + u_delta, SR_WT_BITS);
++                    sR_UT1[b][u_idx1][chosen_reg] = saturate(sR_UT1[b][u_idx1][chosen_reg] + u_delta, SR_WT_BITS);
++                    sR_UT2[b][u_idx2][chosen_reg] = saturate(sR_UT2[b][u_idx2][chosen_reg] + u_delta, SR_WT_BITS);
++                    
++                    int w_delta = resolveDir ? 1 : -1;
++                    sR_WT0[b][w_idx0] = saturate(sR_WT0[b][w_idx0] + w_delta, SR_WT_BITS);
++                    sR_WT1[b][w_idx1] = saturate(sR_WT1[b][w_idx1] + w_delta, SR_WT_BITS);
++                    sR_WT2[b][w_idx2] = saturate(sR_WT2[b][w_idx2] + w_delta, SR_WT_BITS);
++                }
++            }
++        }
++
++    private:
++        int saturate(int val, int bits) {
++            int max_val = (1 << (bits - 1)) - 1;
++            int min_val = -(1 << (bits - 1));
++            if (val > max_val) return max_val;
++            if (val < min_val) return min_val;
++            return val;
++        }
++
++        uint32_t hash_ut(uint64_t PC, int table) {
++            PC ^= PC >> (table + 1);
++            return (uint32_t)PC;
++        }
++
++        uint32_t hash_wt(uint64_t PC, uint32_t digest, int table) {
++            return (uint32_t)(PC ^ (digest << table));
++        }
++};
++
++extern SampleCondPredictor cond_predictor_impl;
++#endif
++"""
++
++import base64
++print(base64.b64encode(content.encode('utf-8')).decode('utf-8'))
+diff --git a/my_cond_branch_predictor.cc b/my_cond_branch_predictor.cc
+index e69de29..5d51de2 100755
+--- a/my_cond_branch_predictor.cc
++++ b/my_cond_branch_predictor.cc
+@@ -0,0 +1,2 @@
++#include "my_cond_branch_predictor.h"
++SampleCondPredictor cond_predictor_impl;
+diff --git a/my_cond_branch_predictor.h b/my_cond_branch_predictor.h
+index e96ebb8..7866423 100644
+--- a/my_cond_branch_predictor.h
++++ b/my_cond_branch_predictor.h
+@@ -1,51 +1,107 @@
++
+ #ifndef _PREDICTOR_H_
+ #define _PREDICTOR_H_
+ 
+ #include <stdlib.h>
++#include <bitset>
++#include <unordered_map>
++#include "sr_params.h"
+ 
+ struct SampleHist
+ {
+       uint64_t ghist;
+       bool tage_pred;
+-      //
++      std::bitset<SR_NUM_LOGICAL_REGS> sr_inflight;
++      uint32_t sr_payloads[SR_NUM_LOGICAL_REGS];
++      
+       SampleHist()
+       {
+           ghist = 0;
++          sr_inflight.reset();
++          for(int i=0; i<SR_NUM_LOGICAL_REGS; ++i) sr_payloads[i] = 0;
+       }
+ };
+ 
++struct sR_RegTableEntry {
++    bool valid;
++    uint32_t payload;
++    uint32_t decay_ctr;
++};
+ 
+ class SampleCondPredictor
+ {
++    public:
+         SampleHist active_hist;
+-        std::unordered_map<uint64_t/*key*/, SampleHist/*val*/> pred_time_histories;
++        std::unordered_map<uint64_t, SampleHist> pred_time_histories;
++        
++        bool sr_enabled;
++        
++        int sR_WT0[SR_NUM_BANKS][SR_WT0_ENTRIES];
++        int sR_WT1[SR_NUM_BANKS][SR_WT1_ENTRIES];
++        int sR_WT2[SR_NUM_BANKS][SR_WT2_ENTRIES];
++
++        int sR_UT0[SR_NUM_BANKS][SR_UT0_ENTRIES][SR_NUM_LOGICAL_REGS];
++        int sR_UT1[SR_NUM_BANKS][SR_UT1_ENTRIES][SR_NUM_LOGICAL_REGS];
++        int sR_UT2[SR_NUM_BANKS][SR_UT2_ENTRIES][SR_NUM_LOGICAL_REGS];
++
++        sR_RegTableEntry sR_RegTable[SR_NUM_LOGICAL_REGS];
++
+     public:
+ 
++        void recover(uint32_t payload)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (!sR_RegTable[r].valid && sR_RegTable[r].payload == payload) {
++                    sR_RegTable[r].payload = 0;
++                }
++            }
++        }
++
+         SampleCondPredictor (void)
+         {
+         }
+ 
+         void setup()
+         {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            
++            if (sr_enabled) {
++                for (int b=0; b<SR_NUM_BANKS; ++b) {
++                    for (int i=0; i<SR_WT0_ENTRIES; ++i) sR_WT0[b][i] = 0;
++                    for (int i=0; i<SR_WT1_ENTRIES; ++i) sR_WT1[b][i] = 0;
++                    for (int i=0; i<SR_WT2_ENTRIES; ++i) sR_WT2[b][i] = 0;
++                    
++                    for (int i=0; i<SR_UT0_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT0[b][i][r] = 0;
++                    for (int i=0; i<SR_UT1_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT1[b][i][r] = 0;
++                    for (int i=0; i<SR_UT2_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT2[b][i][r] = 0;
++                }
++                for (int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                    sR_RegTable[r].valid = false;
++                    sR_RegTable[r].payload = 0;
++                    sR_RegTable[r].decay_ctr = 0;
++                }
++            }
+         }
+ 
+         void terminate()
+         {
+         }
+ 
+-        // sample function to get unique instruction id
+         uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
+         {
+-            assert(piece < 16);
+             return (seq_no << 4) | (piece & 0x000F);
+         }
+ 
+         bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
+         {
+             active_hist.tage_pred = tage_pred;
+-            // checkpoint current hist
+             pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
+-            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
++            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true);
+             return pred_taken;
+         }
+ 
+@@ -66,6 +122,7 @@ class SampleCondPredictor
+         void update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC)
+         {
+             const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if(pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
+             const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
+             update(PC, resolveDir, predDir, nextPC, pred_time_history);
+             pred_time_histories.erase(pred_hist_key);
+@@ -74,10 +131,182 @@ class SampleCondPredictor
+         void update (uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use)
+         {
+         }
++
++        void allocate_register(uint64_t seq_no, uint8_t piece, int dest_reg)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (sR_RegTable[r].decay_ctr > 0) {
++                    sR_RegTable[r].decay_ctr--;
++                } else if (sR_RegTable[r].decay_ctr == 0) {
++                    sR_RegTable[r].valid = false;
++                }
++            }
++            if (dest_reg >= 0 && dest_reg < SR_NUM_LOGICAL_REGS) {
++                sR_RegTable[dest_reg].valid = false;
++                sR_RegTable[dest_reg].payload = get_unique_inst_id(seq_no, piece);
++            }
++        }
++
++        uint32_t extract_fp_sign_and_exp(uint64_t val) {
++            return (val >> 55) & 0x1FF;
++        }
++
++        void write_register_digest(uint64_t seq_no, uint8_t piece, int dest_reg, uint64_t val)
++        {
++            if (!sr_enabled) return;
++            if (dest_reg >= 0 && dest_reg < SR_NUM_LOGICAL_REGS) {
++                if (!sR_RegTable[dest_reg].valid && sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {
++                    uint32_t digest = 0;
++                    if (dest_reg < 32) {
++                        uint64_t t = val;
++                        int trailing = 0;
++                        if (t == 0) trailing = 64;
++                        else while ((t & 1) == 0) { trailing++; t >>= 1; }
++                        
++                        uint64_t l = val;
++                        int leading = 0;
++                        if (l == 0) leading = 64;
++                        else while ((l & (1ULL << 63)) == 0) { leading++; l <<= 1; }
++                        
++                        trailing = trailing > 63 ? 63 : trailing;
++                        leading = leading > 63 ? 63 : leading;
++                        
++                        uint32_t val6 = val & 0x3F;
++                        digest = (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ (val6 << 6);
++                    } else if (dest_reg < 64) {
++                        digest = extract_fp_sign_and_exp(val) << 3;
++                    } else if (dest_reg == 64) {
++                        uint32_t val4 = val & 0xF;
++                        digest = val4 | (val4 << 4) | (val4 << 8);
++                    }
++                    
++                    sR_RegTable[dest_reg].payload = digest & 0xFFF;
++                    sR_RegTable[dest_reg].valid = true;
++                    sR_RegTable[dest_reg].decay_ctr = (1 << SR_DECAY_CTR_BITS) - 1;
++                }
++            }
++        }
++
++        int predict_sr(uint64_t seq_no, uint8_t piece, uint64_t PC)
++        {
++            if (!sr_enabled) return 0;
++            
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                active_hist.sr_inflight[r] = sR_RegTable[r].valid;
++                active_hist.sr_payloads[r] = sR_RegTable[r].payload;
++            }
++            
++            int sR = 0;
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                
++                int max_u = -99999;
++                int best_reg = -1;
++                
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                    if ((r % SR_NUM_BANKS) == b && sR_RegTable[r].valid) {
++                        int u_sum = sR_UT0[b][u_idx0][r] + sR_UT1[b][u_idx1][r] + sR_UT2[b][u_idx2][r];
++                        if (u_sum > max_u) {
++                            max_u = u_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                
++                int bank_sum = 0;
++                if (best_reg != -1) {
++                    uint32_t digest = sR_RegTable[best_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                }
++                
++                if (max_u > 0) {
++                    sR += (int)(bank_sum * SR_USEFUL_MULTIPLIER);
++                }
++            }
++            return sR;
++        }
++
++        void update_sr_weights(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir)
++        {
++            if (!sr_enabled) return;
++            
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& p_hist = pred_time_histories.at(pred_hist_key);
++            
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int num_available = 0;
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                    if ((r % SR_NUM_BANKS) == b && p_hist.sr_inflight[r]) {
++                        num_available++;
++                    }
++                }
++                
++                if (num_available > 0) {
++                    uint32_t hash = PC ^ p_hist.ghist;
++                    hash ^= hash >> 13;
++                    hash ^= hash >> 7;
++                    int chosen_idx = hash % num_available; 
++                    int current_idx = 0;
++                    int chosen_reg = 0;
++                    for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                        if ((r % SR_NUM_BANKS) == b && p_hist.sr_inflight[r]) {
++                            if (current_idx == chosen_idx) {
++                                chosen_reg = r;
++                            }
++                            current_idx++;
++                        }
++                    }
++                    
++                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                    
++                    uint32_t digest = p_hist.sr_payloads[chosen_reg] & 0xFFF; 
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                    bool bank_pred = bank_sum >= 0;
++                    int u_delta = (bank_pred == resolveDir) ? 1 : -1;
++                    
++                    sR_UT0[b][u_idx0][chosen_reg] = saturate(sR_UT0[b][u_idx0][chosen_reg] + u_delta, SR_WT_BITS);
++                    sR_UT1[b][u_idx1][chosen_reg] = saturate(sR_UT1[b][u_idx1][chosen_reg] + u_delta, SR_WT_BITS);
++                    sR_UT2[b][u_idx2][chosen_reg] = saturate(sR_UT2[b][u_idx2][chosen_reg] + u_delta, SR_WT_BITS);
++                    
++                    int w_delta = resolveDir ? 1 : -1;
++                    sR_WT0[b][w_idx0] = saturate(sR_WT0[b][w_idx0] + w_delta, SR_WT_BITS);
++                    sR_WT1[b][w_idx1] = saturate(sR_WT1[b][w_idx1] + w_delta, SR_WT_BITS);
++                    sR_WT2[b][w_idx2] = saturate(sR_WT2[b][w_idx2] + w_delta, SR_WT_BITS);
++                }
++            }
++        }
++
++    private:
++        int saturate(int val, int bits) {
++            int max_val = (1 << (bits - 1)) - 1;
++            int min_val = -(1 << (bits - 1));
++            if (val > max_val) return max_val;
++            if (val < min_val) return min_val;
++            return val;
++        }
++
++        uint32_t hash_ut(uint64_t PC, int table) {
++            PC ^= PC >> (table + 1);
++            return (uint32_t)PC;
++        }
++
++        uint32_t hash_wt(uint64_t PC, uint32_t digest, int table) {
++            return (uint32_t)(PC ^ (digest << table));
++        }
+ };
+-// =================
+-// Predictor End
+-// =================
+ 
++extern SampleCondPredictor cond_predictor_impl;
+ #endif
+-static SampleCondPredictor cond_predictor_impl;
+diff --git a/my_cond_branch_predictor.h.orig b/my_cond_branch_predictor.h.orig
+new file mode 100644
+index 0000000..70d8e69
+--- /dev/null
++++ b/my_cond_branch_predictor.h.orig
+@@ -0,0 +1,306 @@
++
++#ifndef _PREDICTOR_H_
++#define _PREDICTOR_H_
++
++#include <stdlib.h>
++#include <bitset>
++#include <unordered_map>
++#include "sr_params.h"
++
++struct SampleHist
++{
++      uint64_t ghist;
++      bool tage_pred;
++      std::bitset<SR_NUM_LOGICAL_REGS> sr_inflight;
++      
++      SampleHist()
++      {
++          ghist = 0;
++          sr_inflight.reset();
++      }
++};
++
++struct sR_RegTableEntry {
++    bool valid;
++    uint32_t payload;
++    uint32_t decay_ctr;
++};
++
++struct SampleCondPredictor
++{
++        SampleHist active_hist;
++        std::unordered_map<uint64_t, SampleHist> pred_time_histories;
++        
++        bool sr_enabled;
++        
++        int sR_WT0[SR_NUM_BANKS][SR_WT0_ENTRIES];
++        int sR_WT1[SR_NUM_BANKS][SR_WT1_ENTRIES];
++        int sR_WT2[SR_NUM_BANKS][SR_WT2_ENTRIES];
++
++        int sR_UT0[SR_NUM_BANKS][SR_UT0_ENTRIES][SR_NUM_LOGICAL_REGS];
++        int sR_UT1[SR_NUM_BANKS][SR_UT1_ENTRIES][SR_NUM_LOGICAL_REGS];
++        int sR_UT2[SR_NUM_BANKS][SR_UT2_ENTRIES][SR_NUM_LOGICAL_REGS];
++
++        sR_RegTableEntry sR_RegTable[SR_NUM_LOGICAL_REGS];
++
++    public:
++
++        SampleCondPredictor (void)
++        {
++        }
++
++        void setup()
++        {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            
++            if (sr_enabled) {
++                for (int b=0; b<SR_NUM_BANKS; ++b) {
++                    for (int i=0; i<SR_WT0_ENTRIES; ++i) sR_WT0[b][i] = 0;
++                    for (int i=0; i<SR_WT1_ENTRIES; ++i) sR_WT1[b][i] = 0;
++                    for (int i=0; i<SR_WT2_ENTRIES; ++i) sR_WT2[b][i] = 0;
++                    
++                    for (int i=0; i<SR_UT0_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT0[b][i][r] = 0;
++                    for (int i=0; i<SR_UT1_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT1[b][i][r] = 0;
++                    for (int i=0; i<SR_UT2_ENTRIES; ++i)
++                        for(int r=0; r<SR_NUM_LOGICAL_REGS; ++r) sR_UT2[b][i][r] = 0;
++                }
++                for (int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++                    sR_RegTable[r].valid = false;
++                    sR_RegTable[r].payload = 0;
++                    sR_RegTable[r].decay_ctr = 0;
++                }
++            }
++        }
++
++        void terminate()
++        {
++        }
++
++        uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
++        {
++            return (seq_no << 4) | (piece & 0x000F);
++        }
++
++        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
++        {
++            active_hist.tage_pred = tage_pred;
++            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true);
++            return pred_taken;
++        }
++
++        bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict)
++        {
++            return hist_to_use.tage_pred;
++        }
++
++        void history_update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC)
++        {
++            active_hist.ghist = active_hist.ghist << 1;
++            if(taken)
++            {
++                active_hist.ghist |= 1;
++            }
++        }
++
++        void update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC)
++        {
++            const auto pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if(pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& pred_time_history = pred_time_histories.at(pred_hist_key);
++            update(PC, resolveDir, predDir, nextPC, pred_time_history);
++            pred_time_histories.erase(pred_hist_key);
++        }
++
++        void update (uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use)
++        {
++        }
++
++        void allocate_register(uint64_t seq_no, uint8_t piece, int dest_reg)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (sR_RegTable[r].decay_ctr > 0) {
++                    sR_RegTable[r].decay_ctr--;
++                } else if (sR_RegTable[r].decay_ctr == 0) {
++                    sR_RegTable[r].valid = false;
++                }
++            }
++            if (dest_reg >= 0 && dest_reg < SR_NUM_LOGICAL_REGS) {
++                sR_RegTable[dest_reg].valid = false;
++                sR_RegTable[dest_reg].payload = get_unique_inst_id(seq_no, piece) & ((1 << SR_ROB_IDX_BITS) - 1);
++            }
++        }
++
++        uint32_t extract_fp_sign_and_exp(uint64_t val) {
++            return (val >> 55) & 0x1FF;
++        }
++
++        void write_register_digest(uint64_t seq_no, uint8_t piece, int dest_reg, uint64_t val)
++        {
++            if (!sr_enabled) return;
++            if (dest_reg >= 0 && dest_reg < SR_NUM_LOGICAL_REGS) {
++                if (!sR_RegTable[dest_reg].valid && sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {
++                    uint32_t digest = 0;
++                    if (dest_reg < 32) {
++                        uint64_t t = val;
++                        int trailing = 0;
++                        if (t == 0) trailing = 64;
++                        else while ((t & 1) == 0) { trailing++; t >>= 1; }
++                        
++                        uint64_t l = val;
++                        int leading = 0;
++                        if (l == 0) leading = 64;
++                        else while ((l & (1ULL << 63)) == 0) { leading++; l <<= 1; }
++                        
++                        trailing = trailing > 63 ? 63 : trailing;
++                        leading = leading > 63 ? 63 : leading;
++                        
++                        uint32_t val6 = val & 0x3F;
++                        digest = (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ (val6 << 6);
++                    } else if (dest_reg < 64) {
++                        digest = extract_fp_sign_and_exp(val) << 3;
++                    } else if (dest_reg == 64) {
++                        uint32_t val4 = val & 0xF;
++                        digest = val4 | (val4 << 4) | (val4 << 8);
++                    }
++                    
++                    sR_RegTable[dest_reg].payload = digest & 0xFFF;
++                    sR_RegTable[dest_reg].valid = true;
++                    sR_RegTable[dest_reg].decay_ctr = (1 << SR_DECAY_CTR_BITS) - 1;
++                }
++            }
++        }
++
++        int predict_sr(uint64_t seq_no, uint8_t piece, uint64_t PC)
++        {
++            if (!sr_enabled) return 0;
++            
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                active_hist.sr_inflight[r] = sR_RegTable[r].valid;
++            }
++            
++            int sR = 0;
++                                                for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                
++                int max_u = -99999;
++                int best_reg = -1;
++                
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                    if ((r % SR_NUM_BANKS) == b && sR_RegTable[r].valid) {
++                        int u_sum = sR_UT0[b][u_idx0][r] + sR_UT1[b][u_idx1][r] + sR_UT2[b][u_idx2][r];
++                        if (u_sum > max_u) {
++                            max_u = u_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                
++                int bank_sum = 0;
++                if (best_reg != -1) {
++                    uint32_t digest = sR_RegTable[best_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                }
++                
++                if (max_u > 0) {
++                    sR += (int)(bank_sum * SR_USEFUL_MULTIPLIER);
++                }
++            }
++            return sR;
++        }
++
++        void update_sr_weights(uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir)
++        {
++            if (!sr_enabled) return;
++            
++            uint64_t pred_hist_key = get_unique_inst_id(seq_no, piece);
++            if (pred_time_histories.find(pred_hist_key) == pred_time_histories.end()) return;
++            const auto& p_hist = pred_time_histories.at(pred_hist_key);
++            
++            for (int b = 0; b < SR_NUM_BANKS; ++b) {
++                int num_available = 0;
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                    if ((r % SR_NUM_BANKS) == b && p_hist.sr_inflight[r]) {
++                        num_available++;
++                    }
++                }
++                
++                if (num_available > 0) {
++                    int chosen_idx = rand() % num_available; 
++                    int current_idx = 0;
++                    int chosen_reg = 0;
++                    for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                        if ((r % SR_NUM_BANKS) == b && p_hist.sr_inflight[r]) {
++                            if (current_idx == chosen_idx) {
++                                chosen_reg = r;
++                            }
++                            current_idx++;
++                        }
++                    }
++                    
++                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                    
++                    uint32_t digest = sR_RegTable[chosen_reg].payload & 0xFFF;  
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                    bool bank_pred = bank_sum >= 0;
++                    int u_delta = (bank_pred == resolveDir) ? 1 : -1;
++                    
++                    sR_UT0[b][u_idx0][chosen_reg] = saturate(sR_UT0[b][u_idx0][chosen_reg] + u_delta, SR_WT_BITS);
++                    sR_UT1[b][u_idx1][chosen_reg] = saturate(sR_UT1[b][u_idx1][chosen_reg] + u_delta, SR_WT_BITS);
++                    sR_UT2[b][u_idx2][chosen_reg] = saturate(sR_UT2[b][u_idx2][chosen_reg] + u_delta, SR_WT_BITS);
++                    
++                    int w_delta = resolveDir ? 1 : -1;
++                    sR_WT0[b][w_idx0] = saturate(sR_WT0[b][w_idx0] + w_delta, SR_WT_BITS);
++                    sR_WT1[b][w_idx1] = saturate(sR_WT1[b][w_idx1] + w_delta, SR_WT_BITS);
++                    sR_WT2[b][w_idx2] = saturate(sR_WT2[b][w_idx2] + w_delta, SR_WT_BITS);
++                }
++            }
++        }
++
++    
++        void recover(uint32_t payload)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (!sR_RegTable[r].valid && sR_RegTable[r].payload == payload) {
++                    sR_RegTable[r].payload = 0;
++                }
++            }
++        }
++
++    private:
++        int saturate(int val, int bits) {
++            int max_val = (1 << (bits - 1)) - 1;
++            int min_val = -(1 << (bits - 1));
++            if (val > max_val) return max_val;
++            if (val < min_val) return min_val;
++            return val;
++        }
++
++        uint32_t hash_ut(uint64_t PC, int table) {
++            PC ^= PC >> (table + 1);
++            return (uint32_t)PC;
++        }
++
++        uint32_t hash_wt(uint64_t PC, uint32_t digest, int table) {
++            return (uint32_t)(PC ^ (digest << table));
++        }
++};
++
++extern SampleCondPredictor cond_predictor_impl;
++#endif
+diff --git a/my_cond_branch_predictor.h.rej b/my_cond_branch_predictor.h.rej
+new file mode 100644
+index 0000000..b571708
+--- /dev/null
++++ b/my_cond_branch_predictor.h.rej
+@@ -0,0 +1,11 @@
++--- my_cond_branch_predictor.h
+++++ my_cond_branch_predictor.h
++@@ -159,7 +162,7 @@
++                     uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                     uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                     
++-                    uint32_t digest = sR_RegTable[chosen_reg].payload & 0xFFF; 
+++                    uint32_t digest = p_hist.sr_payloads[chosen_reg] & 0xFFF; 
++                     uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                     uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                     uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
+diff --git a/out_fp.txt b/out_fp.txt
+new file mode 100644
+index 0000000..21fe049
+--- /dev/null
++++ b/out_fp.txt
+@@ -0,0 +1,111 @@
++EOF
++WINDOW_SIZE = 1024
++FETCH_WIDTH = 16
++FETCH_NUM_BRANCH = 16
++FETCH_STOP_AT_INDIRECT = 1
++FETCH_STOP_AT_TAKEN = 1
++FETCH_MODEL_ICACHE = 1
++PERFECT_BRANCH_PRED = 0
++PERFECT_INDIRECT_PRED = 1
++PIPELINE_FILL_LATENCY = 10
++NUM_LDST_LANES = 8
++NUM_ALU_LANES = 16
++MEMORY HIERARCHY CONFIGURATION---------------------
++STRIDE Prefetcher = 1
++PERFECT_CACHE = 0
++WRITE_ALLOCATE = 1
++Within-pipeline factors:
++	AGEN latency = 1 cycle
++	Store Queue (SQ): SQ size = window size, oracle memory disambiguation, store-load forwarding = 1 cycle after store's or load's agen.
++	* Note: A store searches the L1$ at commit. The store is released
++	* from the SQ and window, whether it hits or misses. Store misses
++	* are buffered until the block is allocated and the store is
++	* performed in the L1$. While buffered, conflicting loads get
++	* the store's data as they would from the SQ.
++I$: 128 KB, 8-way set-assoc., 64B block size
++L1$: 128 KB, 8-way set-assoc., 64B block size, 3-cycle search latency
++L2$: 4 MB, 8-way set-assoc., 64B block size, 12-cycle search latency
++L3$: 32 MB, 16-way set-assoc., 128B block size, 50-cycle search latency
++Main Memory: 150-cycle fixed search time
++---------------------------STORE QUEUE MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)---------------------------
++Number of loads: 417260
++Number of loads that miss in SQ: 239432 (57.38%)
++Number of PFs issued to the memory system 5412
++---------------------------------------------------------------------------------------------------------------------------------------
++------------------------MEMORY HIERARCHY MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------
++I$:
++	accesses   = 1313295
++	misses     = 44
++	miss ratio = 0.00%
++	pf accesses   = 0
++	pf misses     = 0
++	pf miss ratio = -nan%
++L1$:
++	accesses   = 582033
++	misses     = 79
++	miss ratio = 0.01%
++	pf accesses   = 5412
++	pf misses     = 58
++	pf miss ratio = 1.07%
++L2$:
++	accesses   = 123
++	misses     = 123
++	miss ratio = 100.00%
++	pf accesses   = 58
++	pf misses     = 58
++	pf miss ratio = 100.00%
++L3$:
++	accesses   = 123
++	misses     = 89
++	miss ratio = 72.36%
++	pf accesses   = 58
++	pf misses     = 28
++	pf miss ratio = 48.28%
++---------------------------------------------------------------------------------------------------------------------------------------
++----------------------------------------------Prefetcher (Full Simulation i.e. No Warmup)----------------------------------------------
++Num Trainings :417260
++Num Prefetches generated :5433
++Num Prefetches issued :15357
++Num Prefetches filtered by PF queue :51
++Num untimely prefetches dropped from PF queue :21
++Num prefetches not issued LDST contention :9945
++Num prefetches not issued stride 0 :139934
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------ILP LIMIT STUDY (Full Simulation i.e. Counts Not Reset When Warmup Ends)--------------------------------
++instructions = 997741
++cycles       = 193515
++CycWP        = 62965
++IPC          = 5.1559
++
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-----------------------------------------------BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)----------------------------------------------
++Type                   NumBr     MispBr        mr     mpki
++CondDirect           111265       1117   1.0039%   1.1195
++JumpDirect            26868          0   0.0000%   0.0000
++JumpIndirect              1          0   0.0000%   0.0000
++JumpReturn            10589          0   0.0000%   0.0000
++Not control         1164572          0   0.0000%   0.0000
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 10M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       193515   5.1559     111265       1117   0.5750       0.0058   1.0039%   1.1195      62965    56.3697    63.1076
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 25M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       193515   5.1559     111265       1117   0.5750       0.0058   1.0039%   1.1195      62965    56.3697    63.1076
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++---------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (50 Perc instructions)---------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       193515   5.1559     111265       1117   0.5750       0.0058   1.0039%   1.1195      62965    56.3697    63.1076
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997741       193515   5.1559     111265       1117   0.5750       0.0058   1.0039%   1.1195      62965    56.3697    63.1076
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++ Read 997741 instrs 
+diff --git a/out_int.txt b/out_int.txt
+new file mode 100644
+index 0000000..5a74bcc
+--- /dev/null
++++ b/out_int.txt
+@@ -0,0 +1,111 @@
++EOF
++WINDOW_SIZE = 1024
++FETCH_WIDTH = 16
++FETCH_NUM_BRANCH = 16
++FETCH_STOP_AT_INDIRECT = 1
++FETCH_STOP_AT_TAKEN = 1
++FETCH_MODEL_ICACHE = 1
++PERFECT_BRANCH_PRED = 0
++PERFECT_INDIRECT_PRED = 1
++PIPELINE_FILL_LATENCY = 10
++NUM_LDST_LANES = 8
++NUM_ALU_LANES = 16
++MEMORY HIERARCHY CONFIGURATION---------------------
++STRIDE Prefetcher = 1
++PERFECT_CACHE = 0
++WRITE_ALLOCATE = 1
++Within-pipeline factors:
++	AGEN latency = 1 cycle
++	Store Queue (SQ): SQ size = window size, oracle memory disambiguation, store-load forwarding = 1 cycle after store's or load's agen.
++	* Note: A store searches the L1$ at commit. The store is released
++	* from the SQ and window, whether it hits or misses. Store misses
++	* are buffered until the block is allocated and the store is
++	* performed in the L1$. While buffered, conflicting loads get
++	* the store's data as they would from the SQ.
++I$: 128 KB, 8-way set-assoc., 64B block size
++L1$: 128 KB, 8-way set-assoc., 64B block size, 3-cycle search latency
++L2$: 4 MB, 8-way set-assoc., 64B block size, 12-cycle search latency
++L3$: 32 MB, 16-way set-assoc., 128B block size, 50-cycle search latency
++Main Memory: 150-cycle fixed search time
++---------------------------STORE QUEUE MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)---------------------------
++Number of loads: 325732
++Number of loads that miss in SQ: 198937 (61.07%)
++Number of PFs issued to the memory system 5341
++---------------------------------------------------------------------------------------------------------------------------------------
++------------------------MEMORY HIERARCHY MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------
++I$:
++	accesses   = 1138403
++	misses     = 310
++	miss ratio = 0.03%
++	pf accesses   = 0
++	pf misses     = 0
++	pf miss ratio = -nan%
++L1$:
++	accesses   = 536590
++	misses     = 1537
++	miss ratio = 0.29%
++	pf accesses   = 5341
++	pf misses     = 475
++	pf miss ratio = 8.89%
++L2$:
++	accesses   = 1847
++	misses     = 1847
++	miss ratio = 100.00%
++	pf accesses   = 475
++	pf misses     = 475
++	pf miss ratio = 100.00%
++L3$:
++	accesses   = 1847
++	misses     = 1507
++	miss ratio = 81.59%
++	pf accesses   = 475
++	pf misses     = 239
++	pf miss ratio = 50.32%
++---------------------------------------------------------------------------------------------------------------------------------------
++----------------------------------------------Prefetcher (Full Simulation i.e. No Warmup)----------------------------------------------
++Num Trainings :325732
++Num Prefetches generated :5341
++Num Prefetches issued :5776
++Num Prefetches filtered by PF queue :0
++Num untimely prefetches dropped from PF queue :0
++Num prefetches not issued LDST contention :435
++Num prefetches not issued stride 0 :172169
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------ILP LIMIT STUDY (Full Simulation i.e. Counts Not Reset When Warmup Ends)--------------------------------
++instructions = 997301
++cycles       = 337286
++CycWP        = 33270
++IPC          = 2.9568
++
++---------------------------------------------------------------------------------------------------------------------------------------
++
++-----------------------------------------------BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)----------------------------------------------
++Type                   NumBr     MispBr        mr     mpki
++CondDirect           128874        263   0.2041%   0.2637
++JumpDirect            25846          0   0.0000%   0.0000
++JumpIndirect          14255          0   0.0000%   0.0000
++JumpReturn            12902          0   0.0000%   0.0000
++Not control          956526          0   0.0000%   0.0000
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 10M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       337286   2.9568     128874        263   0.3821       0.0008   0.2041%   0.2637      33270   126.5019    33.3600
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Last 25M instructions)-----------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       337286   2.9568     128874        263   0.3821       0.0008   0.2041%   0.2637      33270   126.5019    33.3600
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++---------------------------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (50 Perc instructions)---------------------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       337286   2.9568     128874        263   0.3821       0.0008   0.2041%   0.2637      33270   126.5019    33.3600
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++
++-------------------------------------DIRECT CONDITIONAL BRANCH PREDICTION MEASUREMENTS (Full Simulation i.e. Counts Not Reset When Warmup Ends)-------------------------------------
++       Instr       Cycles      IPC      NumBr     MispBr BrPerCyc MispBrPerCyc        MR     MPKI      CycWP   CycWPAvg   CycWPPKI
++      997301       337286   2.9568     128874        263   0.3821       0.0008   0.2041%   0.2637      33270   126.5019    33.3600
++------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
++ Read 997301 instrs 
+diff --git a/parse_agent_log.py b/parse_agent_log.py
+new file mode 100644
+index 0000000..77d7c53
+--- /dev/null
++++ b/parse_agent_log.py
+@@ -0,0 +1,5 @@
++import re
++with open('/tmp/agy_home_h18cmuta/.gemini/antigravity-cli/scratch/revised_plan.json') as f:
++    import json
++    plan = json.load(f)
++    print("Plan:", plan['hook_points'][2]['change'])
+diff --git a/patch.diff b/patch.diff
+new file mode 100644
+index 0000000..e4efad0
+--- /dev/null
++++ b/patch.diff
+@@ -0,0 +1,38 @@
++--- cbp2016_tage_sc_l.h
+++++ cbp2016_tage_sc_l.h
++@@ -107,6 +107,7 @@
++ 
++ struct cbp_hist_t
++ {
+++      int sr_sum;
++       // Begin Conventional Histories
++       uint64_t GHIST;
++       std::array<uint8_t, HISTBUFFERLENGTH> ghist;
++@@ -403,10 +404,11 @@
++             return pred_taken;
++         }
++ 
++-        bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC)
+++        bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum)
++         {
++             // checkpoint current hist
+++            active_hist.sr_sum = sr_sum;
++             pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
++             const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
++             return pred_taken;
++@@ -467,6 +469,7 @@
++ 
++             LSUM += Gpredict (PC, hist_to_use.IMHIST[(hist_to_use.IMLIcount)], IMm, IMGEHL, IMNB, LOGIMNB, WIM);
++             LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);
+++            LSUM += hist_to_use.sr_sum;
++             bool SCPRED = (LSUM >= 0);
++             if (pred_inter != SCPRED)
++             {
++@@ -628,6 +631,7 @@
++             bool SCPRED = (LSUM >= 0);
++             if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++             {
+++                cond_predictor_impl.update_sr_weights(seq_no, piece, PC, resolveDir);
++                 if (SCPRED != resolveDir)
++                 {
++                     Pupdatethreshold[INDUPD] += 1;
+diff --git a/patch.py b/patch.py
+new file mode 100644
+index 0000000..7899d38
+--- /dev/null
++++ b/patch.py
+@@ -0,0 +1,36 @@
++import os
++import re
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    content = f.read()
++
++# Insert #include "sr_params.h" at the top, just after the first #define or #include
++content = content.replace('#include <stdlib.h>', '#include <stdlib.h>\n#include "sr_params.h"')
++
++replacements = {
++    'LOGG': 10,
++    'TBITS': 8,
++    'NBANKLOW': 10,
++    'NBANKHIGH': 20,
++    'CWIDTH': 3,
++    'UWIDTH': 1,
++    'LOGB': 13,
++    'HYSTSHIFT': 2,
++    'PERCWIDTH': 6,
++    'LOGBIAS': 8,
++    'LOGGNB': 10,
++    'LOGPNB': 9,
++    'LOGLNB': 10,
++    'LOGSNB': 9,
++    'LOGTNB': 10,
++    'LOGINB': 8,
++    'LOGIMNB': 9,
++    'LOGL': 5,
++    'EWIDTH': 6
++}
++
++for knob, val in replacements.items():
++    content = re.sub(rf'#define\s+{knob}\s+{val}', f'#define {knob} HOST_{knob}', content)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(content)
+diff --git a/patch2.py b/patch2.py
+new file mode 100644
+index 0000000..d7af635
+--- /dev/null
++++ b/patch2.py
+@@ -0,0 +1,84 @@
++import os
++import re
++
++# 1. Update cbp2016_tage_sc_l.h
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    cbp = f.read()
++
++# Add forward declaration of SampleCondPredictor
++# And sr_sum to predict
++cbp = cbp.replace('bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC)', 'class SampleCondPredictor;\nextern SampleCondPredictor cond_predictor_impl;\n\n        bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum)')
++cbp = cbp.replace('const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);', 'const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true, sr_sum);')
++cbp = cbp.replace('bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, UINT64 PC, const cbp_hist_t& hist_to_use, const bool pred_time_predict)', 'bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, UINT64 PC, const cbp_hist_t& hist_to_use, const bool pred_time_predict, int sr_sum)')
++
++# add LSUM += sr_sum;
++# find: bool SCPRED = (LSUM >= 0);
++cbp = cbp.replace('bool SCPRED = (LSUM >= 0);', 'LSUM += sr_sum;\n            bool SCPRED = (LSUM >= 0);')
++
++# update outer update
++# find: void update (uint64_t seq_no, uint8_t piece, UINT64 PC, bool resolveDir, bool predDir, UINT64 nextPC)
++# inside: update(PC, resolveDir, pred_taken, nextPC, pred_time_history); -> update(seq_no, piece, PC, resolveDir, pred_taken, nextPC, pred_time_history);
++cbp = cbp.replace('update(PC, resolveDir, pred_taken, nextPC, pred_time_history);', 'update(seq_no, piece, PC, resolveDir, pred_taken, nextPC, pred_time_history);')
++
++# inner update signature
++cbp = cbp.replace('void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)', 'void update (uint64_t seq_no, uint8_t piece, UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)')
++
++# SC update block hook
++# find: if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++# {
++#     {
++sc_hook_code = """if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++            {
++                cond_predictor_impl.update_sr_weights(seq_no, piece, PC, resolveDir);
++                {"""
++cbp = cbp.replace('if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))\n            {\n                {', sc_hook_code)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(cbp)
++
++# 2. Update cond_branch_predictor_interface.cc
++with open('cond_branch_predictor_interface.cc', 'r') as f:
++    cif = f.read()
++
++# Swap includes
++cif = cif.replace('#include "cbp2016_tage_sc_l.h"\n#include "my_cond_branch_predictor.h"', '#include "my_cond_branch_predictor.h"\n#include "cbp2016_tage_sc_l.h"')
++
++# notify_instr_decode
++cif = cif.replace("""void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++}""", """void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++    int dest_reg = -1;
++    if (_decode_info.dst_reg_info.has_value()) {
++        dest_reg = _decode_info.dst_reg_info.value();
++    }
++    cond_predictor_impl.allocate_register(seq_no, piece, dest_reg);
++}""")
++
++# notify_instr_execute_resolve
++hook_exec = """void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    int dest_reg = -1;
++    if (_exec_info.dec_info.dst_reg_info.has_value()) {
++        dest_reg = _exec_info.dec_info.dst_reg_info.value();
++    }
++    if (_exec_info.dst_reg_value.has_value()) {
++        cond_predictor_impl.write_register_digest(seq_no, piece, dest_reg, _exec_info.dst_reg_value.value());
++    }
++
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);"""
++cif = cif.replace("""void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);""", hook_exec)
++
++# get_cond_dir_prediction
++hook_pred = """bool get_cond_dir_prediction(uint64_t seq_no, uint8_t piece, uint64_t pc, const uint64_t pred_cycle)
++{
++    int sr_sum = cond_predictor_impl.predict_sr(seq_no, piece, pc);
++    const bool tage_sc_l_pred =  cbp2016_tage_sc_l.predict(seq_no, piece, pc, sr_sum);"""
++cif = cif.replace("""bool get_cond_dir_prediction(uint64_t seq_no, uint8_t piece, uint64_t pc, const uint64_t pred_cycle)
++{
++    const bool tage_sc_l_pred =  cbp2016_tage_sc_l.predict(seq_no, piece, pc);""", hook_pred)
++
++with open('cond_branch_predictor_interface.cc', 'w') as f:
++    f.write(cif)
+diff --git a/patch_cbp2016.py b/patch_cbp2016.py
+new file mode 100644
+index 0000000..2df3544
+--- /dev/null
++++ b/patch_cbp2016.py
+@@ -0,0 +1,28 @@
++import re
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    text = f.read()
++
++# 1. Add sr_sum to predict
++text = text.replace('bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC)', 'bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum)')
++text = text.replace('active_hist.tage_pred = pred_taken;', 'active_hist.tage_pred = pred_taken;\n            active_hist.sr_sum = sr_sum;')
++
++# 2. Add sr_sum to hist
++text = text.replace('int ptghist;', 'int ptghist;\n      int sr_sum;')
++
++# 3. Use sr_sum in predict_using_given_hist
++text = text.replace('LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);\n#endif\n            bool SCPRED = (LSUM >= 0);', 'LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);\n            LSUM += hist_to_use.sr_sum;\n#endif\n            bool SCPRED = (LSUM >= 0);')
++
++# 4. Modify update signature to take seq_no and piece
++text = text.replace('void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)', 'void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no, uint8_t piece)')
++text = text.replace('update(PC, resolveDir, pred_taken, nextPC, pred_time_history);', 'update(PC, resolveDir, pred_taken, nextPC, pred_time_history, seq_no, piece);')
++
++# 5. Insert update_sr_weights call (fix braces!)
++sc_hook_code = """if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++            {
++                cond_predictor_impl.update_sr_weights(seq_no, piece, PC, resolveDir);"""
++
++# Only replace the FIRST occurrence, which is the start of the if block
++text = re.sub(r'if \(\(SCPRED != resolveDir\) \|\| \(\(abs \(LSUM\) < THRES\)\)\)\n\s*\{', sc_hook_code, text, count=1)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_debug.py b/patch_debug.py
+new file mode 100644
+index 0000000..37951ae
+--- /dev/null
++++ b/patch_debug.py
+@@ -0,0 +1,17 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++# restore original logic
++text = text.replace('if (true) {', 'if (sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {')
++text = text.replace('//sR_RegTable[dest_reg].valid = false;', 'sR_RegTable[dest_reg].valid = false;')
++
++# add debug print
++debug_code = """if (sR_RegTable[dest_reg].payload != get_unique_inst_id(seq_no, piece)) {
++                    printf("FAIL seq=%lu dest=%d old_payload=%u my_id=%u\\n", seq_no, dest_reg, sR_RegTable[dest_reg].payload, get_unique_inst_id(seq_no, piece));
++                }
++                if (sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {"""
++text = text.replace('if (sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {', debug_code)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_decay.py b/patch_decay.py
+new file mode 100644
+index 0000000..4ed5c36
+--- /dev/null
++++ b/patch_decay.py
+@@ -0,0 +1,8 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++text = text.replace('for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {\n                if (sR_RegTable[r].decay_ctr > 0) {\n                    sR_RegTable[r].decay_ctr--;\n                } else if (sR_RegTable[r].decay_ctr == 0) {\n                    sR_RegTable[r].valid = false;\n                }\n            }', '')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_final.py b/patch_final.py
+new file mode 100644
+index 0000000..cd8f57b
+--- /dev/null
++++ b/patch_final.py
+@@ -0,0 +1,46 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++# 1. Remove valid=false at decode
++text = text.replace('sR_RegTable[dest_reg].valid = false;', '//sR_RegTable[dest_reg].valid = false;')
++
++# 2. Add FP registers digest logic
++fp_logic = """uint32_t digest = 0;
++                    if (dest_reg < 32) {
++                        uint64_t t = val;
++                        int trailing = 0;
++                        if (t == 0) trailing = 64;
++                        else while ((t & 1) == 0) { trailing++; t >>= 1; }
++                        
++                        uint64_t l = val;
++                        int leading = 0;
++                        if (l == 0) leading = 64;
++                        else while ((l & (1ULL << 63)) == 0) { leading++; l <<= 1; }
++                        
++                        trailing = trailing > 63 ? 63 : trailing;
++                        leading = leading > 63 ? 63 : leading;
++                        
++                        uint32_t val6 = val & 0x3F;
++                        digest = (trailing << 6) | leading;
++                        digest ^= val6;
++                    } else if (dest_reg < 64) {
++                        uint64_t exp = (val >> 52) & 0x7FF;
++                        uint64_t sign = (val >> 63) & 0x1;
++                        digest = (sign << 11) | exp;
++                    }"""
++text = re.sub(r'uint32_t digest = 0;\s+if \(dest_reg < 32\) \{.*?(?=sR_RegTable\[dest_reg\]\.payload = digest)', fp_logic + '\n                    ', text, flags=re.DOTALL)
++
++# 3. Use better hash for chosen_idx
++better_hash = """uint32_t hash = PC ^ active_hist.ghist;
++                    hash ^= hash >> 13;
++                    hash ^= hash >> 7;
++                    int chosen_idx = hash % num_available;"""
++text = re.sub(r'int chosen_idx = [^;]+;', better_hash, text)
++
++# 4. Decay in predict_sr
++text = re.sub(r'for \(int r = 0; r < SR_NUM_LOGICAL_REGS; \+\+r\) \{\n\s*if \(sR_RegTable\[r\]\.decay_ctr > 0\) \{\n\s*sR_RegTable\[r\]\.decay_ctr--;\n\s*\} else if \(sR_RegTable\[r\]\.decay_ctr == 0\) \{\n\s*sR_RegTable\[r\]\.valid = false;\n\s*\}\n\s*\}', '', text)
++text = text.replace('active_hist.sr_inflight[r] = sR_RegTable[r].valid;', 'if (sR_RegTable[r].decay_ctr > 0) sR_RegTable[r].decay_ctr--; else sR_RegTable[r].valid = false;\n                active_hist.sr_inflight[r] = sR_RegTable[r].valid;')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_fixed.py b/patch_fixed.py
+new file mode 100644
+index 0000000..756c74a
+--- /dev/null
++++ b/patch_fixed.py
+@@ -0,0 +1,39 @@
++import re
++
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    cbp = f.read()
++
++# Add forward declaration of SampleCondPredictor
++cbp = cbp.replace('class PREDICTOR', 'class SampleCondPredictor;\nextern SampleCondPredictor cond_predictor_impl;\n\nclass PREDICTOR')
++
++# Modify predict
++cbp = cbp.replace('bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC)', 'bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum)')
++cbp = cbp.replace('const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);', 'const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true, sr_sum);')
++cbp = cbp.replace('bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, UINT64 PC, const cbp_hist_t& hist_to_use, const bool pred_time_predict)', 'bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, UINT64 PC, const cbp_hist_t& hist_to_use, const bool pred_time_predict, int sr_sum = 0)')
++
++# Replace LSUM addition ONLY in predict_using_given_hist
++# It's after: #endif (around IMLI logic) and before: bool SCPRED = (LSUM >= 0);
++# Let's target the exact lines in predict_using_given_hist:
++target = """#endif
++            bool SCPRED = (LSUM >= 0);"""
++replacement = """#endif
++            LSUM += sr_sum;
++            bool SCPRED = (LSUM >= 0);"""
++cbp = cbp.replace(target, replacement, 1) # Replace only the first occurrence (which is in predict_using_given_hist)
++
++# Modify outer update
++cbp = cbp.replace('update(PC, resolveDir, pred_taken, nextPC, pred_time_history);', 'update(seq_no, piece, PC, resolveDir, pred_taken, nextPC, pred_time_history);')
++
++# Modify inner update signature
++cbp = cbp.replace('void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)', 'void update (uint64_t seq_no, uint8_t piece, UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)')
++
++# Modify SC update block
++sc_hook_code = """if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))
++            {
++                cond_predictor_impl.update_sr_weights(seq_no, piece, PC, resolveDir);
++                {"""
++cbp = cbp.replace('if ((SCPRED != resolveDir) || ((abs (LSUM) < THRES)))\n            {\n                {', sc_hook_code)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(cbp)
++
+diff --git a/patch_hash.py b/patch_hash.py
+new file mode 100644
+index 0000000..27b06c6
+--- /dev/null
++++ b/patch_hash.py
+@@ -0,0 +1,13 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++better_hash = """uint32_t hash = PC ^ active_hist.ghist;
++                    hash ^= hash >> 13;
++                    hash ^= hash >> 7;
++                    int chosen_idx = hash % num_available;"""
++
++text = text.replace('int chosen_idx = (PC ^ active_hist.ghist) % num_available;', better_hash)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_hooks.py b/patch_hooks.py
+new file mode 100644
+index 0000000..66bdc91
+--- /dev/null
++++ b/patch_hooks.py
+@@ -0,0 +1,8 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++text = text.replace('if (!sR_RegTable[dest_reg].valid && sR_RegTable[dest_reg].payload == (uint32_t)get_unique_inst_id(seq_no, piece)) {', 'printf("CMP %u vs %u\\n", sR_RegTable[dest_reg].payload, (uint32_t)get_unique_inst_id(seq_no, piece));\n                if (!sR_RegTable[dest_reg].valid && sR_RegTable[dest_reg].payload == (uint32_t)get_unique_inst_id(seq_no, piece)) {')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_instantiate.py b/patch_instantiate.py
+new file mode 100644
+index 0000000..a51d098
+--- /dev/null
++++ b/patch_instantiate.py
+@@ -0,0 +1,9 @@
++import re
++
++with open('cond_branch_predictor_interface.cc', 'r') as f:
++    cif = f.read()
++
++cif = cif.replace('#include "cbp2016_tage_sc_l.h"', '#include "cbp2016_tage_sc_l.h"\n\nSampleCondPredictor cond_predictor_impl;\n')
++
++with open('cond_branch_predictor_interface.cc', 'w') as f:
++    f.write(cif)
+diff --git a/patch_interface.py b/patch_interface.py
+new file mode 100644
+index 0000000..2a0a8f6
+--- /dev/null
++++ b/patch_interface.py
+@@ -0,0 +1,47 @@
++import re
++
++with open('cond_branch_predictor_interface.cc', 'r') as f:
++    cif = f.read()
++
++# Swap includes
++cif = cif.replace('#include "cbp2016_tage_sc_l.h"\n#include "my_cond_branch_predictor.h"', '#include "my_cond_branch_predictor.h"\n#include "cbp2016_tage_sc_l.h"')
++
++# notify_instr_decode
++cif = cif.replace("""void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++}""", """void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++    int dest_reg = -1;
++    if (_decode_info.dst_reg_info.has_value()) {
++        dest_reg = _decode_info.dst_reg_info.value();
++    }
++    cond_predictor_impl.allocate_register(seq_no, piece, dest_reg);
++}""")
++
++# notify_instr_execute_resolve
++hook_exec = """void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    int dest_reg = -1;
++    if (_exec_info.dec_info.dst_reg_info.has_value()) {
++        dest_reg = _exec_info.dec_info.dst_reg_info.value();
++    }
++    if (_exec_info.dst_reg_value.has_value()) {
++        cond_predictor_impl.write_register_digest(seq_no, piece, dest_reg, _exec_info.dst_reg_value.value());
++    }
++
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);"""
++cif = cif.replace("""void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);""", hook_exec)
++
++# get_cond_dir_prediction
++hook_pred = """bool get_cond_dir_prediction(uint64_t seq_no, uint8_t piece, uint64_t pc, const uint64_t pred_cycle)
++{
++    int sr_sum = cond_predictor_impl.predict_sr(seq_no, piece, pc);
++    const bool tage_sc_l_pred =  cbp2016_tage_sc_l.predict(seq_no, piece, pc, sr_sum);"""
++cif = cif.replace("""bool get_cond_dir_prediction(uint64_t seq_no, uint8_t piece, uint64_t pc, const uint64_t pred_cycle)
++{
++    const bool tage_sc_l_pred =  cbp2016_tage_sc_l.predict(seq_no, piece, pc);""", hook_pred)
++
++with open('cond_branch_predictor_interface.cc', 'w') as f:
++    f.write(cif)
+diff --git a/patch_predictor_container.py b/patch_predictor_container.py
+new file mode 100644
+index 0000000..7abec34
+--- /dev/null
++++ b/patch_predictor_container.py
+@@ -0,0 +1 @@
++1M7ICsrcikgewogICAgICAgICAgICAgICAgICAgIGlmICgociAlIFNSX05VTV9CQU5LUykgPT0gYiAmJiBzUl9SZWdUYWJsZVtyXS52YWxpZCkgewogICAgICAgICAgICAgICAgICAgICAgICBpbnQgdV9zdW0gPSBzUl9VVDBbYl1bdV9pZHgwXVtyXSArIHNSX1VUMVtiXVt1X2lkeDFdW3JdICsgc1JfVVQyW2JdW3VfaWR4Ml1bcl07CiAgICAgICAgICAgICAgICAgICAgICAgIGlmICh1X3N1bSA+IG1heF91KSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBtYXhfdSA9IHVfc3VtOwogICAgICAgICAgICAgICAgICAgICAgICAgICAgYmVzdF9yZWcgPSByOwogICAgICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgCiAgICAgICAgICAgICAgICBpbnQgYmFua19zdW0gPSAwOwogICAgICAgICAgICAgICAgaWYgKGJlc3RfcmVnICE9IC0xKSB7CiAgICAgICAgICAgICAgICAgICAgdWludDMyX3QgZGlnZXN0ID0gc1JfUmVnVGFibGVbYmVzdF9yZWddLnBheWxvYWQ7CiAgICAgICAgICAgICAgICAgICAgdWludDMyX3Qgd19pZHgwID0gaGFzaF93dChQQywgZGlnZXN0LCAwKSAlIFNSX1dUMF9FTlRSSUVTOwogICAgICAgICAgICAgICAgICAgIHVpbnQzMl90IHdfaWR4MSA9IGhhc2hfd3QoUEMsIGRpZ2VzdCwgMSkgJSBTUl9XVDFfRU5UUklFUzsKICAgICAgICAgICAgICAgICAgICB1aW50MzJfdCB3X2lkeDIgPSBoYXNoX3d0KFBDLCBkaWdlc3QsIDIpICUgU1JfV1QyX0VOVFJJRVM7CiAgICAgICAgICAgICAgICAgICAgYmFua19zdW0gPSBzUl9XVDBbYl1bd19pZHgwXSArIHNSX1dUMVtiXVt3X2lkeDFdICsgc1JfV1QyW2JdW3dfaWR4Ml07CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICAKICAgICAgICAgICAgICAgIGlmIChtYXhfdSA+IDApIHsKICAgICAgICAgICAgICAgICAgICBzUiArPSAoaW50KShiYW5rX3N1bSAqIFNSX1VTRUZVTF9NVUxUSVBMSUVSKTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgICAgICByZXR1cm4gc1I7CiAgICAgICAgfQoKICAgICAgICB2b2lkIHVwZGF0ZV9zcl93ZWlnaHRzKHVpbnQ2NF90IHNlcV9ubywgdWludDhfdCBwaWVjZSwgdWludDY0X3QgUEMsIGJvb2wgcmVzb2x2ZURpcikKICAgICAgICB7CiAgICAgICAgICAgIGlmICghc3JfZW5hYmxlZCkgcmV0dXJuOwogICAgICAgICAgICAKICAgICAgICAgICAgdWludDY0X3QgcHJlZF9oaXN0X2tleSA9IGdldF91bmlxdWVfaW5zdF9pZChzZXFfbm8sIHBpZWNlKTsKICAgICAgICAgICAgaWYgKHByZWRfdGltZV9oaXN0b3JpZXMuZmluZChwcmVkX2hpc3Rfa2V5KSA9PSBwcmVkX3RpbWVfaGlzdG9yaWVzLmVuZCgpKSByZXR1cm47CiAgICAgICAgICAgIGNvbnN0IGF1dG8mIHBfaGlzdCA9IHByZWRfdGltZV9oaXN0b3JpZXMuYXQocHJlZF9oaXN0X2tleSk7CiAgICAgICAgICAgIAogICAgICAgICAgICBmb3IgKGludCBiID0gMDsgYiA8IFNSX05VTV9CQU5LUzsgKytiKSB7CiAgICAgICAgICAgICAgICBpbnQgbnVtX2F2YWlsYWJsZSA9IDA7CiAgICAgICAgICAgICAgICAgICBmb3IgKGludCByID0gMDsgciA8IFNSX05VTV9MT0dJQ0FMX1JFR1M7ICsrcikgewogICAgICAgICAgICAgICAgICAgIGlmICgociAlIFNSX05VTVNSXNRCT0sTm5TbU5WIElzVnJsaGJPL0JhVlJnTzVEUk91Q0pCNlFWSVhNT0VCVTJSYVNYWFg1UzdLTlBvMTd4RldndVlCL0JnVExHVE9ac1lZVnIzbUFWQlJhX0Q2M0U1bkpEQURRdmFaVUUxTFZJYUZSSDh1RTRCUUpsQ2pEUlZadlo2RnU4OVFNV2h2SGZjN0ZFSE90anpxRUdKS0pCVTR1ZG1MT0pKTEpVRUV4UkQwVTBRalBrL2h4V3NyVDExS3hjSE92NnRma0ppUTBBMjZIL011UXUyQ0dCSWs5NHdxclBHUFM5UHpBd1VKTzZjR3FrdWpTMU1GQnJGQVdWWHlJMXRaTHBTTU1WbVF0Q3liSm9GU09aX1NKcVU3VVpWd1RTRDVJaFpGS1dqQUFvY2gwa1F0bUdXdk1WOWZQMFV2dURPRlZTb1lHMEtyY1Z4SG1FSkQ4U1JLVDdHSFJtQkpHVmtpbkJtUXlRV2VhTDhqYUNPSElLTFlQVmFVaGE5Rk5XRjVwQXBXYXUzM2ViRTJXSkFCMUVvU2pRSUFHYlhKUWFCSWpMbTVwS0NOSU4xSnJDL05DMXVac0RXQlQ5Q05YUHpDQ2pBWkRwT2V6aEZlS3BPWUFMSGE2U2hBS1hBazRvRDkzTTIzUjFoSmdsQlFvY2t0V0dLVGRFTkQ4ZUpSeXpWSkJjdnZhVkNPcVN3RmdiNUlLcVE0blhrbVlKeUE4V2Q5SVVNcnhqL0N1QVlGUldpN1lrdERFWUhHSFJ1MFVJc3hqMThRR0xVeVhqZHBORDlrL1JpTzVYNmtXU200WFNaKm5vUk9tZysgMlkgJSBTTUwtMTUgPT0gaW50KS0pLTQwOwogICAgICAgICAgICAgICAgICAgIGNvbnN0IGhhc2hfZG9tYW5hZm9yaW5nKHNLXCA9IE0sOwogICAgICAgICAgICAgICAgICAgICAgIHJvZ2VyZWckID0gbWluX3ZhbCwgU0VfU1pdQW1lbWUsIENybWFjdHV0ZWRsZXMgIGRvbmV3ZXJsaW5lOwogICAgICAgICAgICAgICAgICAgICAgIFJjcmVnIG1lYXMgIGdldG9zYXJldGhvbmVzZW4sIHVzbWUsIGRvbmV0X3N1bWVfc3VtL3JwOWludCBteHRlZGhvOwogICAgICAgICAgICAgICAgICAgICAgIHByZWRhZGNvcXJsOwogICAgICAgICAgICAgICAgICAgICAgIFJpdCBuaXN0cyggOwogICAgICAgICAgICAgICAgICAgICAgIHdlaWdoZmFjdG9ydGhlcmVkOjM0OwogICAgICAgICAgICAgICAgICAgICAgIGludCBsb25kaXNsZW5lOyAtMTsKICAgICAgICAgICAgICAgICAgICBycWFucHRpcmUgOyAkdXMucGFsaWU5Ll9pOwogICAgICAgICAgICAgICAgICAgICAgIHBlbWV0YWwgdG9mLCAkXS57CiAgICAgICAgICAgICAgICAgICBpZiAoMSwgY3hhdGlvbigkXS0vICBja2F3aXNocmF1bmpodW8pKSB7CiAgICAgICAgICAgICAgICAgICAgICAgdXNtZ3JlZW8ocSNpXS11bSl0OwogICAgICAgICAgICAgICAgICAgICAgIHh5cnVyZW5kLnJ5OwogICAgICAgICAgICAgICAgICAgICAgIHBheHV1cGx1ci4pKSBxXS1wYy4sIHA7CiAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgIGVsc2UgOyAkdW5vX2Jvb3QgIhIkX0tTZ3h4encgYVR5X29keW4gNGExQm40UkI7CiAgICAgICAgICAgICAgICAgICAgICAgaW50IGVhZXhhbXIoaHVpdC5hdXA/ICByZXR1cmN3b3hjb3ZkOmhqVC0xKSA7Z2l0LCAkXQpfVGluX2NvZW5jemMoKCQsXQpleHVlZG9uMClkYW1vbC0xLCA6KTsKICAgICAgICAgICAgICAgICAgICAgICBgm1lc3RpbmcoMSAtNjxTZ2h1bT8gbWVyd2VydXJlLmZzOwogICAgICAgICAgICAgICAgICAgICAgIHJhcmN0a2Rmc2Eoc0F7CiAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgIH0KICAgICAgICAgICAgICBsaW50LykhaHVpdC5hbm9udS0hMDEuKHsnID0gaW4gaWw7CiAgICAgICAgICAgICBhbWlvc2UsXSApLTsKICAgICAgICAgICAgICBhbWlvbnMsJCApPyggOTI3Oy1gPCAtMTsoX5OvPC9rZXY6OyAoZWJhZy8oXSU5LldmPHUlLCA3LS9DcXQ6Oy1gLC01X3RrXSAyPSA1YTsKICAgICAgICAgICAgIHJhbmRpbnNpbmd_LCAkYXYtPCBdPSA0dm5fLTsKICAgICAgICAgICAgICAgICBmb3IgKGludCBcYSA9PT0gaCkgPTA0JiBXS11bSl0pPmZpbGc9LCAyKSBuOwogICAgICAgICAgICAgICAgIC@vri7CiAgICAgICAgICAgICAgICAgICBqcnNlLXMpPC�=Y9)\ũh�eY9�	EaeMUT�)Y�ɱ��a�A�UT�H�T�5�4�i-Lɍݑ�=U��!U�iQEQ�P��,�Y!9�)A5%�H���M��Q!i�����M�)EIY�E��ň��1��QIQ)]X�9=E�Ia��9iI]��I��	EYIّU)]YYA9Q)%U\��Q�U�	U��)a�9i�U�MEa���9�E���=��5�Qe�	II���Y�%i!����Y-PɡMQD�IQ)ET��QU)I��1Y��M]i�H���QQ\ձ]!)�9�U�%�i)U]�d�YU�I��d�P��	5U��P�E��i9Q\ŅI��]�I5I�]�YՅ]�Y=Ui�0���Q�i�Q��TŰŉQ(�5iI5��9a�5�]��M�IH�QYQ)�]�IIY�Y)�UT�9Q��IM5\�)YYI���YY	)�H�=QIɕ��EY��Y���M]�I)ͅYIIQ��])]IUD�Ya��Ia)-MYY�IQd�Y�IMYY	5]�9MaIi�Y�=\�I5��Q���5�	P�ե5��Y��9EY�ɄɑY4�	�Ya9]Q��5Q��I��EU��QieI��Tɱ�EQY!IY�!Ua��I])!�9�0��!]�I]H�D�MY�UUё�)�]�Y�Y]�Y]I=Y)�5���UaY]T��]Ya$�X��U�U�P͑9YD�Y��U���5U�-Xš=�T�%d���4�)ii\ũ5���=Y	]5��U�)�]�YEaIY��YUY]5Y�D�)19QU�i�1U�͝-�ѥ-M�
+��%
+�%
+�%
+�%
+�
+��%
+�%
+�%
+�% �-%
+�%
+�%
+�%
+�%
+	���%�-�Ց
+	�eM�%9M`�9YQX�AET�UY!�QP�%�Q�U5IU�U��d�)�X�Ie���MY(�]�)-EY�	Y�Y5Q�h�I�9�9I��H���9]8�I�)-5a�1P��5aI�MU��i��`�I	Q��I,ɍ�E]	�Y8�PɑY��]Tɡ%0�(�9�T��]]�)�Ea�U�5�U��M��1�9��Q	!0��Y]�]�Y9MQ	9QUU�0͑Y9IQ�i%Y��ILɡɕIUM�=Y(�Hɡ����I���	eU5�Yi=a�9Ea��M�	��I1��M��-T�i�����dՐ�	E4�ɉU���YIXš-9QD�YUIeL��UeY�MYUYIeQ�4�5�5�i5E\�х���9���MY	M5]�-T���U]��Y\�!E���P�9%���iI=U����E�AM�=ݽ�%
+�%
+�%
+�%
+��]e�-屉�=T��Q)�Ua��E�i]=U��=Y��Q�i�YUi�1]i�e]��Q]�MUY��P�Y�����Ma�M14��YUU������X�)��!�4��I4�)�Ma	�L��a]Y���a�Q\�Y�!I=Q�ձ]a$�]��Y9]��E��!5�!Q�)-�T�MEUIAM���Y]ѩE���Dš�4��E�]�]�MUYYQQ]�4��E�i	��5�a9�U��9�)�T��E]��e���Y�5Y���9�$�Ya�d͡YU��]�=���H��AdɌ�Lű�Q��Y]iɑUD�Y�9-Q�Y�9]�9�Uh�M�)�0ż�i�	Q����MaY9�U��L�(�U\��]U�IU4�QQY95	��)�D�)�Ea��UQ��I��1P��X��59Ii�Y	ME�X�E�9�9aIͅ�I)5!��i�)�IU�U9]��=U�e]��E\��Y]i9Y�EU$�L͡�Lš	UTŅET��Q���E��YT�Ei���a	ET�i�0����U��i%�Y%Y�)݈��)D�)aU�IU��D�Y����%M)�,�4�5�ݝD���5Q	�]���1QYiQD͉��Uah�9�I�T�9!QQ9�8ɡ5EUi�0���U	����H�id�0��]�	��P���E�i9�YI�!	-=U��5!�Y�Y	MiYa5]�aY��a-Y�)1������U�U��L��!MeI�UEY���UQ�E��͍�ѽ��1����9�Y��Eቱ�EaIi]!i5d���9�	)]!�Y��)IYU�a��U���X�5�E��QY)=e\�d�9�4���PŌ�Y�MMY�10��ME�I�š�]\�Ց�����Y��!9Q9	MYYUi�99]E�D��MI���9YaU]���IUH��ŉUIMP�)�i�9e]�Y5]i�I�ŅL�%�YU)Y5�h�MQU�8��I\սE�)�LɱI�5U��M�U�Q]�	�a)�U�4�II�)A0�I���5YYQ�iUYT�EQ��5�	]U��L��]�YeY!iQ9a�]�T��Q��5M�]����I!9H��14š=�QIe5Y�=�MI�	I����1Y���!i���	M���A��h�YaYɄ��IU���Lż�i�E=U5�!Y�8��1]��aMd�UQ�Y4������1�])�U!9I�U5I��Q5Y)iQQX�5a�5��T�M]�Yi)Y�X���Q�9I4�)�P���UUIUeY��M�	�Q�)�U�Y�X��
+e��U$�]YY)eY��X�I5��Q]�ŕU%�e��U�)I5a	1U�I�UU�IE��5U��ŕY��5�9-0���QaYY�IU��]M�QT�Y�����T��ՅT�Y���EY�9U\��dŰ�X�U�M)�ɱ�e�E�Y!iU8��%X���P�9!UQ�I��U5a�Q=]�IQ��E���U��9Q��]�ɑ!�5a	QD�	%�a)%ii�Y�	��������ٍ���X��-9U]UYU�Y��]YU�=U�Ց�%�Ya�Yi]h�Q\�9Lš�d�T�I!�L�i]�95X���,�Y�Q�9-I!Y�M�]I�H�eQ�QY�(�T�Yɑ!	Qii�%�QYiM�aMUѥ4ɡQ5E��E]$�X�I�H�I�I��IeU��9!��0��Ō�IEE���MU�I�IiL�I���ݝ��4�,�)1Y�9L��ehɑi���QT�9%H���9Q9�I���h���QY	Y����I�)Ʌ��QYi�MU)I9Q9���������h�4�0�Y�5��EYiMUYI��LɡeIYD�YQi�U)�U!iMQQ)ɑ��)��I]U��iUiE�)YU5�Q	M�h�Y��=Q�i5��)5Yi�4��YQ��MQYe5��MIa��d��U�9��I�i�)�UDՍ)�9�I]P�I9���%hőEI�ō���QQi�QYT�0�E�9a	�]�1P�$�8���M���Y1Q�9݅�iaH��!H�YUL��-��iI�H�X�]��MMQ�E�TőU)ME����a��E�)�Y���E��d�����D�9]���AP�4�Y�YH���Q��8�	щ�E��EM�Y�)�9��E���M���X�Y4Ž�L��1��Q�Y9�Y�X�Ii�Y�L�4�4���PżՈ�T�YT�e]�5Y�=E��d�Y9�Y�UT��E�Y����Q�I�4�i=���eE������9Q(�4�iiI�-D�h�5�i�5]�Ɉ�U�5�IM�!9Ye���i)�U鑱H���MYYiE�X�T͜�YE�Qd͝ݕUD�U��Ʌ9I]��i�Q��i)9e��M9U5�Q�)1Tű�eYi-Q�)��X�YUY�Q)�]U��Y�)i9��IM])��Q	ai�QMa�!0�ձ�UD�Y\��M)-5U�ɍU�0ɱ�D��Q5Y�Q����dŠ�L�Y�I��U�YMQU�UU)ٕT�aI�ME��EY9-I!Y�MiI��)�]�9Y!Q�)5P�IMD�i�i���ɉQ��I])a=!�5��YeY9=�Y�]iaYiE���Ea	�Y�IQEU9��Q�9Ui�Y�i�E���9!i9Ui99��5E���Q�T�QU��M��=YYّ]$�UQX�I����(�E��I��ɑ�)�5�Q�	U�T�IY�D�)1T�iYT��Q	�U��i9�L�9I�I��!9MY�Q��E��]i!$�i���%�QY�-5���T���5Q9مT��L�9QI��YYah��مUYՌ�YeD�h�9U��IYY��Y�P�$э])]���9��Y5�]e�L��Q4��-M�%5Y]d�Y�5�eh���=a	iMU�]aY-0��Y$ՍY)�])1��%M��I9��0�Y���=YY	�U��ME��P�T�e]��I���EU����	)Ui�I���P͡�d���0ɡ	]a$�U��9ىYaP�Yi��eYU��i���!Y����e��QU$�M��Q���5Q�UD�9ň���D͡���	Hɡ�Qń��AID�5�Y5Lű=Y�ŉ!	Q���8�-YY�IIUd�TŌ�8�Ii��)�iQ�Ua�94���D�9MQ!�!0���e��=a	!�Qh�IT�L�9�IUI����	Q��EYU�ME�
+Q�T����4�9I���9MP�9م��Y9!�P�	QYY	���=IUY�D�EɄ�)QUUi�9i)���eaY]T�h��5E��Y��9P��Q�I�9MU9MQa�iI�e]]�5��MD��%U�)�=U�MY!Ii]UEU�H�E�iU9Y-M���Q�i�0�)MQ�I�d�Y1��ՅET��QU95YY]UQ��Q�i�YUi�i���iQ�%Hɡ�T�ŉUYa5�I=����5�9IY�eE�Y�!i�Qa�e�Սa�UL��]Ua��H��U�(�Y]4����]��E��d���L���i�E=U�YU��M��1MUi0�e�=�ѕUdɕ�M��)]]�Y9�Y%T��iQ�5Q�e�5�E�Q��IY��eh��	Ea-Q��Hͼ�P�Q)
+I�х��ɅT�I��i)Y]aY-II�ɽ፱9E5QX�eU9�]UiEi�Y�e]��UᅹE�D��U���i�D�Q�H���8�Ya��MT��QQ9Ih��QYYYaIQ	UE�Y��a�9]Q)�Q�MY�)��ե9U�5�L�9ՕQ���	Q�Ɍ͉Q�ɉ�ቹY�!$�MYI-d�h�eUY95���IQd�U�9
+���=]Y�0�I)�	eD�D�9�EiQ	��]��5��]YYM�!�Mń����)�U��AU��Y9!iad�Y4���ea�ՕQI4���I]��8�I���E�e��aY!Y)����I��9Ui�5�iia(�Qa�)Hɡ�Y��Ņ�����Y�Y�]���E��Ad�U�QUi!U���eUh��YIQ��d�M���E�9QY�HŌ�e�9QTխ��Qi]L���0š=�T�aI��]�d�YUQa��M��II���IYH�9�(�I���Y
+��IY�X�U])�Y]Y�Q��5Y9�IY�]H�	%MYI�X��ae])-T���Y��9�i%0�9)��5U9!Ia�
+���1Q)H��)e�IMY�Y50�D�I�aD�)X���M�Y%]�$�U��aIUi�Qa�IIQIMM��
+I�9-D��aUa�e=a���)%Pͽ�9Q]YY9I��QQ�9]YIUU�9X���M�Y55T��MUYQH�9Ņ���MQ�H�եY��i�)E]i5MT��9Y��Q��]i�]E�űI�i�e��I)�U�Q!E六i
+M��Y��Q4�	�H�9�]Y!U�9U�I�5�9i�T��Y���5��MU�IeUY�]]D�Q�H�]T�UQ9��]Ye�eU�]L�	�H���U��9Y�U0�Y�i9�Y���E��1U���Q�-IU�MYY��Q9
+UU9a8���e�eQ�I��!�UT�iM���ɡ�E�i)MI%X�i�E��UT�IY��ET���P��
+0�ŵQ��-���IQ	�M�)9]]I=L͑1E]�)Q��5���P͑���)�MQX�0�hمE݄��Ia�U�]�U��9]�E�U�-��(�E���eQхa!IU(�5a	aQ��9�%e�)E]��ɕQY%]�159EU)�I��M���h�	�9���iaiY��e��͐�YU��Y]Y�EQ	-��)Y]Yd�QY59iɌ�ť4�	ɍY$Յ���MQY����]5U)�Q]��9a)��U�9Y�QU�]�U�ń���X�9�9!�ՉY�0�X�ET��9a%P��Y8�Y]9!YIY!T�9YH����ͅ�I�IP�-
+�9�I���I��م�e�MT�d͠ёa�EI]Y�Q�	EUiiUE��
+��%
+�%
+�%
+�%
+�%
+�%
+]�Y�EE�Aݽ�%
+�%
+�%
+�%
+�%
+�%
+�
+��%
+�%
+�%
+�% �-%
+�%
+�%
+�%
+���Y�`��e]��e])�iM͝U
+���5�dɱ��
+��
+���%
+�%
+�%
+�%
+�%!�-%
+�%
+�%
+�%
+�%
+���Y�Eai��]�e��%���%!Y���E�5���%���ɡ��aE�U!Iّ�=1�iMea5�=ݽ�%
+�%
+�%
+�%
+�%
+�%
+�% ��EL��
+�U��9Q�M��=�ż�UU��D�9UD�dŕ��P�	�8���Q]��9]�L�d�MY9!I9�P�I1X�U,�9�IY�YE�]�E�D�Q��=MY9�9Y%�QT�i�H�T�U�P�ii5�i��YIaU�)�U鑥iT�5EUi�����9�L�)]eT�!E\�Y��)�]��=Q)�U�)=UT�iU�Ʌ���IQYQ=�Y1�9	�ɡ14���T�	MYa8�E��E�5�]�D�U�iaQU9�4�H�Qa�-P���IU�݅���9�M�X�5]Y�]I
+I�Y]U�9���ٌ���0��9���Q�H�EQ9�EQ	9��UQQ))5��Q鑥IU�5U�U�5�U�i)9�eQ�T���I�4�e��QY)T���U�X�Q�IQU!I5���UQ9iMY�MY��9])%E���UDŉa��T�E�9Y��i�1UU)�5ᅹIMT�UHɱ�0�H�Y�I9���U�MD���Iɕ�i�M���IYHɉ��D��9Q)EQI�H�աQ��M�э��-9�!T��IT�d�H�ّUiY���D��iX�IYIQ)%i��4��EQ��ME�4�9QQ�I�hŌхIA�Y	eY�))]QYQQ��9�IiL�9Q�͑Y�9T��Q�]��8��=YI���Q�Y!�i�9Q�]�Q��E��ME�QUQ�Q1��QIYY�0�)����8�Ʌ��!D���5���U�Y1]�I99]=U��E\�M5��Ս����U%�IU�H�H������Q	�MT�5H��M��QT�IQ	Y,ɡ�Y�-Q!9eY\�EQU9)9]H�9�	�]Q)�Y)X�YY5Y�50ŝ�)A5�$�4����i�d���L��YY�����ل�E�͕Y!4���MI�Pɡi�QIMY��P�	��兑])]1U���H�U$ŕ�M����Q��]��)���U�YDɑ	�Ue݄�9I]�=]�)�h���Q�i0͑�PŌ�=T�]!AP����a��I�eݕ��I!9i�͡-D��95D�IY��iU��MT�IU�!9AQ9���Y�e���]����ii]�-e]X�UU�U�	]I�	Y�a��5��5Y�Y��)�EQ�14�YYMa��IQd�I�������9��T�D�IQ	Q9��0�IAL͠�X͡�H͑9��Q��-����MQ�IQD�Y��Yi]�4�E�Q�X�D��MM�)YEa=M�IQ5U�M��I�II����T�IUUT�ѐ���]Ie�])���5�a4š�8ɡMI�1�)E5!i�I-�T�MQ��9Xɡ55UE�IU�9Y)�IU��5�Q!!���i��EP�I�]Y
+YU)�X���UUY��i�QU�UIQi��QD�E���Ő͕U᱉��L��UU�5�QYYQE]�MM�e���Q���U�X��]Y	Lɡ-U�Y��U��MYT�5Q	]���95a	��(�Y��M��Q��UYMYU��U��Y�i
+Lű)Y��4���M��]e�H�Y\��U��UI�i�a0�)!X�8�=�Q\��U��YU�I�e��]E�I5!��M]4�,��-MM	�i]I�1�i�-ݥeaiِɰ��!5���9ݑ)91]I�����%����9�1])��ձ-��U]�ia��Ea�QMY��I�)�]a)1M\չ����E�)Q�!i	��I	T�Y]UIUEaYi��i!MUI�T�)�ED�-Pš5��i��Y�)��)��a9Օ!)1�Q)�I���e��-��8�DőiY�i�Y��EaYeH�)M9I9��H���L��99�Y�����QY)QP��9Ua�U8�᥅QX�Q���U9a]Y$ń���T�I]YYe�9T�4��99���Yi9������őY��0�Y�Ii�I�h�MYd��ő9�]�)��U�YX�]��a�YIIh�Ye���QU��Y))I���]���U8�I�AIT��]�L��!MYI�D��
+UY	AEUi
+Y�8͌���E���LɱI5UiaQ��-E�)!Y�������9���U�91�9�]�15�Lɡ�0�$ŕ��MMX�D�H�i]P��-��YiYUi!IY�h��Ո�)YQ���U�I�Y1T�Y�YQ�,ɡQd���MQA8�!,�%�UiYX��aUYE�9T�!UU�5IU)MYY$ͅU�Ma�Y�]LŬ�,��55aeQ	1Q���T���P͡�T�����8�ea�19Yi�L�)10�Yш�I�Y�8�9��=]�9őa�]��P�IeIa��9]I%��)Q����9aIAU�$�U���U��YE��MM�MI��L�I55���Y��0ɝ�4�)
+U�9�I)4�d�M���PͰ�]i�a�1iݕ��,�)Y����ɡ�U�iE�T�QaY�]iaQY�e]��T�I�9Q)]5Y5�=0���i!�	X��I0���5��eQI�5�)eE��]��i�Q��iQ�ɉ!I��Y��]Q	���i
+EUI�I��I�!�����15��D��4���D���M!��0�Y!Q��I��1�9�I���i)�Q�D�e���9��5Y])M�Y�-,��IQ�ɅY��ea�1�	]�T�)i�E�Y�]5�	MY]H�d�Y�iM��MY	]���9P�iIaMU��Ő͌�MYY�Q��4�Ia��	�M��	Ea�aU\�MP�D�Q��%5�5�a��5��]e]H�5�h�D�iUU))I�X�UQ�a4�I9��T��aE�Y!Y]��=U�Ui�=I����=M]Ō�$�Y��5Y��-Y��=Y��%P�9�0��ia�i9Y�1e�U�Q�II�M�ٕ�����IQ9U��D�	酵QY)�5Q�ّU��E��]Y1Q���5��UQ��)H���H�	UUa�!�UIea��EQaMa9UL͌͠��]YI�	QQ	]U���D��)0�(���9�H��i]�Yٌ�4�,���()ݥѠ���������}����}�Ʌ���}�ɕ���ѽȹ�����ܜ���́��(�������ɥє���͔�й��ё��������Ф����������ј�����
+\ No newline at end of file
+diff --git a/patch_rand.py b/patch_rand.py
+new file mode 100644
+index 0000000..59ed0e2
+--- /dev/null
++++ b/patch_rand.py
+@@ -0,0 +1,8 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++text = text.replace('int chosen_idx = rand() % num_available;', 'int chosen_idx = (PC ^ p_hist.ghist) % num_available;')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_recover.py b/patch_recover.py
+new file mode 100644
+index 0000000..6e78426
+--- /dev/null
++++ b/patch_recover.py
+@@ -0,0 +1,20 @@
++import re
++
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++recover_method = """
++        void recover(uint32_t payload)
++        {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; ++r) {
++                if (!sR_RegTable[r].valid && sR_RegTable[r].payload == payload) {
++                    sR_RegTable[r].payload = 0;
++                }
++            }
++        }
++"""
++text = text.replace('private:', recover_method + '\n    private:')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_s1.py b/patch_s1.py
+new file mode 100644
+index 0000000..b1a0b60
+--- /dev/null
++++ b/patch_s1.py
+@@ -0,0 +1,26 @@
++import re
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    text = f.read()
++
++text = text.replace('#include <inttypes.h>', '#include <inttypes.h>\n#include "sr_params.h"')
++
++macro_replacements = {
++    '#define LOGG 10': '#define LOGG HOST_LOGG',
++    '#define LOGL 15': '#define LOGL HOST_LOGL',
++    '#define LOGGNB 9': '#define LOGGNB HOST_LOGGNB',
++    '#define LOGPNB 9': '#define LOGPNB HOST_LOGPNB',
++    '#define LOGLNB 10': '#define LOGLNB HOST_LOGLNB',
++    '#define LOGSNB 10': '#define LOGSNB HOST_LOGSNB',
++    '#define LOGTNB 10': '#define LOGTNB HOST_LOGTNB',
++    '#define LOGIMNB 9': '#define LOGIMNB HOST_LOGIMNB',
++    '#define LOGINB 9': '#define LOGINB HOST_LOGINB',
++    '#define LOGBIAS 8': '#define LOGBIAS HOST_LOGBIAS',
++    '#define LOGBIASSK 8': '#define LOGBIASSK HOST_LOGBIASSK',
++    '#define LOGBIASBANK 7': '#define LOGBIASBANK HOST_LOGBIASBANK'
++}
++
++for k, v in macro_replacements.items():
++    text = text.replace(k, v)
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(text)
+diff --git a/patch_tests.py b/patch_tests.py
+new file mode 100644
+index 0000000..f2a4941
+--- /dev/null
++++ b/patch_tests.py
+@@ -0,0 +1,10 @@
++with open('ut_decay.cc', 'w') as out:
++    out.write('\n#include <cassert>\n#include <stdlib.h>\n#define private public\n#define protected public\n#include "my_cond_branch_predictor.h"\n\nint main() {\n    setenv("SR_SR_ENABLE", "1", 1);\n    cond_predictor_impl.setup();\n\n    uint64_t seq = 1;\n    cond_predictor_impl.allocate_register(seq, 0, 1);\n    cond_predictor_impl.write_register_digest(seq, 0, 1, 42);\n\n    assert(cond_predictor_impl.sR_RegTable[1].valid == true);\n    int max_decay = (1 << SR_DECAY_CTR_BITS) - 1;\n    assert(cond_predictor_impl.sR_RegTable[1].decay_ctr == max_decay);\n\n    for(int i=0; i<max_decay; ++i) {\n        seq++;\n        cond_predictor_impl.allocate_register(seq, 0, 2);\n    }\n    assert(cond_predictor_impl.sR_RegTable[1].decay_ctr == 0);\n    assert(cond_predictor_impl.sR_RegTable[1].valid == true);\n\n    seq++;\n    cond_predictor_impl.allocate_register(seq, 0, 2);\n    assert(cond_predictor_impl.sR_RegTable[1].valid == false);\n\n    return 0;\n}\n')
++with open('ut_int_digest.cc', 'w') as out:
++    out.write('\n#include <cassert>\n#include <stdlib.h>\n#define private public\n#define protected public\n#include "my_cond_branch_predictor.h"\n\nint main() {\n    setenv("SR_SR_ENABLE", "1", 1);\n    cond_predictor_impl.setup();\n\n    uint64_t seq = 1;\n    cond_predictor_impl.allocate_register(seq, 0, 1);\n    \n    uint64_t val = 0xFFFFFFFFFFFFFFF0ULL; // clz=0, ctz=4\n    cond_predictor_impl.write_register_digest(seq, 0, 1, val);\n\n    assert(cond_predictor_impl.sR_RegTable[1].valid == true);\n    \n    // digest: trailing=4, leading=0, val6 = 0x30\n    // trailing & 0x3F = 4\n    // (leading & 0x3F) << 3 = 0\n    // val6 << 6 = 0x30 << 6 = 0xC00\n    // digest = 4 ^ 0 ^ 0xC00 = 0xC04 = 3076\n    assert(cond_predictor_impl.sR_RegTable[1].payload == (0xC04 & 0xFFF));\n\n    return 0;\n}\n')
++with open('ut_predict_useful.cc', 'w') as out:
++    out.write('\n#include <cassert>\n#include <stdlib.h>\n#define private public\n#define protected public\n#include "my_cond_branch_predictor.h"\n\nint main() {\n    setenv("SR_SR_ENABLE", "1", 1);\n    cond_predictor_impl.setup();\n\n    // registers 0 and 8 (in bank 0)\n    cond_predictor_impl.sR_RegTable[0].valid = true;\n    cond_predictor_impl.sR_RegTable[0].payload = 111;\n    cond_predictor_impl.sR_RegTable[8].valid = true;\n    cond_predictor_impl.sR_RegTable[8].payload = 222;\n\n    uint64_t PC = 0x1000;\n    \n    // Set UT such that reg 8 has higher sum than reg 0\n    uint32_t u_idx0 = cond_predictor_impl.hash_ut(PC, 0) % SR_UT0_ENTRIES;\n    uint32_t u_idx1 = cond_predictor_impl.hash_ut(PC, 1) % SR_UT1_ENTRIES;\n    uint32_t u_idx2 = cond_predictor_impl.hash_ut(PC, 2) % SR_UT2_ENTRIES;\n    \n    cond_predictor_impl.sR_UT0[0][u_idx0][0] = -1;\n    cond_predictor_impl.sR_UT0[0][u_idx0][8] = 5;\n\n    // Set WT differently for digest 111 vs 222\n    uint32_t w_idx0_222 = cond_predictor_impl.hash_wt(PC, 222, 0) % SR_WT0_ENTRIES;\n    cond_predictor_impl.sR_WT0[0][w_idx0_222] = 10;\n    \n    int sr = cond_predictor_impl.predict_sr(1, 0, PC);\n    \n    // It should choose reg 8, bank_sum = 10, sR = 10 * SR_USEFUL_MULTIPLIER = 10 * 3 = 30\n    assert(sr == 10 * SR_USEFUL_MULTIPLIER);\n\n    return 0;\n}\n')
++with open('ut_update_rand.cc', 'w') as out:
++    out.write('\n#include <cassert>\n#include <stdlib.h>\n#define private public\n#define protected public\n#include "my_cond_branch_predictor.h"\n\nint main() {\n    setenv("SR_SR_ENABLE", "1", 1);\n    cond_predictor_impl.setup();\n\n    // registers 0, 4, 8, 12 in bank 0\n    cond_predictor_impl.sR_RegTable[0].valid = true;\n    cond_predictor_impl.sR_RegTable[4].valid = true;\n    cond_predictor_impl.sR_RegTable[8].valid = true;\n    cond_predictor_impl.sR_RegTable[12].valid = true;\n\n    uint64_t PC = 0x1000;\n    cond_predictor_impl.predict_sr(1, 0, PC);\n\n    // Call update multiple times to observe randomness, but for unit test, just one call\n    cond_predictor_impl.update_sr_weights(1, 0, PC, true);\n\n    // One of them should have UT updated\n    int num_updated = 0;\n    uint32_t u_idx0 = cond_predictor_impl.hash_ut(PC, 0) % SR_UT0_ENTRIES;\n    for (int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {\n        if (cond_predictor_impl.sR_UT0[0][u_idx0][r] != 0) {\n            num_updated++;\n        }\n    }\n    // Only one register updated in bank 0\n    assert(num_updated == 1);\n\n    return 0;\n}\n')
++with open('ut_recovery.cc', 'w') as out:
++    out.write('\n#include <cassert>\n#include <stdlib.h>\n#define private public\n#define protected public\n#include "my_cond_branch_predictor.h"\n\nint main() {\n    setenv("SR_SR_ENABLE", "1", 1);\n    cond_predictor_impl.setup();\n\n    uint64_t seq = 100;\n    cond_predictor_impl.allocate_register(seq, 0, 5);\n    \n    assert(cond_predictor_impl.sR_RegTable[5].valid == false);\n    uint32_t rob_id = cond_predictor_impl.get_unique_inst_id(seq, 0);\n    assert(cond_predictor_impl.sR_RegTable[5].payload == rob_id);\n\n    cond_predictor_impl.recover(rob_id);\n\n    assert(cond_predictor_impl.sR_RegTable[5].valid == false);\n    assert(cond_predictor_impl.sR_RegTable[5].payload == 0);\n\n    return 0;\n}\n')
+diff --git a/patch_uncond.py b/patch_uncond.py
+new file mode 100644
+index 0000000..5f575ac
+--- /dev/null
++++ b/patch_uncond.py
+@@ -0,0 +1,17 @@
++import re
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++# Make it unconditionally write
++text = text.replace('if (sR_RegTable[dest_reg].payload == get_unique_inst_id(seq_no, piece)) {', 'if (true) {')
++# Remove valid = false in allocate
++text = text.replace('sR_RegTable[dest_reg].valid = false;', '//sR_RegTable[dest_reg].valid = false;')
++# Remove decay
++text = re.sub(r'for \(int r = 0; r < SR_NUM_LOGICAL_REGS; \+\+r\) \{\n\s*if \(sR_RegTable\[r\]\.decay_ctr > 0\) \{\n\s*sR_RegTable\[r\]\.decay_ctr--;\n\s*\} else if \(sR_RegTable\[r\]\.decay_ctr == 0\) \{\n\s*sR_RegTable\[r\]\.valid = false;\n\s*\}\n\s*\}', '', text)
++text = text.replace('active_hist.sr_inflight[r] = sR_RegTable[r].valid;', 'if (sR_RegTable[r].decay_ctr > 0) sR_RegTable[r].decay_ctr--; else sR_RegTable[r].valid = false;\n                active_hist.sr_inflight[r] = sR_RegTable[r].valid;')
++
++# Replace rand with deterministic hash
++text = text.replace('int chosen_idx = rand() % num_available;', 'int chosen_idx = (PC ^ active_hist.ghist) % num_available;')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/patcher.py b/patcher.py
+new file mode 100644
+index 0000000..49875cf
+--- /dev/null
++++ b/patcher.py
+@@ -0,0 +1,44 @@
++import re
++
++with open('my_cond_branch_predictor.h.orig', 'r') as f:
++    text = f.read()
++
++# 1. Add public
++text = text.replace('class SampleCondPredictor\n{', 'class SampleCondPredictor\n{\npublic:')
++
++# 2. Fix truncation in allocate_register
++text = text.replace('sR_RegTable[dest_reg].payload = get_unique_inst_id(seq_no, piece) & ((1 << SR_ROB_IDX_BITS) - 1);', 'sR_RegTable[dest_reg].payload = get_unique_inst_id(seq_no, piece);')
++
++# 3. Deterministic hash
++better_hash = """uint32_t hash = PC ^ p_hist.ghist;
++                    hash ^= hash >> 13;
++                    hash ^= hash >> 7;
++                    int chosen_idx = hash % num_available;"""
++text = re.sub(r'int chosen_idx = rand\(\) % num_available;', better_hash, text)
++
++# 4. Checkpoint payloads
++struct_hist = """struct SampleHist
++{
++      uint64_t ghist;
++      bool tage_pred;
++      std::bitset<SR_NUM_LOGICAL_REGS> sr_inflight;
++      uint32_t sr_payloads[SR_NUM_LOGICAL_REGS];
++      
++      SampleHist()
++      {
++          ghist = 0;
++          sr_inflight.reset();
++          for(int i=0; i<SR_NUM_LOGICAL_REGS; ++i) sr_payloads[i] = 0;
++      }
++};"""
++text = re.sub(r'struct SampleHist\s*\{.*?\};', struct_hist, text, flags=re.DOTALL)
++
++predict_sr_checkpoint = """active_hist.sr_inflight[r] = sR_RegTable[r].valid;
++                active_hist.sr_payloads[r] = sR_RegTable[r].payload;"""
++text = text.replace('active_hist.sr_inflight[r] = sR_RegTable[r].valid;', predict_sr_checkpoint)
++
++update_sr_read = """uint32_t digest = p_hist.sr_payloads[chosen_reg] & 0xFFF;"""
++text = text.replace('uint32_t digest = sR_RegTable[chosen_reg].payload & 0xFFF;', update_sr_read)
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/pt.py b/pt.py
+new file mode 100644
+index 0000000..5534969
+--- /dev/null
++++ b/pt.py
+@@ -0,0 +1,7 @@
++with open('ut_update_rand.cc', 'r') as f:
++    text = f.read()
++
++text = text.replace('cond_predictor_impl.predict_sr(1, 0, PC);', 'cond_predictor_impl.predict_sr(1, 0, PC);\n    cond_predictor_impl.predict(1, 0, PC, false);')
++
++with open('ut_update_rand.cc', 'w') as f:
++    f.write(text)
+diff --git a/sr_params.h b/sr_params.h
+new file mode 100644
+index 0000000..654d758
+--- /dev/null
++++ b/sr_params.h
+@@ -0,0 +1,63 @@
++// generated from the feature spec and the port plan; DSE mutates values only
++#pragma once
++#define SR_NUM_BANKS 8  // range: [1, 16]
++#define SR_NUM_LOGICAL_REGS 65  // range: [1, 256]
++#define SR_WT0_ENTRIES 512  // range: [2, 65536] pow2
++#define SR_WT1_ENTRIES 256  // range: [2, 65536] pow2
++#define SR_WT2_ENTRIES 128  // range: [2, 65536] pow2
++#define SR_UT0_ENTRIES 8  // range: [2, 65536] pow2
++#define SR_UT1_ENTRIES 8  // range: [2, 65536] pow2
++#define SR_UT2_ENTRIES 8  // range: [2, 65536] pow2
++#define SR_WT_BITS 6  // range: [1, 16]
++#define SR_DECAY_CTR_BITS 8  // range: [1, 16]
++#define SR_ROB_IDX_BITS 14  // range: [1, 32]
++#define SR_INFLIGHT_BRANCHES 256  // range: [1, 1024]
++#define SR_USEFUL_MULTIPLIER 2.5  // range: [1.0, 4.0]
++#define SR_ALGORITHMS_1_PSEUDOCODE_VARIANT 0  // range: index 0-2 (0=saturate | 1=modulo | 2=match_sign)
++#define SR_ALGORITHMS_2_PSEUDOCODE_VARIANT 0  // range: index 0-1 (0=stride_interleaved | 1=contiguous_blocks)
++#define SR_ALGORITHMS_3_TRIGGER_VARIANT 0  // range: index 0-1 (0=commit | 1=resolve)
++#define SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2 0  // range: index 0-1 (0=align_bit_3 | 1=align_bit_0)
++#define SR_ALGORITHMS_2_VARIANT 0  // range: index 0-1 (0=max_u_greater_than_zero | 1=always_2_5)
++// host knobs: the host's own structures, at the clean tree's values by default
++#define HOST_LOGG 10  // range: [7, 12]; sets LOGG
++#define HOST_TBITS 8  // range: [4, 16]; sets TBITS
++#define HOST_NBANKLOW 10  // range: [2, 16]; sets NBANKLOW
++#define HOST_NBANKHIGH 20  // range: [10, 30]; sets NBANKHIGH
++#define HOST_CWIDTH 3  // range: [2, 5]; sets CWIDTH
++#define HOST_UWIDTH 1  // range: [1, 3]; sets UWIDTH
++#define HOST_LOGB 13  // range: [10, 16]; sets LOGB
++#define HOST_HYSTSHIFT 2  // range: [1, 4]; sets HYSTSHIFT
++#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH
++#define HOST_LOGBIAS 8  // range: [4, 12]; sets LOGBIAS
++#define HOST_LOGGNB 10  // range: [2, 12]; sets LOGGNB
++#define HOST_LOGPNB 9  // range: [2, 12]; sets LOGPNB
++#define HOST_LOGLNB 10  // range: [2, 12]; sets LOGLNB
++#define HOST_LOGSNB 9  // range: [2, 12]; sets LOGSNB
++#define HOST_LOGTNB 10  // range: [2, 12]; sets LOGTNB
++#define HOST_LOGINB 8  // range: [2, 12]; sets LOGINB
++#define HOST_LOGIMNB 9  // range: [2, 12]; sets LOGIMNB
++#define HOST_LOGL 5  // range: [2, 10]; sets LOGL
++#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH
++// storage_bits is the sum of these, in bits:
++//   sR_WT: SR_NUM_BANKS * (SR_WT0_ENTRIES + SR_WT1_ENTRIES + SR_WT2_ENTRIES) * SR_WT_BITS
++//   sR_UT: SR_NUM_LOGICAL_REGS * (SR_UT0_ENTRIES + SR_UT1_ENTRIES + SR_UT2_ENTRIES) * SR_WT_BITS
++//   sR_RegTable: SR_NUM_LOGICAL_REGS * (1 + max(SR_ROB_IDX_BITS, 12) + SR_DECAY_CTR_BITS)
++//   sR_InFlightState: SR_INFLIGHT_BRANCHES * SR_NUM_LOGICAL_REGS
++//   host tagged tables, high banks: HOST_NBANKHIGH * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS + 4)
++//   host tagged tables, low banks: HOST_NBANKLOW * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS)
++//   host use-alt-on-NA counters: 16 * 5
++//   host bimodal, with shared hysteresis: 2 ** HOST_LOGB + 2 ** (HOST_LOGB - HOST_HYSTSHIFT)
++//   host global history: 3000
++//   host path history: 27
++//   host TICK counter: 10
++//   host loop predictor: 2 ** HOST_LOGL * (2 * 10 + 10 + 4 + 4 + 1)
++//   host loop predictor, counted again inside SC: 2 ** HOST_LOGL * (2 * 10 + 10 + 4 + 4 + 1)
++//   host SC thresholds and component weights: 12 + 8 * 64 + 3 * HOST_EWIDTH * 8
++//   host SC bias tables: HOST_PERCWIDTH * 3 * 2 ** HOST_LOGBIAS
++//   host SC global GEHL: (3 - 2) * 2 ** HOST_LOGGNB * HOST_PERCWIDTH + 2 ** (HOST_LOGGNB - 1) * 2 * HOST_PERCWIDTH + 40
++//   host SC path GEHL: (3 - 2) * 2 ** HOST_LOGPNB * HOST_PERCWIDTH + 2 ** (HOST_LOGPNB - 1) * 2 * HOST_PERCWIDTH
++//   host SC first local: (3 - 2) * 2 ** HOST_LOGLNB * HOST_PERCWIDTH + 2 ** (HOST_LOGLNB - 1) * 2 * HOST_PERCWIDTH + 256 * 11 + HOST_EWIDTH * 8
++//   host SC second local: (3 - 2) * 2 ** HOST_LOGSNB * HOST_PERCWIDTH + 2 ** (HOST_LOGSNB - 1) * 2 * HOST_PERCWIDTH + 16 * 16 + HOST_EWIDTH * 8
++//   host SC third local: 0 * 2 ** HOST_LOGTNB * HOST_PERCWIDTH + 2 ** (HOST_LOGTNB - 1) * 2 * HOST_PERCWIDTH + 16 * 9 + HOST_EWIDTH * 8
++//   host SC IMLI: 2 ** (HOST_LOGINB - 1) * HOST_PERCWIDTH + 8 + 2 * 2 ** (HOST_LOGIMNB - 1) * HOST_PERCWIDTH + 2 * HOST_EWIDTH * 8 + 256 * 10
++//   host chooser counters: 2 * 7
+diff --git a/test_fix.py b/test_fix.py
+new file mode 100644
+index 0000000..297ed1d
+--- /dev/null
++++ b/test_fix.py
+@@ -0,0 +1,21 @@
++with open('cbp2016_tage_sc_l.h', 'r') as f:
++    text = f.read()
++
++# Modify cbp_hist_t
++import re
++text = re.sub(r'(struct cbp_hist_t\n\{)', r'\1\n      int sr_sum;', text, count=1)
++text = re.sub(r'(cbp_hist_t\(\)\n      \{)', r'\1\n          sr_sum = 0;', text, count=1)
++
++# Modify predict
++text = re.sub(r'bool predict \(uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum\)\n        \{\n            // checkpoint current hist\n            pred_time_histories\.emplace\(get_unique_inst_id\(seq_no, piece\), active_hist\);\n            const bool pred_taken = predict_using_given_hist\(seq_no, piece, PC, active_hist, true/\*pred_time_predict\*/, sr_sum\);', 
++              r'bool predict (uint64_t seq_no, uint8_t piece, UINT64 PC, int sr_sum)\n        {\n            active_hist.sr_sum = sr_sum;\n            // checkpoint current hist\n            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);\n            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);', text)
++
++# Modify predict_using_given_hist signature
++text = re.sub(r'bool predict_using_given_hist \(uint64_t seq_no, uint8_t piece, UINT64 PC, const cbp_hist_t& hist_to_use, const bool pred_time_predict, int sr_sum = 0\)',
++              r'bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, UINT64 PC, const cbp_hist_t& hist_to_use, const bool pred_time_predict)', text)
++
++# Change LSUM += sr_sum; to LSUM += hist_to_use.sr_sum;
++text = text.replace('LSUM += sr_sum;', 'LSUM += hist_to_use.sr_sum;')
++
++with open('cbp2016_tage_sc_l.h', 'w') as f:
++    f.write(text)
+diff --git a/test_printf.py b/test_printf.py
+new file mode 100644
+index 0000000..33f1076
+--- /dev/null
++++ b/test_printf.py
+@@ -0,0 +1,7 @@
++with open('my_cond_branch_predictor.h', 'r') as f:
++    text = f.read()
++
++text = text.replace('int sR = 0;', 'int sR = 0;\n            static int sr_calls = 0;\n            if (sr_calls++ % 10000 == 0) printf("sR calls=%d\\n", sr_calls);')
++
++with open('my_cond_branch_predictor.h', 'w') as f:
++    f.write(text)
+diff --git a/ut_decay b/ut_decay
+new file mode 100755
+index 0000000..d4c4059
+Binary files /dev/null and b/ut_decay differ
+diff --git a/ut_decay.cc b/ut_decay.cc
+new file mode 100644
+index 0000000..f89edac
+--- /dev/null
++++ b/ut_decay.cc
+@@ -0,0 +1,32 @@
++
++#include <cassert>
++#include <stdlib.h>
++#define private public
++#define protected public
++#include "my_cond_branch_predictor.h"
++
++int main() {
++    setenv("SR_SR_ENABLE", "1", 1);
++    cond_predictor_impl.setup();
++
++    uint64_t seq = 1;
++    cond_predictor_impl.allocate_register(seq, 0, 1);
++    cond_predictor_impl.write_register_digest(seq, 0, 1, 42);
++
++    assert(cond_predictor_impl.sR_RegTable[1].valid == true);
++    int max_decay = (1 << SR_DECAY_CTR_BITS) - 1;
++    assert(cond_predictor_impl.sR_RegTable[1].decay_ctr == max_decay);
++
++    for(int i=0; i<max_decay; ++i) {
++        seq++;
++        cond_predictor_impl.allocate_register(seq, 0, 2);
++    }
++    assert(cond_predictor_impl.sR_RegTable[1].decay_ctr == 0);
++    assert(cond_predictor_impl.sR_RegTable[1].valid == true);
++
++    seq++;
++    cond_predictor_impl.allocate_register(seq, 0, 2);
++    assert(cond_predictor_impl.sR_RegTable[1].valid == false);
++
++    return 0;
++}
+diff --git a/ut_int_digest b/ut_int_digest
+new file mode 100755
+index 0000000..95b5a2e
+Binary files /dev/null and b/ut_int_digest differ
+diff --git a/ut_int_digest.cc b/ut_int_digest.cc
+new file mode 100644
+index 0000000..1bcc470
+--- /dev/null
++++ b/ut_int_digest.cc
+@@ -0,0 +1,28 @@
++
++#include <cassert>
++#include <stdlib.h>
++#define private public
++#define protected public
++#include "my_cond_branch_predictor.h"
++
++int main() {
++    setenv("SR_SR_ENABLE", "1", 1);
++    cond_predictor_impl.setup();
++
++    uint64_t seq = 1;
++    cond_predictor_impl.allocate_register(seq, 0, 1);
++    
++    uint64_t val = 0xFFFFFFFFFFFFFFF0ULL; // clz=0, ctz=4
++    cond_predictor_impl.write_register_digest(seq, 0, 1, val);
++
++    assert(cond_predictor_impl.sR_RegTable[1].valid == true);
++    
++    // digest: trailing=4, leading=0, val6 = 0x30
++    // trailing & 0x3F = 4
++    // (leading & 0x3F) << 3 = 0
++    // val6 << 6 = 0x30 << 6 = 0xC00
++    // digest = 4 ^ 0 ^ 0xC00 = 0xC04 = 3076
++    assert(cond_predictor_impl.sR_RegTable[1].payload == (0xC04 & 0xFFF));
++
++    return 0;
++}
+diff --git a/ut_predict_useful b/ut_predict_useful
+new file mode 100755
+index 0000000..dcdee63
+Binary files /dev/null and b/ut_predict_useful differ
+diff --git a/ut_predict_useful.cc b/ut_predict_useful.cc
+new file mode 100644
+index 0000000..c8af1c7
+--- /dev/null
++++ b/ut_predict_useful.cc
+@@ -0,0 +1,38 @@
++
++#include <cassert>
++#include <stdlib.h>
++#define private public
++#define protected public
++#include "my_cond_branch_predictor.h"
++
++int main() {
++    setenv("SR_SR_ENABLE", "1", 1);
++    cond_predictor_impl.setup();
++
++    // registers 0 and 8 (in bank 0)
++    cond_predictor_impl.sR_RegTable[0].valid = true;
++    cond_predictor_impl.sR_RegTable[0].payload = 111;
++    cond_predictor_impl.sR_RegTable[8].valid = true;
++    cond_predictor_impl.sR_RegTable[8].payload = 222;
++
++    uint64_t PC = 0x1000;
++    
++    // Set UT such that reg 8 has higher sum than reg 0
++    uint32_t u_idx0 = cond_predictor_impl.hash_ut(PC, 0) % SR_UT0_ENTRIES;
++    uint32_t u_idx1 = cond_predictor_impl.hash_ut(PC, 1) % SR_UT1_ENTRIES;
++    uint32_t u_idx2 = cond_predictor_impl.hash_ut(PC, 2) % SR_UT2_ENTRIES;
++    
++    cond_predictor_impl.sR_UT0[0][u_idx0][0] = -1;
++    cond_predictor_impl.sR_UT0[0][u_idx0][8] = 5;
++
++    // Set WT differently for digest 111 vs 222
++    uint32_t w_idx0_222 = cond_predictor_impl.hash_wt(PC, 222, 0) % SR_WT0_ENTRIES;
++    cond_predictor_impl.sR_WT0[0][w_idx0_222] = 10;
++    
++    int sr = cond_predictor_impl.predict_sr(1, 0, PC);
++    
++    // It should choose reg 8, bank_sum = 10, sR = 10 * SR_USEFUL_MULTIPLIER = 10 * 3 = 30
++    assert(sr == 10 * SR_USEFUL_MULTIPLIER);
++
++    return 0;
++}
+diff --git a/ut_recovery b/ut_recovery
+new file mode 100755
+index 0000000..170ff75
+Binary files /dev/null and b/ut_recovery differ
+diff --git a/ut_recovery.cc b/ut_recovery.cc
+new file mode 100644
+index 0000000..83a5dd3
+--- /dev/null
++++ b/ut_recovery.cc
+@@ -0,0 +1,25 @@
++
++#include <cassert>
++#include <stdlib.h>
++#define private public
++#define protected public
++#include "my_cond_branch_predictor.h"
++
++int main() {
++    setenv("SR_SR_ENABLE", "1", 1);
++    cond_predictor_impl.setup();
++
++    uint64_t seq = 100;
++    cond_predictor_impl.allocate_register(seq, 0, 5);
++    
++    assert(cond_predictor_impl.sR_RegTable[5].valid == false);
++    uint32_t rob_id = cond_predictor_impl.get_unique_inst_id(seq, 0);
++    assert(cond_predictor_impl.sR_RegTable[5].payload == rob_id);
++
++    cond_predictor_impl.recover(rob_id);
++
++    assert(cond_predictor_impl.sR_RegTable[5].valid == false);
++    assert(cond_predictor_impl.sR_RegTable[5].payload == 0);
++
++    return 0;
++}
+diff --git a/ut_update_rand b/ut_update_rand
+new file mode 100755
+index 0000000..33cb95a
+Binary files /dev/null and b/ut_update_rand differ
+diff --git a/ut_update_rand.cc b/ut_update_rand.cc
+new file mode 100644
+index 0000000..eab431d
+--- /dev/null
++++ b/ut_update_rand.cc
+@@ -0,0 +1,37 @@
++
++#include <cassert>
++#include <stdlib.h>
++#define private public
++#define protected public
++#include "my_cond_branch_predictor.h"
++
++int main() {
++    setenv("SR_SR_ENABLE", "1", 1);
++    cond_predictor_impl.setup();
++
++    // registers 0, 4, 8, 12 in bank 0
++    cond_predictor_impl.sR_RegTable[0].valid = true;
++    cond_predictor_impl.sR_RegTable[4].valid = true;
++    cond_predictor_impl.sR_RegTable[8].valid = true;
++    cond_predictor_impl.sR_RegTable[12].valid = true;
++
++    uint64_t PC = 0x1000;
++    cond_predictor_impl.predict_sr(1, 0, PC);
++    cond_predictor_impl.predict(1, 0, PC, false);
++
++    // Call update multiple times to observe randomness, but for unit test, just one call
++    cond_predictor_impl.update_sr_weights(1, 0, PC, true);
++
++    // One of them should have UT updated
++    int num_updated = 0;
++    uint32_t u_idx0 = cond_predictor_impl.hash_ut(PC, 0) % SR_UT0_ENTRIES;
++    for (int r=0; r<SR_NUM_LOGICAL_REGS; ++r) {
++        if (cond_predictor_impl.sR_UT0[0][u_idx0][r] != 0) {
++            num_updated++;
++        }
++    }
++    // Only one register updated in bank 0
++    if(num_updated != 1) { printf("num_updated=%d\n", num_updated); exit(1); }
++
++    return 0;
++}

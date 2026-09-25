@@ -1,0 +1,145 @@
+{
+  "feature_name": "sr",
+  "source": {
+    "paper_title": "RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables",
+    "citation": "Koizumi et al., CBP 2025",
+    "inputs_used": "paper_only"
+  },
+  "summary": "The sR component extends the statistical corrector (SC) to exploit correlations between recent architectural register values and branch outcomes. It dynamically generates 12-bit digests of register values upon instruction completion and caches them. At prediction time, for each of eight logical register banks, it selects the digest of the most 'useful' valid register in that bank, hashes it with the PC, and looks up prediction weights to add to the SC sum. Stale digests are invalidated after 256 decoded instructions to prevent relying on outdated state.",
+  "state": [
+    {
+      "name": "Register Digest Table",
+      "organization": "Flat array of 65 entries (one per logical register 0-64)",
+      "entry_format": "valid (1), payload (14), decay_ctr (8)",
+      "size_bits": 1495,
+      "indexing": "Directly indexed by logical register ID"
+    },
+    {
+      "name": "sR Prediction Weight Table (WT)",
+      "organization": "8 banks, each containing 3 tables (WT0: 512 entries, WT1: 256 entries, WT2: 128 entries)",
+      "entry_format": "weight (6)",
+      "size_bits": 43008,
+      "indexing": "Hashed from PC and 12-bit register digest"
+    },
+    {
+      "name": "sR Usefulness Weight Table (UT)",
+      "organization": "3 tables (UT0, UT1, UT2) of 8 entries each. Each entry holds 65 weights distributed across banks.",
+      "entry_format": "65 weights per entry across the 3 tables, each weight is 6 bits",
+      "size_bits": 9360,
+      "indexing": "PC (skewed)"
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "allocate_digest_entry",
+      "trigger": "Instruction decode",
+      "pseudocode": "if instruction writes logical register R:\n  RegisterDigestTable[R].valid = 0\n  RegisterDigestTable[R].payload = ROB_index",
+      "notes": "Payload temporarily holds a 14-bit tag (ROB index) until the value is produced."
+    },
+    {
+      "name": "update_digest_value",
+      "trigger": "Instruction completion",
+      "pseudocode": "if instruction writes logical register R with value V of type T:\n  digest = generate_digest(V, T)\n  RegisterDigestTable[R].payload = digest\n  RegisterDigestTable[R].valid = 1\n  RegisterDigestTable[R].decay_ctr = decay_period",
+      "notes": "Makes the digest available for subsequent branch predictions."
+    },
+    {
+      "name": "generate_digest",
+      "trigger": "Called by update_digest_value",
+      "pseudocode": "if T == INT:\n  t_cnt = count_trailing_zeros_or_ones(V) & 0x3F\n  l_cnt = count_leading_zeros_or_ones(V) & 0x3F\n  val_6 = V & 0x3F\n  return t_cnt ^ (l_cnt << 3) ^ (val_6 << 6)\nelse if T == FP:\n  class = classify_fp(V)\n  if class == FP64: return (sign(V) << 11) | (exp_FP64(V)[7:0] << 3)\n  else if class == FP32: return (sign(V) << 8) | (exp_FP32(V)[4:0] << 3)\n  else if class == FP16: return (sign(V) << 5) | (exp_FP16(V)[1:0] << 3)\nelse if T == FLAG:\n  return (V[3:0] << 8) | (V[3:0] << 4) | V[3:0]",
+      "notes": "Exact placement of FP bits and count saturation logic is uncertain."
+    },
+    {
+      "name": "decay_digests",
+      "trigger": "Every instruction decode",
+      "pseudocode": "for R in 0..64:\n  if RegisterDigestTable[R].decay_ctr > 0:\n    RegisterDigestTable[R].decay_ctr -= 1\n    if RegisterDigestTable[R].decay_ctr == 0:\n      RegisterDigestTable[R].valid = 0",
+      "notes": "Ensures stale values do not influence predictions."
+    },
+    {
+      "name": "predict",
+      "trigger": "Branch prediction lookup",
+      "pseudocode": "sR_sum = 0\nut_row = UT[skew(PC)]\nfor bank in 0..7:\n  valid_regs = {r | r % 8 == bank and RegisterDigestTable[r].valid}\n  if valid_regs is empty: continue\n  best_r = argmax_{r in valid_regs} ut_row[r]\n  if ut_row[best_r] > 0:\n    digest = RegisterDigestTable[best_r].payload[11:0]\n    bank_pred = WT0_bank[hash(PC, digest)] + WT1_bank[hash] + WT2_bank[hash]\n    sR_sum += bank_pred * sR_multiplier\nreturn sR_sum",
+      "notes": "Assumes the multiplier is applied per-bank, gated by whether the chosen register has positive usefulness."
+    },
+    {
+      "name": "update",
+      "trigger": "Branch resolution or commit (training)",
+      "pseudocode": "for bank in 0..7:\n  valid_regs = {r | r % 8 == bank and RegisterDigestTable[r].valid at prediction_time}\n  if valid_regs is not empty:\n    target_r = random_choice(valid_regs)\n    digest = RegisterDigestTable[target_r].payload\n    update_WT(bank, target_r, digest, PC, outcome)\n    update_UT(target_r, PC, outcome == WT_pred_for_target_r)",
+      "notes": "Updates correlation for exactly one randomly selected available register per bank."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "architectural register writes at decode",
+      "description": "Needs the logical register ID and ROB index for every instruction that writes a register, in order to mark the digest as invalid.",
+      "fallback": "If unavailable at decode, omit the invalidation, which may allow slightly stale digests to be used before completion."
+    },
+    {
+      "need": "architectural register values and types at completion",
+      "description": "Needs the 64-bit value, logical register ID, and register type (INT, FP, FLAG) to generate and cache the digest.",
+      "fallback": "If type is unknown, treat all values as INT. If value is unavailable at completion, capture at commit instead (reduces coverage of early-resolved values)."
+    },
+    {
+      "need": "instruction decode event",
+      "description": "Needs a pulse to decrement the decay counters for all valid digests.",
+      "fallback": "Decrement the decay counters on instruction fetch or commit instead."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 53863,
+    "storage_breakdown": "WT: 43008 bits, UT: 9360 bits, Auxiliary data (Register Digest Table): 1495 bits.",
+    "logic_cost_notes": "Requires logic to calculate leading/trailing zero or one counts, format floating point values, multiplex 8 registers per bank to find the maximum usefulness, and hash PC with digest for WT lookups.",
+    "budget_donors": "Large Bimodal base predictor or tagged tables, which dominate the 192 KiB storage budget."
+  },
+  "parameters": [
+    {
+      "name": "decay_period",
+      "type": "int",
+      "default": 256,
+      "range": "[1, 1024]",
+      "storage_impact": "Requires ceil(log2(decay_period)) bits per register in the Register Digest Table auxiliary data."
+    },
+    {
+      "name": "sR_multiplier",
+      "type": "float",
+      "default": 2.5,
+      "range": "[0.0, 4.0]",
+      "storage_impact": "None. Only affects ALU data path widths."
+    },
+    {
+      "name": "digest_width",
+      "type": "int",
+      "default": 12,
+      "range": "[8, 16]",
+      "storage_impact": "Increases payload width in Register Digest Table by 1 bit per unit increase. Also affects WT hash inputs."
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "INT Digest Generation",
+      "given": "An INT register value of 0x0000000000000005.",
+      "expect": "Digest bits correctly XOR the leading count (61), trailing count (0), and value (5) into a 12-bit digest as specified in Figure 6(a)."
+    },
+    {
+      "name": "Digest Decay",
+      "given": "A register is updated, followed by 256 instructions being decoded without further updates to that register.",
+      "expect": "The register's valid bit in the Register Digest Table transitions to 0."
+    },
+    {
+      "name": "Most Useful Register Selection",
+      "given": "Bank 0 has valid digests for logical registers R0 and R8. The UT lookup returns a weight of +5 for R0 and +10 for R8.",
+      "expect": "The predictor uses R8's digest for the WT lookup for bank 0."
+    },
+    {
+      "name": "Per-bank Usefulness Gating",
+      "given": "The selected best register in a bank has a negative UT weight.",
+      "expect": "The bank's WT output is multiplied by 0, contributing nothing to the final sR sum."
+    }
+  ],
+  "open_questions": [
+    "In INT digest generation, how is it determined whether to count leading/trailing zeros or ones? Does it use the MSB/LSB to decide?",
+    "In INT digest generation, what happens if the leading or trailing count is 64? Does it saturate to 63 since the field is 6 bits?",
+    "In FP digest generation, how is the classification into FP16/FP32/FP64 performed? What happens if the value is not a recognizable float?",
+    "In FP digest generation, are the digest bits right-aligned at bit 3 as inferred from the drawing, or at bit 0?",
+    "Does the x0 or x2.5 multiplier in the sR component apply per-bank based on that bank's max usefulness, or is it a global scale?"
+  ]
+}

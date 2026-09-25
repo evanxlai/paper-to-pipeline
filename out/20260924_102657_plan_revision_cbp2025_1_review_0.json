@@ -1,0 +1,540 @@
+{
+  "schema_errors": [
+    "port plan: interface_resolutions/0: Additional properties are not allowed ('spec_item' was unexpected)",
+    "port plan: interface_resolutions/0: 'need' is a required property",
+    "port plan: interface_resolutions/0: 'rationale' is a required property",
+    "port plan: interface_resolutions/0/status: 'decided' is not one of ['exact', 'fallback', 'unavailable']",
+    "port plan: interface_resolutions/1: Additional properties are not allowed ('spec_item' was unexpected)",
+    "port plan: interface_resolutions/1: 'need' is a required property",
+    "port plan: interface_resolutions/1: 'rationale' is a required property",
+    "port plan: interface_resolutions/1/status: 'decided' is not one of ['exact', 'fallback', 'unavailable']",
+    "port plan: interface_resolutions/2: Additional properties are not allowed ('spec_item' was unexpected)",
+    "port plan: interface_resolutions/2: 'need' is a required property",
+    "port plan: interface_resolutions/2: 'rationale' is a required property",
+    "port plan: interface_resolutions/2/status: 'decided' is not one of ['exact', 'fallback', 'unavailable']",
+    "port plan: interface_resolutions/3: Additional properties are not allowed ('spec_item' was unexpected)",
+    "port plan: interface_resolutions/3: 'need' is a required property",
+    "port plan: interface_resolutions/3: 'rationale' is a required property",
+    "port plan: interface_resolutions/3/status: 'decided' is not one of ['exact', 'fallback', 'unavailable']",
+    "port plan: knobs/0: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/0: 'spec_pointer' is a required property",
+    "port plan: knobs/0: 'spec_parameter' is a required property",
+    "port plan: knobs/0: 'host_knob' is a required property",
+    "port plan: knobs/1: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/1: 'spec_pointer' is a required property",
+    "port plan: knobs/1: 'spec_parameter' is a required property",
+    "port plan: knobs/1: 'host_knob' is a required property",
+    "port plan: knobs/2: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/2: 'spec_pointer' is a required property",
+    "port plan: knobs/2: 'spec_parameter' is a required property",
+    "port plan: knobs/2: 'host_knob' is a required property",
+    "port plan: knobs/3: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/3: 'spec_pointer' is a required property",
+    "port plan: knobs/3: 'spec_parameter' is a required property",
+    "port plan: knobs/3: 'host_knob' is a required property",
+    "port plan: knobs/4: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/4: 'spec_pointer' is a required property",
+    "port plan: knobs/4: 'spec_parameter' is a required property",
+    "port plan: knobs/4: 'host_knob' is a required property",
+    "port plan: knobs/5: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/5: 'spec_pointer' is a required property",
+    "port plan: knobs/5: 'spec_parameter' is a required property",
+    "port plan: knobs/5: 'host_knob' is a required property",
+    "port plan: knobs/6: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/6: 'spec_pointer' is a required property",
+    "port plan: knobs/6: 'spec_parameter' is a required property",
+    "port plan: knobs/6: 'host_knob' is a required property",
+    "port plan: knobs/7: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/7: 'spec_pointer' is a required property",
+    "port plan: knobs/7: 'spec_parameter' is a required property",
+    "port plan: knobs/7: 'host_knob' is a required property",
+    "port plan: knobs/8: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/8: 'spec_pointer' is a required property",
+    "port plan: knobs/8: 'spec_parameter' is a required property",
+    "port plan: knobs/8: 'host_knob' is a required property",
+    "port plan: knobs/9: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/9: 'spec_pointer' is a required property",
+    "port plan: knobs/9: 'spec_parameter' is a required property",
+    "port plan: knobs/9: 'host_knob' is a required property",
+    "port plan: knobs/10: Additional properties are not allowed ('description', 'name', 'range', 'type' were unexpected)",
+    "port plan: knobs/10: 'spec_pointer' is a required property",
+    "port plan: knobs/10: 'spec_parameter' is a required property",
+    "port plan: knobs/10: 'host_knob' is a required property"
+  ],
+  "findings": [
+    {
+      "pointer": "/spec/parameters/0",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'num_banks' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/1",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'num_logical_regs' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/2",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'wt0_entries' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/3",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'wt1_entries' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/4",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'wt2_entries' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/5",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'ut0_entries' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/6",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'ut1_entries' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/7",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'ut2_entries' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/8",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'wt_bits' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/9",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'decay_ctr_bits' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/10",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'rob_idx_bits' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/11",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'inflight_branches' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/12",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'useful_multiplier' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/13",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_1_pseudocode_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/14",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_2_pseudocode_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/15",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_3_trigger_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/16",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_1_pseudocode_variant_2' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/17",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_2_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/0/need",
+      "code": "interface_need_mismatch",
+      "severity": "error",
+      "message": "the plan calls /host_interfaces/0 'None', but the spec calls it 'register values upon instruction completion'. One of the two is pointing at the wrong element."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/1/need",
+      "code": "interface_need_mismatch",
+      "severity": "error",
+      "message": "the plan calls /host_interfaces/1 'None', but the spec calls it 'instruction destination logical register ID and ROB index at decode'. One of the two is pointing at the wrong element."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/2/need",
+      "code": "interface_need_mismatch",
+      "severity": "error",
+      "message": "the plan calls /host_interfaces/2 'None', but the spec calls it 'instruction type classification (INT, FP, FLAG)'. One of the two is pointing at the wrong element."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/3/need",
+      "code": "interface_need_mismatch",
+      "severity": "error",
+      "message": "the plan calls /host_interfaces/3 'None', but the spec calls it 'notification of pipeline squash with squashed ROB indices'. One of the two is pointing at the wrong element."
+    },
+    {
+      "pointer": "/plan/host_knobs/0/observed",
+      "code": "host_observed_missing",
+      "severity": "error",
+      "message": "'#define LOGG 15' does not occur in cbp2016_tage_sc_l.h. Copy the line that sets LOGG verbatim from the checkout."
+    },
+    {
+      "pointer": "/plan/host_knobs/1/observed",
+      "code": "host_observed_missing",
+      "severity": "error",
+      "message": "'#define LOGBIAS 15' does not occur in cbp2016_tage_sc_l.h. Copy the line that sets LOGBIAS verbatim from the checkout."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/0/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'nbankhigh * (2 ** logg) * (cwidth + uwidth + tbits + 4)' reads cwidth, nbankhigh, tbits, uwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/1/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'nbanklow * (2 ** logg) * (cwidth + uwidth + tbits)' reads cwidth, nbanklow, tbits, uwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/3/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'(2 ** logb) + (2 ** (logb - hystshift))' reads hystshift, logb, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/10/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'percwidth * 3 * (2 ** logbias)' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/11/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'(3 - 2) * (2 ** loggnb) * percwidth + (2 ** (loggnb - 1)) * 2 * percwidth + 40' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/12/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'(3 - 2) * (2 ** logpnb) * percwidth + (2 ** (logpnb - 1)) * 2 * percwidth' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/13/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'(3 - 2) * (2 ** loglnb) * percwidth + (2 ** (loglnb - 1)) * 2 * percwidth + 256 * 11 + ewidth * 8' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/14/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'(3 - 2) * (2 ** logsnb) * percwidth + (2 ** (logsnb - 1)) * 2 * percwidth + 16 * 16 + ewidth * 8' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/15/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'0 * (2 ** logtnb) * percwidth + (2 ** (logtnb - 1)) * 2 * percwidth + 16 * 9 + ewidth * 8' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/16/formula",
+      "code": "host_formula_unknown_name",
+      "severity": "error",
+      "message": "'(2 ** (loginb - 1)) * percwidth + 8 + 2 * (2 ** (logimnb - 1)) * percwidth + 2 * ewidth * 8 + 256 * 10' reads percwidth, which is no host knob's name. Write a number for anything no knob sets."
+    },
+    {
+      "pointer": "/plan/host_knobs/0",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logg'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/1",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logbias'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/2",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'loggnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/3",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logpnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/4",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'loglnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/5",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logsnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/6",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logtnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/7",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'loginb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/8",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logimnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/0'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/1'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/2'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/3'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/4'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/5'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/6'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/7'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/8'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/9'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/10'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/11'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/12'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/13'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/14'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/15'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/16'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/17'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs/0/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a host_knobs entry; this revision changes it from 10 to 15. Revisable on this entry: binding, description, file, host_symbol, notes, observed, range. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='tbits'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='nbanklow'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='nbankhigh'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='cwidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='uwidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='hystshift'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='percwidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs/1/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a host_knobs entry; this revision changes it from 8 to 15. Revisable on this entry: binding, description, file, host_symbol, notes, observed, range. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/0/need",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'need' is frozen on a interface_resolutions entry; this revision changes it from \"register values upon instruction completion\" to null. Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/0/spec_item",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'spec_item' is frozen on a interface_resolutions entry; this revision changes it from null to \"is_fp_register\". Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/1/need",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'need' is frozen on a interface_resolutions entry; this revision changes it from \"instruction destination logical register ID and ROB index at decode\" to null. Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/1/spec_item",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'spec_item' is frozen on a interface_resolutions entry; this revision changes it from null to \"is_int_register\". Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/2/need",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'need' is frozen on a interface_resolutions entry; this revision changes it from \"instruction type classification (INT, FP, FLAG)\" to null. Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/2/spec_item",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'spec_item' is frozen on a interface_resolutions entry; this revision changes it from null to \"register_value\". Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/3/need",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'need' is frozen on a interface_resolutions entry; this revision changes it from \"notification of pipeline squash with squashed ROB indices\" to null. Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/3/spec_item",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'spec_item' is frozen on a interface_resolutions entry; this revision changes it from null to \"squashed_rob_index\". Revisable on this entry: fidelity_note, hook_ids, rationale, resolution, status. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    }
+  ]
+}

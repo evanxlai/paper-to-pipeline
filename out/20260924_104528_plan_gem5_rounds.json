@@ -1,0 +1,38 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [
+      "port plan: hook_points/4/id: 'gPredictions_add' does not match '^[a-z][a-z0-9_]*$'",
+      "port plan: hook_points/5/id: 'gUpdates_add' does not match '^[a-z][a-z0-9_]*$'",
+      "port plan: spec_map/6/hook_ids/0: 'gPredictions_add' does not match '^[a-z][a-z0-9_]*$'",
+      "port plan: spec_map/7/hook_ids/0: 'gUpdates_add' does not match '^[a-z][a-z0-9_]*$'",
+      "port plan: steps/2/hook_ids/0: 'gPredictions_add' does not match '^[a-z][a-z0-9_]*$'",
+      "port plan: steps/2/hook_ids/1: 'gUpdates_add' does not match '^[a-z][a-z0-9_]*$'"
+    ],
+    "findings": [
+      {
+        "pointer": "/plan/host_knobs/0/macro",
+        "code": "host_macro_mismatch",
+        "severity": "error",
+        "message": "'HOST_LOGPNB' is not the define stage 4 emits for host knob 'log_pnb'; that is 'HOST_LOG_PNB'."
+      },
+      {
+        "pointer": "/plan/host_knobs/1/macro",
+        "code": "host_macro_mismatch",
+        "severity": "error",
+        "message": "'HOST_LOGSNB' is not the define stage 4 emits for host knob 'log_snb'; that is 'HOST_LOG_SNB'."
+      },
+      {
+        "pointer": "/plan/host_knobs/2/macro",
+        "code": "host_macro_mismatch",
+        "severity": "error",
+        "message": "'HOST_SCCOUNTERSWIDTH' is not the define stage 4 emits for host knob 'sc_counters_width'; that is 'HOST_SC_COUNTERS_WIDTH'."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": []
+  }
+]

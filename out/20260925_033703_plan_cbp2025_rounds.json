@@ -1,0 +1,38 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/hook_points/2/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'cond_predictor_impl_helpers' does not occur in my_cond_branch_predictor.cc. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      },
+      {
+        "pointer": "/tests/correctness/2/pass_condition/baseline_pointer",
+        "code": "baseline_pointer_unresolved",
+        "severity": "error",
+        "message": "/per_trace/sample_traces~1int~1sample_int_trace.gz resolves to nothing in the recorded baseline, so G2 has no numbers to compare against and the integration agent cannot fix it: a pass_condition is frozen. The baseline records these traces under /per_trace, keyed the way the trace list spells them: fp/fp_12_trace.gz, fp/fp_1_trace.gz, fp/sample_fp_trace.gz, infra/infra_5_trace.gz, infra/infra_8_trace.gz, int/int_13_trace.gz, int/int_21_trace.gz, int/sample_int_trace.gz, web/web_11_trace.gz, web/web_21_trace.gz. Remember that '/' inside a pointer token is written '~1'."
+      },
+      {
+        "pointer": "/tests/correctness/3/pass_condition/baseline_pointer",
+        "code": "baseline_pointer_unresolved",
+        "severity": "error",
+        "message": "/per_trace/sample_traces~1fp~1sample_fp_trace.gz resolves to nothing in the recorded baseline, so G2 has no numbers to compare against and the integration agent cannot fix it: a pass_condition is frozen. The baseline records these traces under /per_trace, keyed the way the trace list spells them: fp/fp_12_trace.gz, fp/fp_1_trace.gz, fp/sample_fp_trace.gz, infra/infra_5_trace.gz, infra/infra_8_trace.gz, int/int_13_trace.gz, int/int_21_trace.gz, int/sample_int_trace.gz, web/web_11_trace.gz, web/web_21_trace.gz. Remember that '/' inside a pointer token is written '~1'."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/hook_points/2/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'sr_predict' does not occur in my_cond_branch_predictor.cc. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  }
+]

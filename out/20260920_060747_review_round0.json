@@ -1,0 +1,991 @@
+{
+  "round": 0,
+  "units": [
+    "algo:predict",
+    "global+algo:allocate_digest_entry",
+    "algo:generate_digest+algo:update_digest_value",
+    "algo:decay_digests+algo:update"
+  ],
+  "records": [
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/algorithms/4/pseudocode",
+      "claim": "The pseudocode looks up usefulness in a single UT table and uses a single hash function for all three WT tables.",
+      "verdict": "CONTRADICTED",
+      "quote": "Three usefulness tables: \"9x6bit 8 ent. UT0\", \"8 ent. UT1\", \"8 ent. UT2\".",
+      "why": "The figure explicitly defines three separate usefulness tables whose outputs are summed, and three separate hashes (h0, h1, h2) for the weight tables.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/algorithms/4/pseudocode",
+        "value": "sR_sum = 0\nut_row = UT0[skew(PC)] + UT1[skew(PC)] + UT2[skew(PC)]\nfor bank in 0..7:\n  valid_regs = {r | r % 8 == bank and RegisterDigestTable[r].valid}\n  if valid_regs is empty: continue\n  best_r = argmax_{r in valid_regs} ut_row[r]\n  if ut_row[best_r] > 0:\n    digest = RegisterDigestTable[best_r].payload[11:0]\n    bank_pred = WT0_bank[h0(PC, digest)] + WT1_bank[h1(PC, digest)] + WT2_bank[h2(PC, digest)]\n    sR_sum += bank_pred * sR_multiplier\nreturn sR_sum"
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/algorithms/4/pseudocode",
+      "claim": "The algorithm uses a 'skew' function to transform the PC for the UT index.",
+      "verdict": "UNSUPPORTED",
+      "quote": "Input \"PC (skewed)\".",
+      "why": "The paper indicates the PC is skewed for UT lookups but does not provide the mathematical definition for the skew function.",
+      "patch": null,
+      "open_question": "What is the mathematical definition of the skew function applied to the PC for the UT index?",
+      "enum_candidates": [
+        "A simple XOR fold of the PC bits",
+        "No skew (use raw PC bits)",
+        "The skewed-associative hash used in Seznec's TAGE"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/algorithms/4/pseudocode",
+      "claim": "A bank's prediction is skipped if the chosen register's usefulness is not strictly positive (ut_row[best_r] > 0).",
+      "verdict": "UNSUPPORTED",
+      "quote": "multiplier stage labelled \"x0 or x2.5\"",
+      "why": "The paper shows a choice between multiplying the bank's output by 0 or 2.5, but does not explicitly state the condition for doing so.",
+      "patch": null,
+      "open_question": "What is the exact condition for selecting the x0 multiplier instead of x2.5 for a bank's output?",
+      "enum_candidates": [
+        "When the most useful register's UT weight is <= 0",
+        "When the most useful register's UT weight is < 0",
+        "When there are no valid registers available in the bank"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/state/0/organization",
+      "claim": "The Register Digest Table is organized as a flat array of 65 entries.",
+      "verdict": "SUPPORTED",
+      "quote": "a dedicated table that contains one entry per logical register",
+      "why": "The paper explicitly confirms there is one entry per logical register (totaling 65).",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/state/0/entry_format",
+      "claim": "The Register Digest Table entry consists of valid (1), payload (14), and decay_ctr (8).",
+      "verdict": "SUPPORTED",
+      "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+      "why": "Table 3 specifies these exact fields and bit widths for the register state.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/state/1/organization",
+      "claim": "The sR Prediction Weight Table (WT) consists of 8 banks, each containing 3 tables of 512, 256, and 128 entries.",
+      "verdict": "SUPPORTED",
+      "quote": "6 x (2^7 + 2^8 + 2^9) x 8",
+      "why": "Table 3 defines the WT storage using 8 banks of tables sized 128, 256, and 512 entries.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/state/2/organization",
+      "claim": "The sR Usefulness Weight Table (UT) consists of 3 tables of 8 entries each.",
+      "verdict": "SUPPORTED",
+      "quote": "6 x 65 x (2^3 + 2^3 + 2^3)",
+      "why": "Table 3 defines the UT storage using three tables of 8 entries each.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/parameters/1/default",
+      "claim": "The sR_multiplier defaults to 2.5.",
+      "verdict": "SUPPORTED",
+      "quote": "multiplier stage labelled \"x0 or x2.5\"",
+      "why": "Figure 5(c) indicates a multiplier of 2.5 is applied to the output of each bank.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/parameters/1/range",
+      "claim": "The sR_multiplier has a valid range of [0.0, 4.0].",
+      "verdict": "UNSUPPORTED",
+      "quote": "multiplier stage labelled \"x0 or x2.5\"",
+      "why": "The paper specifies a fixed multiplier of 2.5 and does not establish a valid range for tuning.",
+      "patch": null,
+      "open_question": "What is the allowable tuning range for the sR_multiplier parameter?",
+      "enum_candidates": [
+        "[0.0, 4.0]",
+        "[1.0, 3.0]",
+        "[2.5, 2.5] (fixed)"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/parameters/2/default",
+      "claim": "The digest_width defaults to 12.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value",
+      "why": "The text explicitly states the digest width is 12 bits.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/parameters/2/range",
+      "claim": "The digest_width has a valid tuning range of [8, 16].",
+      "verdict": "UNSUPPORTED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value",
+      "why": "The paper specifies a 12-bit digest but does not mention [8, 16] as a tuning range.",
+      "patch": null,
+      "open_question": "What is the valid tuning range for the digest_width parameter?",
+      "enum_candidates": [
+        "[8, 16]",
+        "[12, 12] (fixed)",
+        "[10, 14]"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/unit_tests/0/expect",
+      "claim": "The exact 12-bit digest value can be computed deterministically for an INT register.",
+      "verdict": "UNSUPPORTED",
+      "quote": "the digest encodes the count of leading zeros (or ones)",
+      "why": "The paper does not specify how the 6-bit count fields handle counts up to 64, or how counting ones vs zeros is distinguished, making the exact output ambiguous.",
+      "patch": null,
+      "open_question": "How are the leading and trailing counts encoded into 6 bits, especially for counts >= 64 or to distinguish counting ones vs zeros?",
+      "enum_candidates": [
+        "Modulo 64 (discards the 64th bit)",
+        "Saturate at 63",
+        "Count only bits matching the sign bit (max 63)"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/unit_tests/1/expect",
+      "claim": "A register's digest is invalidated after 256 instructions are decoded without updates.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded",
+      "why": "The paper directly specifies the 256-instruction invalidation threshold.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/unit_tests/2/expect",
+      "claim": "The predictor uses the digest of the register with the highest UT weight for the WT lookup.",
+      "verdict": "SUPPORTED",
+      "quote": "this component picks the digest of the most useful register among those available",
+      "why": "The paper states that the digest of the most useful register is forwarded.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:predict",
+      "pointer": "/unit_tests/3/expect",
+      "claim": "The bank's WT output is multiplied by 0 when the selected best register has a negative UT weight.",
+      "verdict": "UNSUPPORTED",
+      "quote": "multiplier stage labelled \"x0 or x2.5\"",
+      "why": "The paper shows a choice between multiplying the bank's output by 0 or 2.5, but does not explicitly state that a negative UT weight triggers the x0 condition.",
+      "patch": null,
+      "open_question": "What is the exact condition for selecting the x0 multiplier instead of x2.5 for a bank's output?",
+      "enum_candidates": [
+        "When the most useful register's UT weight is <= 0",
+        "When the most useful register's UT weight is < 0",
+        "When there are no valid registers available in the bank"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/summary",
+      "claim": "The sR component extends the statistical corrector to capture correlations between register values and branch outcomes.",
+      "verdict": "SUPPORTED",
+      "quote": "We extended the SC with components that capture correlations between register values and branch outcomes.",
+      "why": "Explicitly confirms the component extends the SC for this purpose.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/summary",
+      "claim": "The predictor generates 12-bit digests of register values upon instruction completion.",
+      "verdict": "SUPPORTED",
+      "quote": "When the instruction completes, we overwrite the payload with the digest of the produced value and set the valid bit.",
+      "why": "Confirms that digests are generated and cached precisely at instruction completion.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/summary",
+      "claim": "At prediction time, the component selects the digest of the most useful valid register among those available.",
+      "verdict": "SUPPORTED",
+      "quote": "this component picks the digest of the most useful register among those available and forwards it to the second table.",
+      "why": "Confirms the selection logic for the most useful register digest at prediction time.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/summary",
+      "claim": "Stale digests are invalidated after 256 decoded instructions.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded",
+      "why": "Explicitly states the threshold of 256 decoded instructions for invalidating a digest.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/source",
+      "claim": "The paper title is RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables",
+      "why": "Matches the exact paper title provided.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/host_interfaces/0",
+      "claim": "The predictor needs to observe architectural register writes at decode time.",
+      "verdict": "SUPPORTED",
+      "quote": "At decode, an instruction that writes a register stores its ROB index as a tag in the corresponding entry and clears the valid bit.",
+      "why": "Confirms that register writes must be intercepted at instruction decode to manage valid bits and tags.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/host_interfaces/1",
+      "claim": "The predictor needs the register value and type at instruction completion to generate the digest.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value, with the format depending on the register type.",
+      "why": "Confirms that generating the correct 12-bit digest requires both the 64-bit value and its type.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/host_interfaces/2",
+      "claim": "The predictor requires an instruction decode event to track decay.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded",
+      "why": "Confirms that instruction decode events must be tracked to perform invalidations.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/resource_accounting",
+      "claim": "The sR component requires a total of 53863 storage bits.",
+      "verdict": "SUPPORTED",
+      "quote": "sR: Register                     | 6 x (2^7 + 2^8 + 2^9) x 8                        | 6 x 65 x (2^3 + 2^3 + 2^3)    | { valid (1), payload (14), decay_ctr (8) } x 65 | 53863",
+      "why": "Table 3 explicitly lists 53863 bits as the total storage for the sR component.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/algorithms/0",
+      "claim": "At instruction decode, if an instruction writes logical register R, its valid bit is cleared and the ROB index is stored.",
+      "verdict": "SUPPORTED",
+      "quote": "At decode, an instruction that writes a register stores its ROB index as a tag in the corresponding entry and clears the valid bit.",
+      "why": "The pseudocode perfectly aligns with this description of decode-time behavior.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/algorithms/0",
+      "claim": "The payload field temporarily holds a 14-bit tag (ROB index) until the value is produced.",
+      "verdict": "SUPPORTED",
+      "quote": "Each entry consists of a valid bit and a payload that can hold either a 14-bit tag or a 12-bit digest.",
+      "why": "Confirms the payload is sized to store a 14-bit tag.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/state/0",
+      "claim": "The Register Digest Table is a flat array containing one entry per logical register.",
+      "verdict": "SUPPORTED",
+      "quote": "We use a dedicated table that contains one entry per logical register.",
+      "why": "Confirms the one-to-one mapping.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/state/0",
+      "claim": "The table entry format is valid (1), payload (14), decay_ctr (8).",
+      "verdict": "SUPPORTED",
+      "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+      "why": "Table 3 specifies exactly these fields and bit widths for the auxiliary data.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/state/0",
+      "claim": "The total size of the Register Digest Table is 1495 bits.",
+      "verdict": "SUPPORTED",
+      "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+      "why": "An entry with 1+14+8 = 23 bits across 65 entries calculates exactly to 1495 bits.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/parameters/2",
+      "claim": "The digest width is a tunable parameter with a valid range of [8, 16].",
+      "verdict": "CONTRADICTED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value",
+      "why": "The paper hardcodes a 12-bit digest with fixed bitwise field layouts in Figure 6, which directly contradicts a parameterized width.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/parameters/2/range",
+        "value": "[12, 12]"
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/unit_tests/0",
+      "claim": "The INT digest output must explicitly state a fully calculated expected value for the test to be closed.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "count of leading zeros (or ones), the count of trailing zeros (or ones), and the six least significant bits",
+      "why": "The spec provides the inputs but uses 'correctly' instead of calculating the exact deterministic output value needed for the test expectation.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/unit_tests/0/expect",
+        "value": "The 12-bit digest is 0x0A8 (computed as 0x000 ^ (61 << 3) ^ (5 << 6), assuming counts of zeros are used)."
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": "UNDERSPECIFIED patch must add detail, not shorten it"
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/unit_tests/1",
+      "claim": "A register's valid bit transitions to 0 after 256 instructions are decoded without updates.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded",
+      "why": "Explicitly confirms the 256 instruction delay for invalidation.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/unit_tests/2",
+      "claim": "The predictor selects the register digest in a bank whose UT weight is highest among valid registers.",
+      "verdict": "SUPPORTED",
+      "quote": "picks the digest of the most useful register among those available and forwards it to the second table.",
+      "why": "Confirms that the register with maximum usefulness is selected.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "global+algo:allocate_digest_entry",
+      "pointer": "/unit_tests/3",
+      "claim": "If the selected best register in a bank has a negative UT weight, the bank's WT output is multiplied by 0.",
+      "verdict": "UNSUPPORTED",
+      "quote": "x0 or x2.5",
+      "why": "Figure 5(c) shows a conditional multiplier of x0 or x2.5 for the bank, but does not state that a negative UT weight is the condition that selects x0.",
+      "patch": null,
+      "open_question": "What exact condition drives the 'x0 or x2.5' multiplier for a register bank's WT output in the sR component?",
+      "enum_candidates": [
+        "The selected maximum UT weight is negative",
+        "The selected maximum UT weight is less than or equal to zero",
+        "A separate global usefulness metric evaluates to negative"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/algorithms/2/pseudocode",
+      "claim": "The pseudocode syntax evaluates validly without treating 'return' as a function call.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value, with the format depending on the register type.",
+      "why": "The paper intends to return a generated digest, but the spec's syntax 'return(val)' is parsed as a function call. It must be rewritten to use valid assignment and return statements.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/algorithms/2/pseudocode",
+        "value": "if T == INT:\n  t_cnt = count_trailing_zeros_or_ones(V) & 0x3F\n  l_cnt = count_leading_zeros_or_ones(V) & 0x3F\n  val_6 = V & 0x3F\n  res = t_cnt ^ (l_cnt << 3) ^ (val_6 << 6)\n  return res\nelse if T == FP:\n  class = classify_fp(V)\n  if class == FP64:\n    res = (sign(V) << 11) | (exp_FP64(V)[7:0] << 3)\n    return res\n  else if class == FP32:\n    res = (sign(V) << 8) | (exp_FP32(V)[4:0] << 3)\n    return res\n  else if class == FP16:\n    res = (sign(V) << 5) | (exp_FP16(V)[1:0] << 3)\n    return res\nelse if T == FLAG:\n  res = (V[3:0] << 8) | (V[3:0] << 4) | V[3:0]\n  return res"
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/algorithms/2/pseudocode",
+      "claim": "The exact rule for counting leading and trailing zeros or ones (e.g. saturation, modulo, or sign-matching) is fully specified.",
+      "verdict": "UNSUPPORTED",
+      "quote": "count of leading zeros (or ones), the count of trailing zeros (or ones)",
+      "why": "The paper names the metrics but does not define how to handle values exceeding 63, nor how it decides between zeros and ones.",
+      "patch": null,
+      "open_question": "How are the leading and trailing zero/one counts calculated for the 6-bit fields?",
+      "enum_candidates": [
+        "Count identical bits matching the LSB/MSB, capped at 63",
+        "Count zeros or ones whichever is larger, saturated at 63",
+        "Count zeros or ones whichever is larger, modulo 64"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/algorithms/2/pseudocode",
+      "claim": "The method for classifying floating-point formats is fully specified.",
+      "verdict": "UNSUPPORTED",
+      "quote": "we inspect the most significant bits to classify the format",
+      "why": "The paper states it inspects the bits but does not give the exact logic or thresholds used to identify FP16, FP32, or FP64.",
+      "patch": null,
+      "open_question": "What is the logic for classify_fp(V)?",
+      "enum_candidates": [
+        "Heuristic classification based on exponent bit patterns and NaN boxing",
+        "Host architecture provides explicit type tags",
+        "Assume all values are FP64"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/algorithms/2/pseudocode",
+      "claim": "The bit alignment for FP fields places the LSB at bit 3.",
+      "verdict": "UNSUPPORTED",
+      "quote": "we inspect the most significant bits to classify the format and then extract the sign bit along with the most significant bits of the exponent.",
+      "why": "The prose does not state the exact alignment, and the figure only explicitly labels bits 8 and 3 for FP32. It is ambiguous if FP16 and FP64 are also right-aligned to bit 3.",
+      "patch": null,
+      "open_question": "What is the bit alignment for the extracted FP16 and FP64 fields in the digest?",
+      "enum_candidates": [
+        "All formats are right-aligned at digest bit 3",
+        "Each format is right-aligned at digest bit 0",
+        "Aligned to their original bit positions within the 12-bit window"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/state/0",
+      "claim": "The Register Digest Table contains 65 entries and incorporates valid, payload, and decay counter fields.",
+      "verdict": "SUPPORTED",
+      "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+      "why": "Table 3 explicitly specifies the entry format and the 65-entry array dimension.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/parameters/0",
+      "claim": "The decay period default is 256 instructions, which requires a counter that fits in the 8-bit decay_ctr.",
+      "verdict": "CONTRADICTED",
+      "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+      "why": "Table 3 explicitly specifies an 8-bit counter, which holds a maximum value of 255. A default parameter of 256 exceeds this and causes a type error. The parameter must be 255 to represent 256 states.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/parameters/0",
+        "value": {
+          "name": "decay_period",
+          "type": "int",
+          "default": 255,
+          "range": "[1, 255]",
+          "storage_impact": "Requires an 8-bit counter per register in the Register Digest Table auxiliary data."
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/unit_tests/0/expect",
+      "claim": "The expected output for an INT register value of 5 with 61 leading zeros and 0 trailing zeros is explicitly verified.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "For integer registers, the digest encodes the count of leading zeros (or ones), the count of trailing zeros (or ones), and the six least significant bits",
+      "why": "The test expectation uses a hedge word 'correctly' instead of providing the explicit expected 12-bit digest value.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/unit_tests/0/expect",
+        "value": "The 12-bit digest is 0x0A8, which is the XOR of trailing count (0), leading count (61) shifted by 3, and value (5) shifted by 6."
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": "UNDERSPECIFIED patch must add detail, not shorten it"
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/unit_tests/3",
+      "claim": "The bank's prediction output is suppressed entirely if the selected register's usefulness weight is negative.",
+      "verdict": "UNSUPPORTED",
+      "quote": "x0 or x2.5",
+      "why": "Figure 5(c) shows a multiplier option of x0, but the paper does not explicitly specify that a negative UT weight is the condition that triggers it.",
+      "patch": null,
+      "open_question": "What condition selects the 'x0' multiplier to suppress a bank's contribution?",
+      "enum_candidates": [
+        "The bank's maximum usefulness weight is negative",
+        "The bank's maximum usefulness weight is strictly zero",
+        "A global usefulness metric is negative"
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/state/1",
+      "claim": "The sR Prediction Weight Table is organized into 8 banks, each with three tables of 512, 256, and 128 entries respectively, using 6-bit weights.",
+      "verdict": "SUPPORTED",
+      "quote": "6 x (2^7 + 2^8 + 2^9) x 8",
+      "why": "Table 3 explicitly specifies the WT dimensions as 8 banks of 128, 256, and 512 entries with 6-bit weights.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/parameters/2",
+      "claim": "The digest width is 12 bits.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value",
+      "why": "The paper directly specifies the 12-bit size for the generated digest.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/unit_tests/1",
+      "claim": "A digest is invalidated after 256 subsequent instructions are decoded.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded",
+      "why": "The paper explicitly states the condition and duration for digest invalidation.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/unit_tests/2",
+      "claim": "The predictor selects the digest of the most useful register among those available in the bank.",
+      "verdict": "SUPPORTED",
+      "quote": "this component picks the digest of the most useful register among those available and forwards it to the second table.",
+      "why": "The text confirms that the most useful register's digest is the one selected for the prediction tables.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/algorithms/1",
+      "claim": "The update_digest_value algorithm correctly updates the payload, sets the valid bit, and initializes the decay counter upon instruction completion.",
+      "verdict": "SUPPORTED",
+      "quote": "When the instruction completes, we overwrite the payload with the digest of the produced value and set the valid bit.",
+      "why": "The paper explicitly defines these actions occurring at instruction completion.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/algorithms/3",
+      "claim": "Digest decay is triggered on every instruction decode.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded, ensuring that only up-to-date information influences future predictions.",
+      "why": "The paper specifies that the invalidation happens based on the number of subsequent instructions that have been decoded.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/state/0",
+      "claim": "The Register Digest Table contains 65 entries, with an entry format including an 8-bit decay counter.",
+      "verdict": "SUPPORTED",
+      "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+      "why": "Table 3 explicitly sizes the register auxiliary data as 65 entries, each with a 1-bit valid flag, a 14-bit payload, and an 8-bit decay counter.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/state/1",
+      "claim": "The sR Prediction Weight Table (WT) consists of 8 banks, each containing three tables of 512, 256, and 128 entries with 6-bit weights.",
+      "verdict": "SUPPORTED",
+      "quote": "6 x (2^7 + 2^8 + 2^9) x 8",
+      "why": "Table 3 defines the dimensions of the sR WT, confirming 8 banks of tables with 128, 256, and 512 entries, and 6-bit weights.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/parameters/0",
+      "claim": "The default decay period is 256 instructions.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded, ensuring that only up-to-date information influences future predictions.",
+      "why": "The text directly states that digests are invalidated after 256 subsequent instructions.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/parameters/2",
+      "claim": "The digest width generated from a register value is 12 bits.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS generates a 12-bit digest from each 64-bit register value, with the format depending on the register type.",
+      "why": "The text specifies the digest is exactly 12 bits wide.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/unit_tests/0",
+      "claim": "The expected result of the INT digest generation test is concretely defined.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "For integer registers, the digest encodes the count of leading zeros (or ones), the count of trailing zeros (or ones), and the six least significant bits, effectively capturing characteristics of addresses and round numbers.",
+      "why": "The paper defines the bitwise inputs to the digest, allowing a concrete expected value to be calculated, but the spec's test expectation is vacuous.",
+      "patch": {
+        "op": "replace",
+        "pointer": "/unit_tests/0",
+        "value": {
+          "name": "INT Digest Generation",
+          "given": "An INT register value of 0x0000000000000005.",
+          "expect": "The resulting 12-bit digest is 0x0A8 (XOR of trailing count 0 at bits 5:0, leading count 61 at bits 8:3, and value 5 at bits 11:6)."
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/unit_tests/1",
+      "claim": "The valid bit for a register's digest transitions to 0 after 256 instructions without updates.",
+      "verdict": "SUPPORTED",
+      "quote": "RUNLTS invalidates each digest after 256 subsequent instructions have been decoded, ensuring that only up-to-date information influences future predictions.",
+      "why": "The paper confirms that a digest is invalidated after 256 decoded instructions.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/unit_tests/2",
+      "claim": "The predictor selects the digest of the register with the highest usefulness weight in the bank.",
+      "verdict": "SUPPORTED",
+      "quote": "Unlike the existing components, this component picks the digest of the most useful register among those available and forwards it to the second table.",
+      "why": "The text specifies that the most useful register is chosen to supply its digest to the WT.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/unit_tests/3",
+      "claim": "A bank's WT output is multiplied by 0 if its selected best register has a negative UT weight.",
+      "verdict": "UNSUPPORTED",
+      "quote": "Each entry of the first table holds an eight- (or nine-) element vector of weights reflecting the usefulness of each register.",
+      "why": "The paper confirms usefulness weights exist, but does not explicitly state the condition (such as a negative weight) that triggers the x0 path shown in Figure 5(c).",
+      "patch": null,
+      "open_question": "What condition selects the x0 versus x2.5 multiplier for a bank's output?",
+      "enum_candidates": [
+        "x2.5 is used if the selected register's usefulness weight is non-negative (>= 0), otherwise x0.",
+        "x2.5 is used if the selected register's usefulness weight is strictly positive (> 0), otherwise x0.",
+        "The multiplier is fixed at 2.5 and x0 is only used when no valid register is available in the bank."
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/algorithms/5",
+      "claim": "The exact update policies for the WT and UT are specified.",
+      "verdict": "UNSUPPORTED",
+      "quote": "During training, we update the correlations only for logical registers that were available at prediction time. If several registers were available within the same bank, it randomly selects one of them for the update.",
+      "why": "The paper states which registers to update, but omits the precise arithmetic rules or conditions for updating the WT and UT weights.",
+      "patch": null,
+      "open_question": "What are the exact update rules for the WT and UT weights in the register component?",
+      "enum_candidates": [
+        "WT is updated like a standard SC weight, and UT is incremented on correct prediction and decremented on incorrect.",
+        "WT and UT are updated using the exact same formulas as the base TAGE-SC-L usefulness and weight components.",
+        "UT is incremented if the bank's WT prediction matches the branch outcome, and decremented otherwise."
+      ],
+      "evidence_ok": false,
+      "rejected": null
+    },
+    {
+      "unit_id": "algo:decay_digests+algo:update",
+      "pointer": "/state/2",
+      "claim": "The sR Usefulness Weight Table (UT) has 3 tables of 8 entries, with each entry holding 65 6-bit weights.",
+      "verdict": "SUPPORTED",
+      "quote": "6 x 65 x (2^3 + 2^3 + 2^3)",
+      "why": "Table 3 details the dimensions of the sR UT as three 8-entry tables, each holding 65 6-bit weights.",
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": true,
+      "rejected": null
+    },
+    {
+      "unit_id": "coverage",
+      "pointer": "/algorithms/-",
+      "claim": "The spec does not specify that the outputs of the three usefulness tables are summed together.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "Their outputs go to a Sigma producing \"9 regs useful (skewed)\".",
+      "why": "The usefulness vector used to select the best register is the sum of the outputs from UT0, UT1, and UT2.",
+      "patch": {
+        "op": "add",
+        "pointer": "/algorithms/-",
+        "value": {
+          "name": "compute_usefulness",
+          "trigger": "Called by predict",
+          "pseudocode": "ut_row = UT0[skew(PC)] + UT1[skew(PC)] + UT2[skew(PC)]",
+          "notes": "The outputs of the three UT tables must be summed to produce the usefulness vector for the bank."
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": "conflicting patches at /algorithms/- from 3 reviewers"
+    },
+    {
+      "unit_id": "coverage",
+      "pointer": "/algorithms/-",
+      "claim": "The spec does not document that the three prediction weight tables are indexed by distinct hash functions.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "hashed into \"h0\", \"h1\", \"h2\".",
+      "why": "The implementation must use three different hash functions to index WT0, WT1, and WT2.",
+      "patch": {
+        "op": "add",
+        "pointer": "/algorithms/-",
+        "value": {
+          "name": "hash_wt_indices",
+          "trigger": "Called by predict",
+          "pseudocode": "h0 = hash0(PC, digest)\nh1 = hash1(PC, digest)\nh2 = hash2(PC, digest)",
+          "notes": "The three WT tables are indexed by distinct hashes."
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": "conflicting patches at /algorithms/- from 3 reviewers"
+    },
+    {
+      "unit_id": "coverage",
+      "pointer": "/algorithms/-",
+      "claim": "The spec abstracts the extraction of FP bits instead of using the exact bit slices specified in the figure.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "\"For FP64\"  ->  Value[63:55]",
+      "why": "The hardware implementation should extract these exact bit ranges directly from the 64-bit value to form the digest, rather than relying on abstract exponent bounds.",
+      "patch": {
+        "op": "add",
+        "pointer": "/algorithms/-",
+        "value": {
+          "name": "extract_fp_bits",
+          "trigger": "Called by generate_digest for FP types",
+          "pseudocode": "if class == FP64: return V[63:55] << 3\nelse if class == FP32: return V[31:26] << 3\nelse if class == FP16: return V[15:13] << 3",
+          "notes": "Uses the exact bit ranges from Figure 6(b) instead of abstract exponent/sign functions."
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": "conflicting patches at /algorithms/- from 3 reviewers"
+    },
+    {
+      "unit_id": "coverage",
+      "pointer": "/open_questions/-",
+      "claim": "The spec omits the hardware constraint that the register component tables require only a single write port.",
+      "verdict": "UNDERSPECIFIED",
+      "quote": "Owing to this training method, each table in the register component also needs just a single write port.",
+      "why": "This is a critical architectural constraint that ensures the design fits within typical port limitations, which the spec should explicitly document.",
+      "patch": {
+        "op": "add",
+        "pointer": "/open_questions/-",
+        "value": "The paper states each table in the register component needs just a single write port. Where should this port-count constraint be documented in the state or resource accounting?"
+      },
+      "open_question": null,
+      "enum_candidates": null,
+      "evidence_ok": false,
+      "rejected": null
+    }
+  ],
+  "rejections": [
+    {
+      "unit": "global+algo:allocate_digest_entry",
+      "pointer": "/unit_tests/0",
+      "verdict": "UNDERSPECIFIED",
+      "reason": "UNDERSPECIFIED patch must add detail, not shorten it"
+    },
+    {
+      "unit": "algo:generate_digest+algo:update_digest_value",
+      "pointer": "/unit_tests/0/expect",
+      "verdict": "UNDERSPECIFIED",
+      "reason": "UNDERSPECIFIED patch must add detail, not shorten it"
+    },
+    {
+      "unit": "coverage",
+      "pointer": "/algorithms/-",
+      "verdict": "UNDERSPECIFIED",
+      "reason": "conflicting patches at /algorithms/- from 3 reviewers"
+    },
+    {
+      "unit": "coverage",
+      "pointer": "/algorithms/-",
+      "verdict": "UNDERSPECIFIED",
+      "reason": "conflicting patches at /algorithms/- from 3 reviewers"
+    },
+    {
+      "unit": "coverage",
+      "pointer": "/algorithms/-",
+      "verdict": "UNDERSPECIFIED",
+      "reason": "conflicting patches at /algorithms/- from 3 reviewers"
+    }
+  ],
+  "parse_errors": [],
+  "checks_before": {
+    "error": 1,
+    "warn": 3,
+    "info": 8
+  },
+  "checks_after": {
+    "error": 0,
+    "warn": 2,
+    "info": 10
+  },
+  "regressions": [],
+  "schema_errors": [],
+  "verdicts": {
+    "CONTRADICTED": 3,
+    "UNSUPPORTED": 13,
+    "SUPPORTED": 38,
+    "UNDERSPECIFIED": 8
+  },
+  "accepted": true,
+  "reject_reason": null
+}

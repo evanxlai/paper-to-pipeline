@@ -1,0 +1,190 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:predict",
+        "algo:instruction_complete+algo:digest_decay_tick",
+        "algo:instruction_decode+algo:mispredict_recovery",
+        "global+algo:digest_generation+algo:update"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 1,
+        "warn": 1,
+        "info": 21
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 1,
+        "info": 23
+      },
+      "verdicts": {
+        "SUPPORTED": 98,
+        "UNSUPPORTED": 19,
+        "UNDERSPECIFIED": 4
+      },
+      "accepted": true,
+      "reject_reason": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/parameters/2/default",
+        "code": "unrepresentable_default",
+        "severity": "error",
+        "message": "default 256 does not fit the 8-bit field 'decay_ctr' declared in /state/0/entry_format (max 255). Either widen the field or lower the default."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'bits(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_zeros_or_ones(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_zeros_or_ones(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'format(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'generate_digest(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'return(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_decode(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'generate_digest(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_complete(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'return(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_instruction_decoded_global(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'append(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'for(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'predict_sR(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'registers(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'UT(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'if(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'register_index_in_bank(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'saturating_add(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'update_sR(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/6/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'and(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/6/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_mispredict_recovery(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      }
+    ],
+    "open_questions": 24,
+    "parameters": 13,
+    "complete": true,
+    "unreviewed_units": []
+  }
+}

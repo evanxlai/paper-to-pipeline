@@ -1,0 +1,22 @@
+{
+  "passed": false,
+  "reasons": [
+    "G5 [perf_cond_mpki] cond_mpki moved -0.0811 relative (10.915894056470352 -> 11.801033987579538, decrease is better), which does not beat the 0.0 floor. It moved the wrong way: the mechanism reaches the metric and makes it worse, so look at what it computes and trains, not at whether it is wired in.; ipc regressed +0.0216 relative (1.5153912820052429 -> 1.482633862569712), beyond the 0.005 band. cond_mpki got no better, so this is a cost, not a trade."
+  ],
+  "warnings": [
+    "perf_cond_mpki: cond_mpki improved -0.0811 against a claimed 0.0 (No numerical magnitude claim provided in the spec summary.). Recorded, not blocking: the port is untuned and closing that gap is stage 4's job."
+  ],
+  "plan_revision": 0,
+  "measurements": [
+    {
+      "id": "perf_cond_mpki",
+      "metric": "cond_mpki",
+      "direction": "decrease",
+      "baseline": 10.915894056470352,
+      "measured": 11.801033987579538,
+      "relative_improvement": -0.08108725923228649,
+      "n_traces": 8
+    }
+  ],
+  "knob_reach": null
+}

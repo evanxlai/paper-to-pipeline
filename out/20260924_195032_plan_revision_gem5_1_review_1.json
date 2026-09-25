@@ -1,0 +1,143 @@
+{
+  "schema_errors": [],
+  "findings": [
+    {
+      "pointer": "/plan/knobs/13/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 0 where the spec's default is 'saturate'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/14/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 0 where the spec's default is 'stride_interleaved'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/15/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 0 where the spec's default is 'commit'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/16/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 0 where the spec's default is 'align_bit_3'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/17/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 0 where the spec's default is 'max_u_greater_than_zero'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/hook_points/0/id",
+      "code": "orphan_hook",
+      "severity": "warn",
+      "message": "nothing references hook 'tage_sc_l_probes_hh'. Either some spec item belongs here and the mapping is missing, or the hook point is not part of this port."
+    },
+    {
+      "pointer": "/plan/hook_points/2/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'sc_methods_hh' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/3/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'tage_sc_l_64kb_sc_hh' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/4/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'gpredictions_add' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/5/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'gupdates_add' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/6/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'sc_callbacks_cc' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/7/id",
+      "code": "orphan_hook",
+      "severity": "warn",
+      "message": "nothing references hook 'sr_params_h'. Either some spec item belongs here and the mapping is missing, or the hook point is not part of this port."
+    },
+    {
+      "pointer": "/plan/structure/rejected_alternatives",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the revision rewrites why \"Changing pred_taken after scPredict in TAGE_SC_L::predict.\" was rejected. That reason was reached against this tree before the port existed."
+    },
+    {
+      "pointer": "/plan/knobs/13/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"saturate\" to 0. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/14/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"stride_interleaved\" to 0. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/15/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"commit\" to 0. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/16/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"align_bit_3\" to 0. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/17/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"max_u_greater_than_zero\" to 0. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/open_questions/12/assumption",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'assumption' is frozen on a open_questions entry; this revision changes it from \"Right-align the extracted sign and exponent at bit 3.\" to \"Right-align extracted FP bits at digest bit 3.\". Revisable on this entry: cost_if_wrong, spec_pointer. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/open_questions/13/assumption",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'assumption' is frozen on a open_questions entry; this revision changes it from \"Clear payload to 0 for entries with valid=0 and matching ROB ID upon squash.\" to \"Clear pending valid=0 writes during recovery, leave valid digests.\". Revisable on this entry: cost_if_wrong, spec_pointer. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/open_questions/14/assumption",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'assumption' is frozen on a open_questions entry; this revision changes it from \"Apply +1 if the bank prediction is correct, otherwise -1.\" to \"Update usefulness based on component accuracy.\". Revisable on this entry: cost_if_wrong, spec_pointer. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/open_questions/15/assumption",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'assumption' is frozen on a open_questions entry; this revision changes it from \"Invalidate after exactly 256 instructions.\" to \"Invalidate digest after exactly 256 subsequent instructions.\". Revisable on this entry: cost_if_wrong, spec_pointer. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/open_questions/16/assumption",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'assumption' is frozen on a open_questions entry; this revision changes it from \"Track the state for up to 256 in-flight branches via BranchInfo.\" to \"Assume tracking for 256 in-flight branches.\". Revisable on this entry: cost_if_wrong, spec_pointer. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    }
+  ]
+}

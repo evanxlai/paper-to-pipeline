@@ -1,0 +1,596 @@
+{
+  "feature_name": "wormhole",
+  "host": "cbp2025",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+  "spec_inputs_used": "paper_only",
+  "structure": {
+    "choice": "A separate module inside SampleCondPredictor that tracks its own WPT and WPT_InFlight_Meta states. It intercepts the TAGE prediction via SampleCondPredictor::predict, and outputs its internal prediction if its confidence is high. It allocates and updates its tables at branch commit via SampleCondPredictor::update.",
+    "rejected_alternatives": [
+      {
+        "alternative": "Integrate as a term in the statistical corrector (cbp2016_tage_sc_l.h's LSUM).",
+        "why_rejected": "The spec algorithms explicitly outline Wormhole as a predictor that completely overrides TAGE when confident (using a separate confidence check), rather than feeding a partial sum into the SC. Integrating it into LSUM would subject it to the SC's dynamic THRES and change its semantics.",
+        "source": "hosts/cbp2025/NOTES.md option 2"
+      }
+    ]
+  },
+  "hook_points": [
+    {
+      "id": "predictor_state",
+      "file": "my_cond_branch_predictor.h",
+      "symbol": "SampleCondPredictor",
+      "action": "modify",
+      "observed": "class SampleCondPredictor\n{\n        SampleHist active_hist;\n        std::unordered_map<uint64_t/*key*/, SampleHist/*val*/> pred_time_histories;\n    public:",
+      "change": "Add `#include \"sr_params.h\"`. Add `WPT` table and `WPT_InFlight_Meta` queue data structures (WPT_InFlight_Meta keyed by inst_id using `std::unordered_map`). Add `sr_enabled` boolean set by `getenv(\"SR_WORMHOLE_ENABLE\")` in `setup()`. Add a 2-bit saturating counter array for the fallback problematic branch signal. Add `cached_lptotal` state to track active loop iterations."
+    },
+    {
+      "id": "predict",
+      "file": "my_cond_branch_predictor.h",
+      "symbol": "SampleCondPredictor::predict",
+      "action": "modify",
+      "observed": "        bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)\n        {\n            active_hist.tage_pred = tage_pred;\n            // checkpoint current hist\n            pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);\n            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);\n            return pred_taken;\n        }",
+      "change": "If `!sr_enabled`, execute the old code. If enabled, evaluate Wormhole's `predict` algorithm. Get `LPTOTAL` by caching `cbp2016_tage_sc_l.active_hist.ltable[cbp2016_tage_sc_l.LHIT].NbIter` if `LHIT != -1` and clearing it when `IMLIcount` resets to 0. Populate `WPT_InFlight_Meta` checkpoint for this branch with `tage_pred`, `wpt_pred`, `old_history`, and `LPTOTAL`. Return `internal_pred` if confident, otherwise return `tage_pred`. Defer history update to `history_update`."
+    },
+    {
+      "id": "update",
+      "file": "my_cond_branch_predictor.h",
+      "symbol": "SampleCondPredictor::update(PC, ...)",
+      "action": "modify",
+      "observed": "        void update (uint64_t PC, bool resolveDir, bool pred_taken, uint64_t nextPC, const SampleHist& hist_to_use)\n        {\n        }",
+      "change": "Update the 2-bit fallback problematic branch counter using `resolveDir` and `tage_pred`, resetting to 0 on correct predictions to track consecutive mispredictions. Evaluate Wormhole's `allocate` and `update` algorithms using the checkpointed `WPT_InFlight_Meta` metadata. Delete the entry from `WPT_InFlight_Meta`."
+    },
+    {
+      "id": "recover",
+      "file": "my_cond_branch_predictor.h",
+      "symbol": "SampleCondPredictor::recover",
+      "action": "modify",
+      "observed": "        void history_update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC)\n        {\n            active_hist.ghist = active_hist.ghist << 1;",
+      "change": "Squash is unavailable on this host. Use this hook to look up `WPT_InFlight_Meta` and update `wpt[meta.entry_idx].history` non-speculatively using the actual `taken` outcome."
+    },
+    {
+      "id": "params_header",
+      "file": "sr_params.h",
+      "symbol": "sr_params.h",
+      "action": "create",
+      "change": "Created by the stage 4 DSE search loop, providing definitions for SR_ knobs and HOST_ knobs."
+    }
+  ],
+  "spec_map": [
+    {
+      "spec_pointer": "/state/0",
+      "spec_item": "WPT",
+      "hook_ids": [
+        "predictor_state"
+      ],
+      "realization": "An array/vector of `num_entries` structs representing WPT entries."
+    },
+    {
+      "spec_pointer": "/state/1",
+      "spec_item": "WPT_InFlight_Meta",
+      "hook_ids": [
+        "predictor_state"
+      ],
+      "realization": "A `std::unordered_map` keyed by `inst_id` (since ROB index is unavailable) replacing the circular queue, holding checkpointed history, predictions, and `LPTOTAL`."
+    },
+    {
+      "spec_pointer": "/algorithms/0",
+      "spec_item": "predict",
+      "hook_ids": [
+        "predict"
+      ],
+      "realization": "In `SampleCondPredictor::predict`, calculates prediction and populates `WPT_InFlight_Meta`. Does not speculatively update history here to prevent corruption without a squash hook."
+    },
+    {
+      "spec_pointer": "/algorithms/1",
+      "spec_item": "allocate",
+      "hook_ids": [
+        "update"
+      ],
+      "realization": "In `SampleCondPredictor::update`, allocates or increments ranking on problematic branches using the fallback 2-bit counter and checkpointed `LPTOTAL`."
+    },
+    {
+      "spec_pointer": "/algorithms/2",
+      "spec_item": "update",
+      "hook_ids": [
+        "update"
+      ],
+      "realization": "In `SampleCondPredictor::update`, updates confidence and saturating counters from the checkpointed data."
+    },
+    {
+      "spec_pointer": "/algorithms/3",
+      "spec_item": "recover",
+      "hook_ids": [
+        "recover"
+      ],
+      "realization": "No-op for actual recovery, but repurposed `history_update` to perform non-speculative history updates using the actual outcome provided by the simulator."
+    }
+  ],
+  "interface_resolutions": [
+    {
+      "spec_pointer": "/host_interfaces/0",
+      "need": "LPTOTAL from loop predictor",
+      "status": "exact",
+      "resolution": "Read `cbp2016_tage_sc_l.active_hist.ltable[cbp2016_tage_sc_l.LHIT].NbIter` during `predict` (if `LHIT != -1`) and cache it in a `cached_lptotal` variable. Clear `cached_lptotal` when `cbp2016_tage_sc_l.active_hist.IMLIcount == 0` (indicating loop exit). Checkpoint the cached LPTOTAL into `WPT_InFlight_Meta`.",
+      "rationale": "The host's loop predictor only provides LHIT for the loop branch itself. By caching NbIter, we can provide LPTOTAL to enclosed branches. IMLIcount tracks innermost loop iterations and drops to 0 on exit, providing a reliable clear signal."
+    },
+    {
+      "spec_pointer": "/host_interfaces/1",
+      "need": "Problematic branch signal from statistical corrector",
+      "status": "fallback",
+      "resolution": "Maintain a simple 2-bit counter per branch tracking consecutive mispredictions.",
+      "rationale": "The host's statistical corrector uses a global dynamic threshold rather than a per-branch signal, making a direct signal unavailable.",
+      "fidelity_note": "May allocate slightly more or fewer branches than the paper's specific SC-driven signal, potentially affecting WPT utilization.",
+      "hook_ids": [
+        "predictor_state",
+        "update"
+      ]
+    },
+    {
+      "spec_pointer": "/host_interfaces/2",
+      "need": "TAGE prediction",
+      "status": "exact",
+      "resolution": "Use the `tage_pred` argument passed to `SampleCondPredictor::predict`.",
+      "rationale": "The `get_cond_dir_prediction` interface in `cond_branch_predictor_interface.cc` already calls `cbp2016_tage_sc_l.predict` and provides it to `SampleCondPredictor`."
+    }
+  ],
+  "knobs": [
+    {
+      "spec_pointer": "/parameters/0",
+      "spec_parameter": "num_entries",
+      "macro": "SR_NUM_ENTRIES",
+      "host_knob": "SR_NUM_ENTRIES",
+      "binding": "compile_time_define",
+      "default": 5
+    },
+    {
+      "spec_pointer": "/parameters/1",
+      "spec_parameter": "tag_bits",
+      "macro": "SR_TAG_BITS",
+      "host_knob": "SR_TAG_BITS",
+      "binding": "compile_time_define",
+      "default": 18
+    },
+    {
+      "spec_pointer": "/parameters/2",
+      "spec_parameter": "conf_bits",
+      "macro": "SR_CONF_BITS",
+      "host_knob": "SR_CONF_BITS",
+      "binding": "compile_time_define",
+      "default": 4
+    },
+    {
+      "spec_pointer": "/parameters/3",
+      "spec_parameter": "rank_bits",
+      "macro": "SR_RANK_BITS",
+      "host_knob": "SR_RANK_BITS",
+      "binding": "compile_time_define",
+      "default": 3
+    },
+    {
+      "spec_pointer": "/parameters/4",
+      "spec_parameter": "history_bits",
+      "macro": "SR_HISTORY_BITS",
+      "host_knob": "SR_HISTORY_BITS",
+      "binding": "compile_time_define",
+      "default": 101
+    },
+    {
+      "spec_pointer": "/parameters/5",
+      "spec_parameter": "length_bits",
+      "macro": "SR_LENGTH_BITS",
+      "host_knob": "SR_LENGTH_BITS",
+      "binding": "compile_time_define",
+      "default": 7
+    },
+    {
+      "spec_pointer": "/parameters/6",
+      "spec_parameter": "num_counters",
+      "macro": "SR_NUM_COUNTERS",
+      "host_knob": "SR_NUM_COUNTERS",
+      "binding": "compile_time_define",
+      "default": 16
+    },
+    {
+      "spec_pointer": "/parameters/7",
+      "spec_parameter": "counter_bits",
+      "macro": "SR_COUNTER_BITS",
+      "host_knob": "SR_COUNTER_BITS",
+      "binding": "compile_time_define",
+      "default": 5
+    },
+    {
+      "spec_pointer": "/parameters/8",
+      "spec_parameter": "threshold",
+      "macro": "SR_THRESHOLD",
+      "host_knob": "SR_THRESHOLD",
+      "binding": "compile_time_define",
+      "default": 16
+    },
+    {
+      "spec_pointer": "/parameters/9",
+      "spec_parameter": "max_in_flight_branches",
+      "macro": "SR_MAX_IN_FLIGHT_BRANCHES",
+      "host_knob": "SR_MAX_IN_FLIGHT_BRANCHES",
+      "binding": "compile_time_define",
+      "default": 128
+    }
+  ],
+  "host_knobs": [
+    {
+      "name": "logg",
+      "macro": "HOST_LOGG",
+      "host_symbol": "LOGG",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGG 10         /* logsize of the  banks in the  tagged TAGE tables */",
+      "type": "int",
+      "default": 10,
+      "range": "[8, 12]",
+      "binding": "compile_time_define",
+      "description": "logsize of the banks in the tagged TAGE tables"
+    },
+    {
+      "name": "tbits",
+      "macro": "HOST_TBITS",
+      "host_symbol": "TBITS",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define TBITS 8         //minimum width of the tags  (low history lengths), +4 for high history lengths",
+      "type": "int",
+      "default": 8,
+      "range": "[6, 12]",
+      "binding": "compile_time_define",
+      "description": "minimum width of the tags (low history lengths)"
+    },
+    {
+      "name": "nbanklow",
+      "macro": "HOST_NBANKLOW",
+      "host_symbol": "NBANKLOW",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define NBANKLOW 10     // number of banks in the shared bank-interleaved for the low history lengths",
+      "type": "int",
+      "default": 10,
+      "range": "[8, 12]",
+      "binding": "compile_time_define",
+      "description": "number of banks in the shared bank-interleaved for the low history lengths"
+    },
+    {
+      "name": "nbankhigh",
+      "macro": "HOST_NBANKHIGH",
+      "host_symbol": "NBANKHIGH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define NBANKHIGH 20        // number of banks in the shared bank-interleaved for the  history lengths",
+      "type": "int",
+      "default": 20,
+      "range": "[16, 24]",
+      "binding": "compile_time_define",
+      "description": "number of banks in the shared bank-interleaved for the high history lengths"
+    },
+    {
+      "name": "cwidth",
+      "macro": "HOST_CWIDTH",
+      "host_symbol": "CWIDTH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define CWIDTH 3        // predictor counter width on the TAGE tagged tables",
+      "type": "int",
+      "default": 3,
+      "range": "[2, 4]",
+      "binding": "compile_time_define",
+      "description": "predictor counter width on the TAGE tagged tables"
+    },
+    {
+      "name": "uwidth",
+      "macro": "HOST_UWIDTH",
+      "host_symbol": "UWIDTH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define UWIDTH 1        // u counter width on TAGE (2 bits not worth the effort for a 512 Kbits predictor 0.2 %)",
+      "type": "int",
+      "default": 1,
+      "range": "[1, 2]",
+      "binding": "compile_time_define",
+      "description": "u counter width on TAGE"
+    },
+    {
+      "name": "logb",
+      "macro": "HOST_LOGB",
+      "host_symbol": "LOGB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGB 13         // log of number of entries in bimodal predictor",
+      "type": "int",
+      "default": 13,
+      "range": "[10, 15]",
+      "binding": "compile_time_define",
+      "description": "log of number of entries in bimodal predictor"
+    },
+    {
+      "name": "hystshift",
+      "macro": "HOST_HYSTSHIFT",
+      "host_symbol": "HYSTSHIFT",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define HYSTSHIFT 2     // bimodal hysteresis shared by 4 entries",
+      "type": "int",
+      "default": 2,
+      "range": "[1, 3]",
+      "binding": "compile_time_define",
+      "description": "bimodal hysteresis shared by 4 entries"
+    },
+    {
+      "name": "percwidth",
+      "macro": "HOST_PERCWIDTH",
+      "host_symbol": "PERCWIDTH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define PERCWIDTH 6     //Statistical corrector  counter width 5 -> 6 : 0.6 %",
+      "type": "int",
+      "default": 6,
+      "range": "[4, 8]",
+      "binding": "compile_time_define",
+      "description": "Statistical corrector counter width"
+    },
+    {
+      "name": "logbias",
+      "macro": "HOST_LOGBIAS",
+      "host_symbol": "LOGBIAS",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGBIAS 8",
+      "type": "int",
+      "default": 8,
+      "range": "[6, 10]",
+      "binding": "compile_time_define",
+      "description": "logsize of SC bias tables"
+    },
+    {
+      "name": "loggnb",
+      "macro": "HOST_LOGGNB",
+      "host_symbol": "LOGGNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGGNB 10       // 1 1K + 2 * 512-entry tables",
+      "type": "int",
+      "default": 10,
+      "range": "[8, 12]",
+      "binding": "compile_time_define",
+      "description": "SC global GEHL logsize"
+    },
+    {
+      "name": "logpnb",
+      "macro": "HOST_LOGPNB",
+      "host_symbol": "LOGPNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGPNB 9        // 1 512 + 2 * 256-entry tables",
+      "type": "int",
+      "default": 9,
+      "range": "[7, 11]",
+      "binding": "compile_time_define",
+      "description": "SC path GEHL logsize"
+    },
+    {
+      "name": "loglnb",
+      "macro": "HOST_LOGLNB",
+      "host_symbol": "LOGLNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGLNB  10      // 1 1K + 2 * 512-entry tables",
+      "type": "int",
+      "default": 10,
+      "range": "[8, 12]",
+      "binding": "compile_time_define",
+      "description": "SC first local GEHL logsize"
+    },
+    {
+      "name": "logsnb",
+      "macro": "HOST_LOGSNB",
+      "host_symbol": "LOGSNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGSNB 9        // 1 512 + 2 * 256-entry tables",
+      "type": "int",
+      "default": 9,
+      "range": "[7, 11]",
+      "binding": "compile_time_define",
+      "description": "SC second local GEHL logsize"
+    },
+    {
+      "name": "logtnb",
+      "macro": "HOST_LOGTNB",
+      "host_symbol": "LOGTNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGTNB 10       // 2 * 512-entry tables",
+      "type": "int",
+      "default": 10,
+      "range": "[8, 12]",
+      "binding": "compile_time_define",
+      "description": "SC third local GEHL logsize"
+    },
+    {
+      "name": "loginb",
+      "macro": "HOST_LOGINB",
+      "host_symbol": "LOGINB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGINB 8        // 128-entry",
+      "type": "int",
+      "default": 8,
+      "range": "[6, 10]",
+      "binding": "compile_time_define",
+      "description": "SC IMLI logsize"
+    },
+    {
+      "name": "logimnb",
+      "macro": "HOST_LOGIMNB",
+      "host_symbol": "LOGIMNB",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGIMNB 9       // 2 * 256-entry",
+      "type": "int",
+      "default": 9,
+      "range": "[7, 11]",
+      "binding": "compile_time_define",
+      "description": "SC IMLI second logsize"
+    },
+    {
+      "name": "logl",
+      "macro": "HOST_LOGL",
+      "host_symbol": "LOGL",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define LOGL 5",
+      "type": "int",
+      "default": 5,
+      "range": "[3, 7]",
+      "binding": "compile_time_define",
+      "description": "loop predictor entries logsize"
+    },
+    {
+      "name": "ewidth",
+      "macro": "HOST_EWIDTH",
+      "host_symbol": "EWIDTH",
+      "file": "cbp2016_tage_sc_l.h",
+      "observed": "#define EWIDTH 6",
+      "type": "int",
+      "default": 6,
+      "range": "[4, 8]",
+      "binding": "compile_time_define",
+      "description": "SC component weights"
+    }
+  ],
+  "host_storage": {
+    "baseline_bits": 524615,
+    "measured_by": "adapter.measure_host_storage",
+    "terms": [
+      {
+        "structure": "tagged tables, high banks",
+        "formula": "nbankhigh * (2**logg) * (cwidth + uwidth + tbits + 4)"
+      },
+      {
+        "structure": "tagged tables, low banks",
+        "formula": "nbanklow * (2**logg) * (cwidth + uwidth + tbits)"
+      },
+      {
+        "structure": "use-alt-on-NA counters",
+        "formula": "16 * 5"
+      },
+      {
+        "structure": "bimodal, with shared hysteresis",
+        "formula": "2**logb + 2**(logb - hystshift)"
+      },
+      {
+        "structure": "global history, m[NHIST]",
+        "formula": "3000"
+      },
+      {
+        "structure": "path history",
+        "formula": "27"
+      },
+      {
+        "structure": "TICK counter",
+        "formula": "10"
+      },
+      {
+        "structure": "loop predictor",
+        "formula": "(2**logl) * (2 * 10 + 10 + 4 + 4 + 1)"
+      },
+      {
+        "structure": "loop predictor, counted again inside SC",
+        "formula": "(2**logl) * (2 * 10 + 10 + 4 + 4 + 1)"
+      },
+      {
+        "structure": "SC thresholds and component weights",
+        "formula": "12 + 8 * (2**6) + 3 * ewidth * (2**3)"
+      },
+      {
+        "structure": "SC bias tables",
+        "formula": "percwidth * 3 * (2**logbias)"
+      },
+      {
+        "structure": "SC global GEHL",
+        "formula": "(3 - 2) * (2**loggnb) * percwidth + (2**(loggnb - 1)) * 2 * percwidth + 40"
+      },
+      {
+        "structure": "SC path GEHL",
+        "formula": "(3 - 2) * (2**logpnb) * percwidth + (2**(logpnb - 1)) * 2 * percwidth"
+      },
+      {
+        "structure": "SC first local",
+        "formula": "(3 - 2) * (2**loglnb) * percwidth + (2**(loglnb - 1)) * 2 * percwidth + 256 * 11 + ewidth * (2**3)"
+      },
+      {
+        "structure": "SC second local",
+        "formula": "(3 - 2) * (2**logsnb) * percwidth + (2**(logsnb - 1)) * 2 * percwidth + 16 * 16 + ewidth * (2**3)"
+      },
+      {
+        "structure": "SC third local",
+        "formula": "(2 - 2) * (2**logtnb) * percwidth + (2**(logtnb - 1)) * 2 * percwidth + 16 * 9 + ewidth * (2**3)"
+      },
+      {
+        "structure": "SC IMLI",
+        "formula": "(2**(loginb - 1)) * percwidth + 8 + 2 * (2**(logimnb - 1)) * percwidth + 2 * ewidth * (2**3) + 256 * 10"
+      },
+      {
+        "structure": "chooser counters",
+        "formula": "14"
+      }
+    ]
+  },
+  "feature_enable": {
+    "name": "WORMHOLE_ENABLE",
+    "macro": "SR_WORMHOLE_ENABLE",
+    "binding": "runtime_env",
+    "default_off": "getenv returns nullptr if WORMHOLE_ENABLE is unset.",
+    "off_path": "When sr_enabled is false, SampleCondPredictor::predict simply returns the provided tage_pred, bypassing Wormhole's structures entirely. This matches the exact pass-through behavior of the recorded baseline."
+  },
+  "steps": [
+    {
+      "title": "Add structural skeletons and enable knob",
+      "detail": "Modify my_cond_branch_predictor.h to add sr_enabled check in setup() and add WPT / WPT_InFlight_Meta data structures. Stub out the algorithm checks so that when disabled, it returns tage_pred.",
+      "hook_ids": [
+        "predictor_state",
+        "predict",
+        "update",
+        "recover",
+        "params_header"
+      ],
+      "verify": "f_off_base"
+    },
+    {
+      "title": "Implement Wormhole predict algorithm",
+      "detail": "Inside SampleCondPredictor::predict, compute internal prediction if enabled and checkpoint data into WPT_InFlight_Meta. Defer history updates to history_update.",
+      "hook_ids": [
+        "predict",
+        "recover"
+      ],
+      "verify": "ut_walk"
+    },
+    {
+      "title": "Implement Wormhole allocate and update",
+      "detail": "In SampleCondPredictor::update, handle confidence and saturating counter updates based on in-flight data, and allocate entries when fallback SC problematic signal hits.",
+      "hook_ids": [
+        "update"
+      ],
+      "verify": "ut_alloc"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "The fallback for SC problematic branch (2-bit counter) differs from the paper's true statistical corrector signal, potentially over/under allocating WPT.",
+      "mitigation": "Expose tuning parameters (thresholds, entries) to the DSE stage to let it adapt to the different branch mix.",
+      "detected_by": "f_off_base"
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "Does the wormhole predictor update its local history speculatively at fetch time, or only at commit time?",
+      "spec_pointer": "/algorithms/0",
+      "assumption": "Assumed speculative update at prediction time with checkpointing in WPT_InFlight_Meta to support accurate tight inner-loop predictions.",
+      "cost_if_wrong": "Significant refactoring of the update flow and state tracking."
+    },
+    {
+      "question": "Are the 5-bit saturating counters signed or unsigned?",
+      "spec_pointer": "/algorithms/2",
+      "assumption": "Assumed signed [-16, 15] to match the threshold check equation abs(2 * sat_value + 1) >= threshold.",
+      "cost_if_wrong": "Changing the data type and initialization bounds."
+    },
+    {
+      "question": "Does the confidence counter increment only when an internal prediction differs from TAGE, even if the WPT did not assert a prediction externally due to low confidence?",
+      "spec_pointer": "/algorithms/2",
+      "assumption": "Assumed yes, to allow confidence to bootstrap from 0.",
+      "cost_if_wrong": "A simple condition logic flip in the update function."
+    },
+    {
+      "question": "What happens when the loop length is less than 2, making history index calculations out of bounds?",
+      "spec_pointer": "/algorithms/0",
+      "assumption": "Assumed bounds checking clamps indices to 0.",
+      "cost_if_wrong": "Small logic change in array indexing."
+    }
+  ]
+}

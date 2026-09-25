@@ -1,0 +1,233 @@
+{
+  "schema_errors": [
+    "port plan: : 'feature_enable' is a required property",
+    "port plan: : 'risks' is a required property",
+    "port plan: knobs/13/spec_pointer: '/algorithms/1/pseudocode_variant' does not match '^/parameters/[0-9]+$'",
+    "port plan: knobs/14/spec_pointer: '/algorithms/2/pseudocode_variant' does not match '^/parameters/[0-9]+$'",
+    "port plan: knobs/15/spec_pointer: '/algorithms/3/trigger_variant' does not match '^/parameters/[0-9]+$'",
+    "port plan: knobs/16/spec_pointer: '/algorithms/1/pseudocode_variant_2' does not match '^/parameters/[0-9]+$'",
+    "port plan: knobs/17/spec_pointer: '/algorithms/2_variant' does not match '^/parameters/[0-9]+$'",
+    "port plan: steps/0: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/0: 'detail' is a required property",
+    "port plan: steps/1: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/1: 'detail' is a required property",
+    "port plan: steps/2: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/2: 'detail' is a required property",
+    "port plan: steps/3: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/3: 'detail' is a required property",
+    "port plan: steps/4: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/4: 'detail' is a required property",
+    "port plan: steps/5: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/5: 'detail' is a required property",
+    "port plan: steps/6: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/6: 'detail' is a required property",
+    "port plan: steps/7: Additional properties are not allowed ('description' was unexpected)",
+    "port plan: steps/7: 'detail' is a required property"
+  ],
+  "findings": [
+    {
+      "pointer": "/spec/parameters/13",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_1_pseudocode_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/14",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_2_pseudocode_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/15",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_3_trigger_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/16",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_1_pseudocode_variant_2' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/spec/parameters/17",
+      "code": "uncovered_parameter",
+      "severity": "error",
+      "message": "parameter 'algorithms_2_variant' has no knobs entry. A parameter missing here is a parameter stage 4 cannot search, and nothing downstream notices: the port builds, runs, and never moves when the evolver changes it."
+    },
+    {
+      "pointer": "/plan/knobs/13/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/algorithms/1/pseudocode_variant' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/knobs/14/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/algorithms/2/pseudocode_variant' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/knobs/15/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/algorithms/3/trigger_variant' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/knobs/16/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/algorithms/1/pseudocode_variant_2' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/knobs/17/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/algorithms/2_variant' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/hook_points/4/change",
+      "code": "enable_name_unset",
+      "severity": "error",
+      "message": "this says the port reads 'SR_SR_ENABLE' to turn the feature on, but the gate sets only (nothing): feature_enable.name, that name upper-cased, and feature_enable.macro when there is one. A port written to this plan stays off in both states, so G2 passes trivially and G3 and G5 measure nothing. Name the knob so the gate sets what the port reads, or say that the port reads one of the names above."
+    },
+    {
+      "pointer": "/plan/hook_points/5/change",
+      "code": "enable_name_unset",
+      "severity": "error",
+      "message": "this says the port reads 'SR_SR_ENABLE' to turn the feature on, but the gate sets only (nothing): feature_enable.name, that name upper-cased, and feature_enable.macro when there is one. A port written to this plan stays off in both states, so G2 passes trivially and G3 and G5 measure nothing. Name the knob so the gate sets what the port reads, or say that the port reads one of the names above."
+    },
+    {
+      "pointer": "/plan/hook_points/0/id",
+      "code": "orphan_hook",
+      "severity": "warn",
+      "message": "nothing references hook 'tage_sc_l_probes_hh'. Either some spec item belongs here and the mapping is missing, or the hook point is not part of this port."
+    },
+    {
+      "pointer": "/plan/hook_points/2/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'sc_methods_hh' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/3/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'tage_sc_l_64kb_sc_hh' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/4/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'gpredictions_add' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/5/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'gupdates_add' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/6/id",
+      "code": "unstepped_hook",
+      "severity": "warn",
+      "message": "hook 'sc_callbacks_cc' is mapped but no step lands it, so no increment in the plan produces the code it describes."
+    },
+    {
+      "pointer": "/plan/hook_points/7/id",
+      "code": "orphan_hook",
+      "severity": "warn",
+      "message": "nothing references hook 'sr_params_h'. Either some spec item belongs here and the mapping is missing, or the hook point is not part of this port."
+    },
+    {
+      "pointer": "/plan/feature_enable/name",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the enable knob's 'name' is frozen; this revision changes it from \"sr_enable\" to null. Renaming the one knob that turns the feature on strands every artifact that already refers to it."
+    },
+    {
+      "pointer": "/plan/feature_enable/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the enable knob's 'macro' is frozen; this revision changes it from \"SR_SR_ENABLE\" to null. Renaming the one knob that turns the feature on strands every artifact that already refers to it."
+    },
+    {
+      "pointer": "/plan/feature_enable/default_off",
+      "code": "revision_restated_off_path",
+      "severity": "warn",
+      "message": "this revision rewrites the enable knob's 'default_off'. G2 measures the off path rather than reading this text, so the claim has been restated after the fact; it is recorded here so the restatement is visible next to the port that prompted it."
+    },
+    {
+      "pointer": "/plan/feature_enable/off_path",
+      "code": "revision_restated_off_path",
+      "severity": "warn",
+      "message": "this revision rewrites the enable knob's 'off_path'. G2 measures the off path rather than reading this text, so the claim has been restated after the fact; it is recorded here so the restatement is visible next to the port that prompted it."
+    },
+    {
+      "pointer": "/plan/structure/rejected_alternatives",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the revision rewrites why \"Changing pred_taken after scPredict in TAGE_SC_L::predict.\" was rejected. That reason was reached against this tree before the port existed."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/13'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/14'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/15'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/16'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the knobs entry spec_pointer='/parameters/17'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='[/algorithms/1/pseudocode] U4: FP register format classification and placement is ambiguous. Assumed bits are right-aligned at digest bit 3 as drawn.'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='The paper does not state the exact Tomasulo RAT recovery mechanism for sR_RegTable on a pipeline squash. Assumed a lightweight policy that leaves valid wrong-path digests to naturally decay, while clearing pending (valid=0) entries matching squashed ROBs.'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question=\"[/algorithms/3/pseudocode] The exact utility delta calculation for sR_UT during update is unstated. Assumed a standard usefulness update based on whether the bank's prediction alone matched the overall branch outcome.\". A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='[/unit_tests/0] The register\\'s digest is invalidated after 255 subsequent instructions are decoded. The paper says: \"RUNLTS invalidates each digest after 256 subsequent instructions have been decoded\" The correction did not land, so this field still says what it said -- resolve it before implementing.'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='[/state/3] How many in-flight branches should the predictor track state for, given it is not explicitly budgeted in the storage tables?'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "feature_name": "sr",
+  "host": "cbp2025",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+  "metric_keys": [
+    "brmispki_50perc_amean",
+    "cycwppki_50perc_amean",
+    "ipc_50perc_amean"
+  ],
+  "baseline_rel_tol": 0,
+  "smoke": {
+    "traces": [
+      "sample_traces/int/sample_int_trace.gz",
+      "sample_traces/fp/sample_fp_trace.gz"
+    ],
+    "run": {
+      "mode": "command_per_trace",
+      "command_template": "./cbp {trace}"
+    },
+    "timeout_seconds": 60
+  },
+  "correctness": [
+    {
+      "id": "feature_off",
+      "kind": "feature_off_baseline",
+      "description": "Feature off metrics equal the recorded baseline for the int trace.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "existing_smoke_int",
+      "kind": "existing_regression",
+      "description": "Run the host's sample int trace to check for crashes and basic correctness.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "both",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997301 instrs "
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": " Read 997301 instrs "
+      }
+    },
+    {
+      "id": "ut_decay",
+      "kind": "spec_unit_test",
+      "description": "decay_counter_walks_down",
+      "command": "make clean && make -s && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/0",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "PASS: decay_counter_walks_down"
+      }
+    },
+    {
+      "id": "ut_int_digest",
+      "kind": "spec_unit_test",
+      "description": "int_digest_generation",
+      "command": "make clean && make -s && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/1",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "PASS: int_digest_generation"
+      }
+    },
+    {
+      "id": "ut_predict_useful",
+      "kind": "spec_unit_test",
+      "description": "predict_selects_most_useful",
+      "command": "make clean && make -s && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/2",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "PASS: predict_selects_most_useful"
+      }
+    },
+    {
+      "id": "ut_update_random",
+      "kind": "spec_unit_test",
+      "description": "update_random_selection",
+      "command": "make clean && make -s && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/3",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "PASS: update_random_selection"
+      }
+    },
+    {
+      "id": "ut_recovery",
+      "kind": "spec_unit_test",
+      "description": "recovery_clears_pending",
+      "command": "make clean && make -s && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/4",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "PASS: recovery_clears_pending"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_brmispki",
+      "description": "sR claimed benefit is a reduction in mispredictions.",
+      "metric": "brmispki_50perc_amean",
+      "direction": "decrease",
+      "trace_list": "experiments/perf-4.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": [
+          {
+            "metric": "ipc_50perc_amean",
+            "direction": "increase",
+            "max_relative_regression": 0.0
+          }
+        ]
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.01,
+        "claim_source": "Assumed nominal 1% MPKI reduction to trigger warnings (derived from 4.1% CycWPPKI claim)"
+      }
+    }
+  ]
+}

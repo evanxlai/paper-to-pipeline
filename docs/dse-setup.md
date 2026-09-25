@@ -198,7 +198,7 @@ header is inert), and a successful LLM proposal call (HTTP 200).
   (`hosts/__init__.py`) are still unimplemented stubs, so there is no
   per-host budget-bit split or champsim/gem5-native evaluator yet.
 - `promote_finalists` (the `promote` stage) scores the top 3 screening
-  winners on `experiments/promote-16.list`. It has unit tests
+  winners on `experiments/promote-45.list`. It has unit tests
   (`loop/tests/test_promote.py`) but has not yet run on the cluster.
 - **`sr_params.h` is inert, so the search landscape is flat.** Nothing in the
   cbp2025 checkout `#include`s it (`grep -rn sr_params ~/cbp2025` on a

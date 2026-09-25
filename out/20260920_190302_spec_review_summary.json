@@ -1,0 +1,237 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:update_and_train",
+        "algo:predict",
+        "algo:instruction_decode+algo:instruction_complete",
+        "algo:mispredict_recovery+global+algo:digest_generation"
+      ],
+      "failed_units": [
+        "algo:mispredict_recovery+global+algo:digest_generation"
+      ],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 5,
+        "info": 15
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 5,
+        "info": 15
+      },
+      "verdicts": {
+        "SUPPORTED": 71,
+        "UNSUPPORTED": 15,
+        "UNDERSPECIFIED": 3
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 1,
+      "units": [
+        "algo:predict",
+        "global+orphan+algo:digest_generation",
+        "algo:instruction_decode+algo:instruction_complete",
+        "algo:mispredict_recovery+algo:update_and_train"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 5,
+        "info": 15
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 5,
+        "info": 18
+      },
+      "verdicts": {
+        "SUPPORTED": 106,
+        "UNSUPPORTED": 20,
+        "UNDERSPECIFIED": 1
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 2,
+      "units": [
+        "algo:predict",
+        "global+orphan+algo:digest_generation",
+        "algo:instruction_decode+algo:instruction_complete",
+        "algo:mispredict_recovery+algo:update_and_train"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 5,
+        "info": 18
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 5,
+        "info": 18
+      },
+      "verdicts": {
+        "SUPPORTED": 101,
+        "UNSUPPORTED": 25
+      },
+      "accepted": true,
+      "reject_reason": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'extract_bits(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'generate_digest(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'return(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'each(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'predict_sr(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'registers(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'useful(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_instruction_decode(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'generate_digest(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_instruction_complete(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'uint12(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'random_select(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'saturate_signed_6bit(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'update_sr(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'contains(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'on_pipeline_squash(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/state",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT0' is subscripted at depth 2 by different variables across algorithms: 'reg' in predict, 'reg_to_update' in update_and_train. If these range over different domains, one of them is out of bounds."
+      },
+      {
+        "pointer": "/state",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT1' is subscripted at depth 2 by different variables across algorithms: 'reg' in predict, 'reg_to_update' in update_and_train. If these range over different domains, one of them is out of bounds."
+      },
+      {
+        "pointer": "/state",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT2' is subscripted at depth 2 by different variables across algorithms: 'reg' in predict, 'reg_to_update' in update_and_train. If these range over different domains, one of them is out of bounds."
+      }
+    ],
+    "open_questions": 51,
+    "parameters": 16,
+    "complete": false,
+    "unreviewed_units": [
+      "algo:mispredict_recovery+global+algo:digest_generation"
+    ]
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "orphan+global+algo:generate_digest",
+        "algo:predict",
+        "algo:decode_rename+algo:writeback_complete",
+        "algo:recover_squash+algo:update"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 1,
+        "warn": 1,
+        "info": 11
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 1,
+        "info": 11
+      },
+      "verdicts": {
+        "SUPPORTED": 94,
+        "UNSUPPORTED": 39
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 1,
+      "units": [
+        "algo:predict",
+        "algo:generate_digest+algo:decode_rename",
+        "algo:writeback_complete+algo:recover_squash",
+        "global+orphan+algo:update"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 1,
+        "warn": 1,
+        "info": 11
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 1,
+        "info": 11
+      },
+      "verdicts": {
+        "SUPPORTED": 92,
+        "UNSUPPORTED": 35,
+        "UNDERSPECIFIED": 1
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 2,
+      "units": [
+        "algo:predict",
+        "algo:writeback_complete+algo:recover_squash",
+        "orphan+algo:generate_digest",
+        "algo:update+global+algo:decode_rename"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 1,
+        "warn": 1,
+        "info": 11
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 1,
+        "info": 11
+      },
+      "verdicts": {
+        "SUPPORTED": 67,
+        "UNSUPPORTED": 29,
+        "CONTRADICTED": 3
+      },
+      "accepted": true,
+      "reject_reason": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/parameters/0/default",
+        "code": "unrepresentable_default",
+        "severity": "error",
+        "message": "default 256 does not fit the 8-bit field 'decay_ctr' declared in /state/2/entry_format (max 255). Either widen the field or lower the default."
+      },
+      {
+        "pointer": "/parameters/5/name",
+        "code": "unreferenced_param",
+        "severity": "warn",
+        "message": "parameter 'weight_width_bits' appears in no algorithm pseudocode; the DSE would tune a knob nothing reads."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'bits(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_ones(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_ones(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'return(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'useful(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'clamp(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'pseudo_random(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'return(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/5/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'rob_is_flushed(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      }
+    ],
+    "open_questions": 105,
+    "parameters": 25,
+    "complete": true,
+    "unreviewed_units": []
+  }
+}

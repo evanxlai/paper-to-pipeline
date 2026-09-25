@@ -179,6 +179,46 @@ def test_setting_the_enable_knob_in_a_test_env_is_an_error(spec, plan, tests):
     assert "enable_knob_in_env" in codes(run_checks(spec, plan, tests))
 
 
+def test_an_enable_name_the_gate_never_sets_is_an_error(spec, plan, tests):
+    """The live one, 2026-09-24: name 'sr_enable', and in the same block the
+    port reading getenv("SR_SR_ENABLE"). The integrator wrote what it was told,
+    the gate set sr_enable and SR_ENABLE, and every feature-on run was off."""
+    # The live plan named SR_<NAME> in its prose and carried no macro field,
+    # so the one name the port read was the one the gate never set.
+    fe = plan["feature_enable"]
+    read = fe.pop("macro")
+    fe["default_off"] = f'getenv("{read}") is checked in setup(); if missing, it is off.'
+    assert "enable_name_unset" in codes(run_checks(spec, plan, tests))
+
+
+@pytest.mark.parametrize("text", [
+    'getenv("{n}") returning nullptr is evaluated as false.',
+    "#ifdef {n} guards every hook.",
+    "Built with -D{n}=0 the hooks compile out.",
+])
+def test_an_enable_name_the_gate_does_set_is_accepted(spec, plan, tests, text):
+    for n in sorted(__import__("plan_checks").enable_names(plan["feature_enable"])):
+        plan["feature_enable"]["default_off"] = text.format(n=n)
+        assert "enable_name_unset" not in codes(run_checks(spec, plan, tests))
+
+
+def test_a_name_that_is_not_an_enable_switch_is_not_checked(spec, plan, tests):
+    """getenv of a seed or a log path is not a claim about the enable knob."""
+    plan["feature_enable"]["default_off"] = 'getenv("SR_SEED") picks the seed.'
+    assert "enable_name_unset" not in codes(run_checks(spec, plan, tests))
+
+
+def test_the_enable_names_are_the_ones_both_hosts_set():
+    """plan_checks cannot import a host adapter's rule without a per-host
+    branch, so it keeps its own copy. This holds the copies to one answer."""
+    from plan_checks import enable_names
+    from hosts.cbp2025.adapter import enable_env as cbp
+    from hosts.gem5.adapter import enable_env as gem5
+    for fe in ({"name": "sr_enable"}, {"name": "sr_enable", "macro": "SR_SR_ENABLE"},
+               {"name": "TINYSC_ENABLE"}):
+        assert set(cbp(fe, True)) == set(gem5(fe, True)) == enable_names(fe)
+
+
 def test_a_hedged_off_path_is_a_warning(spec, plan, tests):
     plan["feature_enable"]["off_path"] = "The baseline path behaves correctly."
     found = run_checks(spec, plan, tests)
@@ -413,13 +453,14 @@ RECORDED_BASELINE = {
 }
 
 
-def _tests_with_pointer(pointer, metrics=None):
+def _tests_with_pointer(pointer, metrics=None,
+                        command="./cbp sample_traces/int/sample_int_trace.gz"):
     return {
         "metric_keys": ["brmispki_50perc_amean", "cycwppki_50perc_amean"],
         "correctness": [{
             "id": "baseline_int",
             "kind": "feature_off_baseline",
-            "command": "./cbp sample_traces/int/sample_int_trace.gz",
+            "command": command,
             "feature_state": "off",
             "pass_condition": {
                 "kind": "metrics_equal_baseline",
@@ -459,8 +500,14 @@ def test_an_unescaped_slash_is_an_error_too():
     assert codes(found) == ["baseline_pointer_unresolved"]
 
 
+# A command whose workload the baseline keeps no per-trace entry for. The top
+# level is the only thing such an entry can be compared against.
+UNRECORDED = "./cbp traces/other_trace.gz"
+
+
 def test_a_pointer_at_the_top_level_is_accepted_when_the_metrics_are_there():
-    tests = _tests_with_pointer("", metrics=["brmispki_50perc_amean"])
+    tests = _tests_with_pointer("", metrics=["brmispki_50perc_amean"],
+                                command=UNRECORDED)
     assert _check_baseline_pointers(tests, RECORDED_BASELINE) == []
 
 
@@ -468,9 +515,43 @@ def test_a_pointer_that_resolves_but_lacks_a_declared_metric_is_an_error():
     """G2 reports a missing metric as a difference, so an entry pointing at
     a document without one fails every port, including a correct one."""
     found = _check_baseline_pointers(
-        _tests_with_pointer(""), RECORDED_BASELINE)
+        _tests_with_pointer("", command=UNRECORDED), RECORDED_BASELINE)
     assert codes(found) == ["baseline_pointer_metrics_missing"]
     assert "cycwppki_50perc_amean" in found[0].message
+
+
+def test_the_top_level_for_a_command_that_runs_one_recorded_trace_is_an_error():
+    """The live one, 2026-09-24. No pointer reads as the top level, which holds
+    the same metric names as a per-trace entry but averaged over every trace
+    the baseline stage ran. A bit-identical port then failed G2 with a message
+    saying its knob-off path diverged."""
+    found = _check_baseline_pointers(
+        _tests_with_pointer("", metrics=["brmispki_50perc_amean"]),
+        RECORDED_BASELINE)
+    assert codes(found) == ["baseline_pointer_wrong_workload"]
+    # The planner cannot see the baseline: the finding names the fix.
+    assert '"/per_trace/int~1sample_int_trace.gz"' in found[0].message
+
+
+def test_a_pointer_at_another_trace_is_an_error():
+    found = _check_baseline_pointers(
+        _tests_with_pointer("/per_trace/fp~1sample_fp_trace.gz"), RECORDED_BASELINE)
+    assert codes(found) == ["baseline_pointer_wrong_workload"]
+    assert "int/sample_int_trace.gz" in found[0].message
+
+
+def test_an_absent_pointer_key_is_the_same_as_an_empty_one():
+    tests = _tests_with_pointer("")
+    del tests["correctness"][0]["pass_condition"]["baseline_pointer"]
+    assert codes(_check_baseline_pointers(tests, RECORDED_BASELINE)) == [
+        "baseline_pointer_wrong_workload"]
+
+
+def test_a_baseline_with_no_per_trace_map_keeps_the_top_level():
+    """A host that records one workload has only the top level to offer."""
+    one = {k: v for k, v in RECORDED_BASELINE.items() if k != "per_trace"}
+    one["cycwppki_50perc_amean"] = 34.0
+    assert _check_baseline_pointers(_tests_with_pointer(""), one) == []
 
 
 def test_entries_that_are_not_metrics_equal_baseline_are_ignored():

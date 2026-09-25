@@ -1,0 +1,147 @@
+{
+  "feature_name": "sr",
+  "host": "gem5",
+  "host_revision": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91",
+  "metric_keys": [
+    "cond_mpki",
+    "branch_mpki",
+    "ipc"
+  ],
+  "smoke": {
+    "trace_list": "experiments/gem5-smoke.list",
+    "run": {
+      "mode": "host_adapter"
+    },
+    "timeout_seconds": 3600
+  },
+  "correctness": [
+    {
+      "id": "gapbs_bfs_s_clean",
+      "kind": "existing_regression",
+      "description": "Baseline run of gapbs_bfs_s",
+      "command": "P2P_GEM5_BIN=$HOME/gem5/build/ARM/gem5.opt python3 ~/p2p_gem5/run_workload.py gapbs_bfs_s",
+      "feature_state": "off",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": "P2P_STATUS ok"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree"
+      }
+    },
+    {
+      "id": "sqlite_s_clean",
+      "kind": "existing_regression",
+      "description": "Baseline run of sqlite_s",
+      "command": "P2P_GEM5_BIN=$HOME/gem5/build/ARM/gem5.opt python3 ~/p2p_gem5/run_workload.py sqlite_s",
+      "feature_state": "off",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": "P2P_STATUS ok"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree"
+      }
+    },
+    {
+      "id": "gapbs_bfs_s_baseline",
+      "kind": "feature_off_baseline",
+      "description": "Ensures the feature-off metrics match the recorded baseline exactly.",
+      "command": "python3 ~/p2p_gem5/run_workload.py gapbs_bfs_s",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/gapbs_bfs_s",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "unit_test_0",
+      "kind": "spec_unit_test",
+      "description": "Test decay counter walks down.",
+      "command": "scons build/ARM/cpu/pred/sr.test.opt && build/ARM/cpu/pred/sr.test.opt",
+      "feature_state": "on",
+      "test_file": "src/cpu/pred/sr.test.cc",
+      "spec_pointer": "/unit_tests/0",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_1",
+      "kind": "spec_unit_test",
+      "description": "Test INT digest generation.",
+      "command": "scons build/ARM/cpu/pred/sr.test.opt && build/ARM/cpu/pred/sr.test.opt",
+      "feature_state": "on",
+      "test_file": "src/cpu/pred/sr.test.cc",
+      "spec_pointer": "/unit_tests/1",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_2",
+      "kind": "spec_unit_test",
+      "description": "Test predict selects most useful.",
+      "command": "scons build/ARM/cpu/pred/sr.test.opt && build/ARM/cpu/pred/sr.test.opt",
+      "feature_state": "on",
+      "test_file": "src/cpu/pred/sr.test.cc",
+      "spec_pointer": "/unit_tests/2",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_3",
+      "kind": "spec_unit_test",
+      "description": "Test update random selection.",
+      "command": "scons build/ARM/cpu/pred/sr.test.opt && build/ARM/cpu/pred/sr.test.opt",
+      "feature_state": "on",
+      "test_file": "src/cpu/pred/sr.test.cc",
+      "spec_pointer": "/unit_tests/3",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "unit_test_4",
+      "kind": "spec_unit_test",
+      "description": "Test recovery clears pending.",
+      "command": "scons build/ARM/cpu/pred/sr.test.opt && build/ARM/cpu/pred/sr.test.opt",
+      "feature_state": "on",
+      "test_file": "src/cpu/pred/sr.test.cc",
+      "spec_pointer": "/unit_tests/4",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_cond_mpki",
+      "description": "Evaluate sR improvement on conditional MPKI.",
+      "metric": "cond_mpki",
+      "direction": "decrease",
+      "trace_list": "experiments/gem5-perf.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": [
+          {
+            "metric": "ipc",
+            "direction": "increase",
+            "max_relative_regression": 0.005
+          }
+        ]
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.0,
+        "claim_source": "No numerical magnitude claim provided in the spec summary."
+      }
+    }
+  ]
+}

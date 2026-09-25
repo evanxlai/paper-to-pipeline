@@ -1,0 +1,548 @@
+success: True
+usage: {'input_tokens': 38612, 'output_tokens': 36607, 'thinking_tokens': 29794, 'cache_read_tokens': 0, 'total_tokens': 75219}
+
+## result
+```json
+{
+  "records": [
+    {
+      "pointer": "/summary",
+      "claim": "sR is a statistical corrector component exploiting correlations between recently produced logical register values and conditional branch directions across 8 banks of 65 registers.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "We propose a novel prediction method that exploits correlations between register values and branch directions (Section 4.2). Our method generates a short digest characterizing each register value and improves prediction accuracy by capturing correlations between these digests and branch directions. We implemented this method by integrating it into the statistical corrector (SC) of the existing TAGE-SC-L predictor.",
+        "why": "The paper explicitly introduces sR as an SC component correlating register value digests with branch directions."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/source",
+      "claim": "The feature is distilled from the CBP 2025 paper titled 'RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables'.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "In this paper, we propose register-value-aware predictor utilizing nested large tables (RUNLTS). RUNLTS is a branch predictor based on TAGE-SC-L.",
+        "why": "The citation and title match the published CBP 2025 paper text verbatim."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/host_interfaces",
+      "claim": "The predictor requires host pipeline interfaces for destination register and ROB tag at decode, register value and type at completion, squash recovery tags, and decoded instruction count.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "At decode, an instruction that writes a register stores its ROB index as a tag in the corresponding entry and clears the valid bit. When the instruction completes, we overwrite the payload with the digest of the produced value and set the valid bit.",
+        "why": "The paper outlines the decode tag storage, completion writeback, and decay counter triggers needed from the CPU pipeline."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/resource_accounting",
+      "claim": "sR consumes 53,863 bits total, comprising 43,008 bits for WT, 9,360 bits for UT, and 1,495 bits for the auxiliary register status table.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "sR: Register                     | 6 x (2^7 + 2^8 + 2^9) x 8                        | 6 x 65 x (2^3 + 2^3 + 2^3)    | { valid (1), payload (14), decay_ctr (8) } x 65 | 53863",
+        "why": "Table 3 gives the exact storage bit breakdown for WT, UT, auxiliary data, and total storage for sR."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/state/0",
+      "claim": "sR_WT is organized into 8 banks, each containing 3 direct-mapped prediction weight tables (WT0 with 512 entries, WT1 with 256 entries, WT2 with 128 entries) storing 6-bit signed weights.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "sR: Register                     | 6 x (2^7 + 2^8 + 2^9) x 8                        | 6 x 65 x (2^3 + 2^3 + 2^3)    | { valid (1), payload (14), decay_ctr (8) } x 65 | 53863",
+        "why": "Table 3 specifies 8 banks each with 2^7, 2^8, and 2^9 entries of 6-bit weights."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/state/1",
+      "claim": "sR_UT comprises 8 banks of 3 direct-mapped 8-entry tables holding 6-bit signed usefulness weights for 65 registers (9 registers in Bank 0, 8 in Banks 1-7).",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "This component is organized into eight banks, each corresponding to eight or nine logical registers. As with the SC's existing components, it comprises two tables: one that tracks prediction usefulness and one that determines the predicted branch direction.",
+        "why": "Section 4.2 and Table 3 specify 8 banks, 65 total registers across 3 tables of 8 entries (2^3) with 6-bit weights."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/state/2",
+      "claim": "sR_RegStatus contains 65 entries of 23 bits each: 1 valid bit, 14-bit payload (ROB tag or 12-bit digest), and an 8-bit decay counter.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "{ valid (1), payload (14), decay_ctr (8) } x 65",
+        "why": "Table 3 lists the exact bit fields and 65-entry dimension for sR auxiliary data."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/0",
+      "claim": "num_banks default is 8.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "This component is organized into eight banks, each corresponding to eight or nine logical registers.",
+        "why": "Section 4.2 explicitly fixes the register component organization to eight banks."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/0",
+      "claim": "num_banks is a tunable parameter across the range [4, 16] pow2.",
+      "verdict": "UNSUPPORTED",
+      "evidence": {
+        "quote": "This component is organized into eight banks, each corresponding to eight or nine logical registers.",
+        "why": "The paper does not explore or specify bank count scaling for sR."
+      },
+      "patch": null,
+      "open_question": "Should num_banks be fixed at 8 or tuned as an architectural exploration parameter?",
+      "enum_candidates": [
+        "8",
+        "4",
+        "16"
+      ]
+    },
+    {
+      "pointer": "/parameters/1",
+      "claim": "num_logical_regs default is 65.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "6 x 65 x (2^3 + 2^3 + 2^3)",
+        "why": "Table 3 explicitly sizes the usefulness table for 65 logical registers."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/2",
+      "claim": "wt0_entries default is 512.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "6 x (2^7 + 2^8 + 2^9) x 8",
+        "why": "Table 3 confirms WT table sizes include 2^9 (512) entries per bank."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/3",
+      "claim": "wt1_entries default is 256.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "6 x (2^7 + 2^8 + 2^9) x 8",
+        "why": "Table 3 confirms WT table sizes include 2^8 (256) entries per bank."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/4",
+      "claim": "wt2_entries default is 128.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "6 x (2^7 + 2^8 + 2^9) x 8",
+        "why": "Table 3 confirms WT table sizes include 2^7 (128) entries per bank."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/5",
+      "claim": "ut_entries_per_table default is 8.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "6 x 65 x (2^3 + 2^3 + 2^3)",
+        "why": "Table 3 specifies three 8-entry (2^3) UT tables per register."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/6",
+      "claim": "weight_bits default is 6.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "sR: Register                     | 6 x (2^7 + 2^8 + 2^9) x 8                        | 6 x 65 x (2^3 + 2^3 + 2^3)    | { valid (1), payload (14), decay_ctr (8) } x 65 | 53863",
+        "why": "Table 3 confirms both WT and UT use 6-bit weights."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/6",
+      "claim": "weight_bits is a parameter unreferenced in algorithm pseudocode because update hardcodes saturating counter limits [-32, 31].",
+      "verdict": "UNSUPPORTED",
+      "evidence": {
+        "quote": "sR: Register                     | 6 x (2^7 + 2^8 + 2^9) x 8                        | 6 x 65 x (2^3 + 2^3 + 2^3)    | { valid (1), payload (14), decay_ctr (8) } x 65 | 53863",
+        "why": "The paper hardcodes 6-bit weights throughout and does not describe weight_bits as a tuning knob."
+      },
+      "patch": null,
+      "open_question": "Should weight_bits remain a hardcoded constant of 6 bits or be dynamically parameterized in algorithm saturating bounds?",
+      "enum_candidates": [
+        "hardcoded_6",
+        "parameterized"
+      ]
+    },
+    {
+      "pointer": "/parameters/7",
+      "claim": "useful_multiplier default is 2.5.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "x0 or x2.5",
+        "why": "Figure 5(c) labels the scaling multiplier stage for useful bank contributions as 2.5."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/8",
+      "claim": "decay_limit default is 256 instruction decodes.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "Consequently, RUNLTS invalidates each digest after 256 subsequent instructions have been decoded, ensuring that only up-to-date information influences future predictions.",
+        "why": "Section 4.2 explicitly establishes 256 decoded instructions as the digest expiration limit."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/parameters/8",
+      "claim": "decay_limit default 256 does not fit the 8-bit field 'decay_ctr' declared in /state/2/entry_format (max 255).",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "decay_ctr (8)",
+        "why": "Table 3 allocates 8 bits for decay_ctr, providing 256 states (0..255) to count 256 instruction cycles before invalidation."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/0",
+      "claim": "generate_digest computes a 12-bit digest from INT registers using an XOR overlap fold of 6-bit trailing zero count, 6-bit leading zero count, and the 6 LSBs.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "(1) For integer registers, the digest encodes the count of leading zeros (or ones), the count of trailing zeros (or ones), and the six least significant bits, effectively capturing characteristics of addresses and round numbers.",
+        "why": "Section 4.2 and Figure 6(a) specify the three 6-bit INT fields and XOR folding."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/0",
+      "claim": "generate_digest calls count_leading_zeros and count_trailing_zeros as helper primitives.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "(1) For integer registers, the digest encodes the count of leading zeros (or ones), the count of trailing zeros (or ones), and the six least significant bits, effectively capturing characteristics of addresses and round numbers.",
+        "why": "Leading and trailing zero counts are standard bitwise hardware primitives directly specified by Section 4.2."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/0",
+      "claim": "generate_digest handles zero versus one count selection for integer registers.",
+      "verdict": "UNSUPPORTED",
+      "evidence": {
+        "quote": "(1) For integer registers, the digest encodes the count of leading zeros (or ones), the count of trailing zeros (or ones), and the six least significant bits, effectively capturing characteristics of addresses and round numbers.",
+        "why": "The paper notes '(or ones)' in prose without specifying how hardware selects whether to count zeros or ones."
+      },
+      "patch": null,
+      "open_question": "Does integer digest generation count zeros unconditionally or switch to counting ones based on the sign bit?",
+      "enum_candidates": [
+        "zeros_only",
+        "sign_dependent",
+        "edge_match"
+      ]
+    },
+    {
+      "pointer": "/algorithms/0",
+      "claim": "generate_digest inspects MSBs to classify FP values into FP16, FP32, or FP64 format.",
+      "verdict": "UNSUPPORTED",
+      "evidence": {
+        "quote": "(2) For floating-point registers, we inspect the most significant bits to classify the format and then extract the sign bit along with the most significant bits of the exponent.",
+        "why": "Section 4.2 states that MSBs classify FP formats but gives no specific bit masks or rules for the classification logic."
+      },
+      "patch": null,
+      "open_question": "What specific bit pattern or classification logic distinguishes FP16, FP32, and FP64 from the register value MSBs?",
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/0",
+      "claim": "generate_digest constructs FLAG digests by replicating 4 condition flag bits three times.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "(3) For condition-code flags, we replicate the four flag bits three times to fill the 12-bit digest.",
+        "why": "Section 4.2 and Figure 6(c) define the 3x replication of Value[3:0] across the 12-bit digest."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/1",
+      "claim": "on_decode advances decay counters for valid digests, invalidates entries when reaching 256 instructions, and clears valid to store an in-flight ROB tag for destination registers.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "At decode, an instruction that writes a register stores its ROB index as a tag in the corresponding entry and clears the valid bit.",
+        "why": "Section 4.2 defines the decode actions for both decay progression and destination register tag tracking."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/2",
+      "claim": "on_instruction_complete overwrites payload with the generated 12-bit digest, sets valid, and resets decay_ctr when the completing instruction's ROB tag matches.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "When the instruction completes, we overwrite the payload with the digest of the produced value and set the valid bit.",
+        "why": "Section 4.2 describes updating the register status entry with the produced digest upon completion."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/3",
+      "claim": "predict sums usefulness weights across UT0..UT2 for available registers in each bank, selects the most useful, queries WT0..WT2 with PC and digest, scales positive usefulness banks by 2.5, and outputs the sum.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "Unlike the existing components, this component picks the digest of the most useful register among those available and forwards it to the second table. Each entry of the first table holds an eight- (or nine-) element vector of weights reflecting the usefulness of each register.",
+        "why": "Section 4.2 and Figure 5(c) specify usefulness sum selection, WT lookup, and 2.5x scaling for useful banks."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/3",
+      "claim": "Tokens 'b' and 'bank' in predict pseudocode are function calls.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "This component is organized into eight banks, each corresponding to eight or nine logical registers.",
+        "why": "The tokens 'b' and 'bank' appear exclusively as descriptive words inside comments preceding parentheses, refuting the helper call warning."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/4",
+      "claim": "update trains only registers available at prediction time, selecting one randomly if multiple were available in the same bank.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "During training, we update the correlations only for logical registers that were available at prediction time. If several registers were available within the same bank, it randomly selects one of them for the update. Owing to this training method, each table in the register component also needs just a single write port.",
+        "why": "Section 4.2 explicitly mandates uniform random selection of one available register per bank during training."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/4",
+      "claim": "Token 'or' in update pseudocode is an undefined helper function call.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "As with the SC's existing components, it comprises two tables: one that tracks prediction usefulness and one that determines the predicted branch direction.",
+        "why": "The token 'or' is a standard boolean disjunction operator within the wt_correct expression, refuting the helper call warning."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/4",
+      "claim": "update trains usefulness weights UT based on WT prediction correctness and WT weights based on actual branch direction using saturating additions.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "As with the SC's existing components, it comprises two tables: one that tracks prediction usefulness and one that determines the predicted branch direction.",
+        "why": "Section 4.2 states that UT and WT follow standard SC training for usefulness tracking and direction prediction."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/algorithms/5",
+      "claim": "on_mispredict_recovery invalidates entries holding flushed in-flight ROB tags while retaining completed digests.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "However, we found that by the time a branch resolves and its misprediction is revealed, many in-flight instructions have already finished execution, thereby enlarging the set of values visible to the predictor when it restarts, and this fact can be exploited.",
+        "why": "Section 4.2 establishes that execution completions prior to branch resolution are preserved across pipeline flushes."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/unit_tests/0",
+      "claim": "test_int_digest_generation expects digest 714 (0x2CA) from XOR folding trailing zeros count 2, leading zeros count 57, and value LSB 4.",
+      "verdict": "CONTRADICTED",
+      "evidence": {
+        "quote": "The symbol (+) denotes XOR, drawn in the paper as a circled plus between vertically stacked field boxes.",
+        "why": "Evaluating 2 ^ (57 << 3) ^ (4 << 6) equals 2 ^ 456 ^ 256 = 202 (0x0CA); 714 (0x2CA) is the arithmetic sum 2 + 456 + 256, which contradicts XOR folding."
+      },
+      "patch": {
+        "op": "replace",
+        "pointer": "/unit_tests/0",
+        "value": {
+          "expect": "digest[11:0] = (2 & 0x3F) ^ ((57 & 0x3F) << 3) ^ ((0x04 & 0x3F) << 6) = 2 ^ (57 << 3) ^ (4 << 6) = 2 ^ 456 ^ 256 = 202 (0x0CA)",
+          "given": "INT value = 0x0000000000000044 (binary ...01000100: trailing zeros = 2, leading zeros = 57, value[5:0] = 0x04)",
+          "name": "test_int_digest_generation"
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/unit_tests/1",
+      "claim": "test_flag_digest_replicate expects 4 flag bits 0b1011 replicated three times to yield 0xBBB.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "(3) For condition-code flags, we replicate the four flag bits three times to fill the 12-bit digest.",
+        "why": "Replicating 0x0B three times yields (0x0B << 8) | (0x0B << 4) | 0x0B = 0xBBB."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/unit_tests/2",
+      "claim": "test_fp64_digest_slice expects bits [63:55] of an FP64 value shifted to digest bits [11:3] with bits [2:0] zero.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "For FP64  ->  Value[63:55]",
+        "why": "Figure 6(b) specifies Value[63:55] right-aligned at bit 3, yielding 0x180 << 3 = 0xC00."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/unit_tests/3",
+      "claim": "test_digest_decay_invalidation expects a digest to become invalid when 256 decoded instructions elapse without updates.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "Consequently, RUNLTS invalidates each digest after 256 subsequent instructions have been decoded, ensuring that only up-to-date information influences future predictions.",
+        "why": "Section 4.2 states stale digests are invalidated after 256 instructions."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/unit_tests/4",
+      "claim": "test_usefulness_selection_and_scaling expects Bank 0 to pick R8 (usefulness +4) over R0 (-5) and scale WT sum +10 by 2.5 to yield +25.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "x0 or x2.5",
+        "why": "Section 4.2 and Figure 5(c) mandate selecting the maximum usefulness register and multiplying WT sum by 2.5 when usefulness is positive."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/unit_tests/5",
+      "claim": "test_mispredict_visibility_enhancement expectation uses the hedge phrase 'correct digest' without concrete values, leaving the check vacuous.",
+      "verdict": "UNDERSPECIFIED",
+      "evidence": {
+        "quote": "However, we found that by the time a branch resolves and its misprediction is revealed, many in-flight instructions have already finished execution, thereby enlarging the set of values visible to the predictor when it restarts, and this fact can be exploited.",
+        "why": "The test scenario requires explicit instruction values and deterministic digest assertions to be closed and checkable."
+      },
+      "patch": {
+        "op": "replace",
+        "pointer": "/unit_tests/5",
+        "value": {
+          "expect": "sR_RegStatus[1].valid == 1, sR_RegStatus[1].payload == 0x0CA (12-bit digest for INT value 0x44), and sR_RegStatus[1].decay_ctr == 0, making R1 available to predict the restart branch",
+          "given": "In-flight instruction writing R1 with rob_tag 0x0012 completes execution with INT value 0x44; branch mispredicts; pipeline squashes flushed tags not including 0x0012",
+          "name": "test_mispredict_visibility_enhancement"
+        }
+      },
+      "open_question": null,
+      "enum_candidates": null
+    }
+  ]
+}
+```
+
+## stream
+[User Message]
+# Spec reviewer prompt (post-distillation verification node)
+
+You are a computer-architecture researcher auditing part of a feature spec that another agent distilled from a paper. The feature is `sr`. You are reviewing unit `algo:predict+algo:update+algo:on_decode+algo:on_instruction_complete+orphan+global+algo:generate_digest+algo:on_mispredict_recovery` (kind: `algorithm`).
+
+You did not write this spec and you cannot see the reasoning that produced it. Judge only what is on the page against wh...
+
+[Init]
+model=gemini-3.8-flash-medium conversation=963cb58a-7cf4-4826-813f-786f8bdc38bb cwd=/tmp/ray/session_2026-09-18_22-20-14_993598_7975/runtime_resources/working_dir_files/_ray_pkg_f8c8534aa15ea754
+
+[Response]
+```json
+{
+  "records": [
+    {
+      "pointer": "/summary",
+      "claim": "sR is a statistical corrector component exploiting correlations between recently produced logical register values and conditional branch directions across 8 banks of 65 registers.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "We propose a novel prediction method that exploits correlations between register values and branch directions (Section 4.2). Our method generates a short digest characterizing each register value and improves prediction accuracy by capturing correlations between these digests and branch directions. We implemented this method by integrating it into the statistical corrector (SC) of the existing TAGE-SC-L predictor.",
+        "why": "The paper explicitly introduces sR as an SC component correlating register value digests with branch directions."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/source",
+      "claim": "The feature is distilled from the CBP 2025 paper titled 'RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables'.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "In this paper, we propose register-value-aware predictor utilizing nested large tables (RUNLTS). RUNLTS is a branch predictor based on TAGE-SC-L.",
+        "why": "The citation and title match the published CBP 2025 paper text verbatim."
+      },
+      "patch": null,
+      "open_question": null,
+      "enum_candidates": null
+    },
+    {
+      "pointer": "/host_interfaces",
+      "claim": "The predictor requires host pipeline interfaces for destination register and ROB tag at decode, register value and type at completion, squash recovery tags, and decoded instruction count.",
+      "verdict": "SUPPORTED",
+      "evidence": {
+        "quote": "At decode, an instruction that writes a register stores its ROB index as a tag in the corresponding entry and clears the valid bi
+... [truncated]
+
+[Usage]
+{"input_tokens": 38612, "output_tokens": 36607, "thinking_tokens": 29794, "cache_read_tokens": 0, "total_tokens": 75219}
+
+[Result]
+status=SUCCESS conversation=963cb58a-7cf4-4826-813f-786f8bdc38bb turns=1 duration=184.316872874s usage={"input_tokens": 38612, "output_tokens": 36607, "thinking_tokens": 29794, "cache_read_tokens": 0, "total_tokens": 75219}
+
+

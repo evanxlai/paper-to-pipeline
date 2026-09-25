@@ -1,0 +1,328 @@
+{
+ "elapsed_s": 400,
+ "g6_passed": false,
+ "reasons": [
+  "G6 SR_ROB_IDX_BITS = 13 builds the same binary as 14: nothing reads it, yet the evaluator would credit its storage",
+  "G6 SR_INFLIGHT_BRANCHES = 255 builds the same binary as 256: nothing reads it, yet the evaluator would credit its storage"
+ ],
+ "warnings": [
+  "G6 SR_ALGORITHMS_1_PSEUDOCODE_VARIANT = 1 builds the same binary as saturate: nothing reads it",
+  "G6 SR_ALGORITHMS_2_PSEUDOCODE_VARIANT = 1 builds the same binary as stride_interleaved: nothing reads it",
+  "G6 SR_ALGORITHMS_3_TRIGGER_VARIANT = 1 builds the same binary as commit: nothing reads it",
+  "G6 SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2 = 1 builds the same binary as align_bit_3: nothing reads it",
+  "G6 SR_ALGORITHMS_2_VARIANT = 1 builds the same binary as max_u_greater_than_zero: nothing reads it"
+ ],
+ "report": {
+  "default_build": "271302cde1ccd2f4",
+  "reproducible": true,
+  "knobs": [
+   {
+    "macro": "SR_NUM_BANKS",
+    "origin": "feature",
+    "default": 8,
+    "tested": 7,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_NUM_LOGICAL_REGS",
+    "origin": "feature",
+    "default": 65,
+    "tested": 64,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_WT0_ENTRIES",
+    "origin": "feature",
+    "default": 512,
+    "tested": 256,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_WT1_ENTRIES",
+    "origin": "feature",
+    "default": 256,
+    "tested": 128,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_WT2_ENTRIES",
+    "origin": "feature",
+    "default": 128,
+    "tested": 64,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_UT0_ENTRIES",
+    "origin": "feature",
+    "default": 8,
+    "tested": 4,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_UT1_ENTRIES",
+    "origin": "feature",
+    "default": 8,
+    "tested": 4,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_UT2_ENTRIES",
+    "origin": "feature",
+    "default": 8,
+    "tested": 4,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_WT_BITS",
+    "origin": "feature",
+    "default": 6,
+    "tested": 5,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_DECAY_CTR_BITS",
+    "origin": "feature",
+    "default": 8,
+    "tested": 7,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "SR_ROB_IDX_BITS",
+    "origin": "feature",
+    "default": 14,
+    "tested": 13,
+    "costs_storage": true,
+    "result": "inert"
+   },
+   {
+    "macro": "SR_INFLIGHT_BRANCHES",
+    "origin": "feature",
+    "default": 256,
+    "tested": 255,
+    "costs_storage": true,
+    "result": "inert"
+   },
+   {
+    "macro": "SR_USEFUL_MULTIPLIER",
+    "origin": "feature",
+    "default": 2.5,
+    "tested": 1.75,
+    "costs_storage": false,
+    "result": "live"
+   },
+   {
+    "macro": "SR_ALGORITHMS_1_PSEUDOCODE_VARIANT",
+    "origin": "feature",
+    "default": "saturate",
+    "tested": 1,
+    "costs_storage": false,
+    "result": "inert"
+   },
+   {
+    "macro": "SR_ALGORITHMS_2_PSEUDOCODE_VARIANT",
+    "origin": "feature",
+    "default": "stride_interleaved",
+    "tested": 1,
+    "costs_storage": false,
+    "result": "inert"
+   },
+   {
+    "macro": "SR_ALGORITHMS_3_TRIGGER_VARIANT",
+    "origin": "feature",
+    "default": "commit",
+    "tested": 1,
+    "costs_storage": false,
+    "result": "inert"
+   },
+   {
+    "macro": "SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2",
+    "origin": "feature",
+    "default": "align_bit_3",
+    "tested": 1,
+    "costs_storage": false,
+    "result": "inert"
+   },
+   {
+    "macro": "SR_ALGORITHMS_2_VARIANT",
+    "origin": "feature",
+    "default": "max_u_greater_than_zero",
+    "tested": 1,
+    "costs_storage": false,
+    "result": "inert"
+   },
+   {
+    "macro": "HOST_LOGG",
+    "origin": "host",
+    "default": 10,
+    "tested": 9,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_TBITS",
+    "origin": "host",
+    "default": 8,
+    "tested": 7,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_NBANKLOW",
+    "origin": "host",
+    "default": 10,
+    "tested": 9,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_NBANKHIGH",
+    "origin": "host",
+    "default": 20,
+    "tested": 19,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_CWIDTH",
+    "origin": "host",
+    "default": 3,
+    "tested": 2,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_UWIDTH",
+    "origin": "host",
+    "default": 1,
+    "tested": 2,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGB",
+    "origin": "host",
+    "default": 13,
+    "tested": 12,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_HYSTSHIFT",
+    "origin": "host",
+    "default": 2,
+    "tested": 1,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_PERCWIDTH",
+    "origin": "host",
+    "default": 6,
+    "tested": 5,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGBIAS",
+    "origin": "host",
+    "default": 8,
+    "tested": 7,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGGNB",
+    "origin": "host",
+    "default": 10,
+    "tested": 9,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGPNB",
+    "origin": "host",
+    "default": 9,
+    "tested": 8,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGLNB",
+    "origin": "host",
+    "default": 10,
+    "tested": 9,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGSNB",
+    "origin": "host",
+    "default": 9,
+    "tested": 8,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGTNB",
+    "origin": "host",
+    "default": 10,
+    "tested": 9,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGINB",
+    "origin": "host",
+    "default": 8,
+    "tested": 7,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGIMNB",
+    "origin": "host",
+    "default": 9,
+    "tested": 8,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_LOGL",
+    "origin": "host",
+    "default": 5,
+    "tested": 4,
+    "costs_storage": true,
+    "result": "live"
+   },
+   {
+    "macro": "HOST_EWIDTH",
+    "origin": "host",
+    "default": 6,
+    "tested": 5,
+    "costs_storage": true,
+    "result": "live"
+   }
+  ],
+  "blocking": [
+   "SR_ROB_IDX_BITS = 13 builds the same binary as 14: nothing reads it, yet the evaluator would credit its storage",
+   "SR_INFLIGHT_BRANCHES = 255 builds the same binary as 256: nothing reads it, yet the evaluator would credit its storage"
+  ],
+  "warnings": [
+   "SR_ALGORITHMS_1_PSEUDOCODE_VARIANT = 1 builds the same binary as saturate: nothing reads it",
+   "SR_ALGORITHMS_2_PSEUDOCODE_VARIANT = 1 builds the same binary as stride_interleaved: nothing reads it",
+   "SR_ALGORITHMS_3_TRIGGER_VARIANT = 1 builds the same binary as commit: nothing reads it",
+   "SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2 = 1 builds the same binary as align_bit_3: nothing reads it",
+   "SR_ALGORITHMS_2_VARIANT = 1 builds the same binary as max_u_greater_than_zero: nothing reads it"
+  ]
+ }
+}

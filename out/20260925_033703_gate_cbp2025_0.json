@@ -1,0 +1,373 @@
+{
+  "passed": false,
+  "reasons": [
+    "G6 SR_NUM_BANKS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_WT0_ENTRIES = 256 builds the same binary as 512: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_WT1_ENTRIES = 128 builds the same binary as 256: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_WT2_ENTRIES = 64 builds the same binary as 128: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_UT0_ENTRIES = 4 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_UT1_ENTRIES = 4 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_UT2_ENTRIES = 4 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_WT_BITS = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_UT_BITS = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage",
+    "G6 SR_DECAY_CTR_BITS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGG = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_TBITS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_NBANKLOW = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_NBANKHIGH = 19 builds the same binary as 20: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_CWIDTH = 2 builds the same binary as 3: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_UWIDTH = 2 builds the same binary as 1: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGB = 12 builds the same binary as 13: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_HYSTSHIFT = 1 builds the same binary as 2: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_PERCWIDTH = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGBIAS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGGNB = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGPNB = 8 builds the same binary as 9: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGLNB = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGSNB = 8 builds the same binary as 9: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGTNB = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGINB = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGIMNB = 8 builds the same binary as 9: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_LOGL = 4 builds the same binary as 5: nothing reads it, yet the evaluator would credit its storage",
+    "G6 HOST_EWIDTH = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage"
+  ],
+  "warnings": [
+    "G6 SR_USEFUL_MULTIPLIER = 1.625 builds the same binary as 2.5: nothing reads it",
+    "G6 SR_USEFUL_THRESHOLD = -1 builds the same binary as 0: nothing reads it",
+    "G6 SR_UT_UPDATE_RULE = 1 builds the same binary as sign_flip: nothing reads it"
+  ],
+  "plan_revision": 0,
+  "measurements": [
+    {
+      "id": "perf_mpki",
+      "metric": "brmispki_50perc_amean",
+      "direction": "decrease",
+      "baseline": 5.093525,
+      "measured": 5.0516749999999995,
+      "relative_improvement": 0.008216313849446143,
+      "n_traces": 4
+    }
+  ],
+  "knob_reach": {
+    "default_build": "aa1a4938379c520c",
+    "reproducible": true,
+    "knobs": [
+      {
+        "macro": "SR_NUM_BANKS",
+        "origin": "feature",
+        "default": 8,
+        "tested": 7,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_NUM_LOGICAL_REGS",
+        "origin": "feature",
+        "default": 65,
+        "tested": null,
+        "costs_storage": true,
+        "result": "pinned"
+      },
+      {
+        "macro": "SR_WT0_ENTRIES",
+        "origin": "feature",
+        "default": 512,
+        "tested": 256,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_WT1_ENTRIES",
+        "origin": "feature",
+        "default": 256,
+        "tested": 128,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_WT2_ENTRIES",
+        "origin": "feature",
+        "default": 128,
+        "tested": 64,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_UT0_ENTRIES",
+        "origin": "feature",
+        "default": 8,
+        "tested": 4,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_UT1_ENTRIES",
+        "origin": "feature",
+        "default": 8,
+        "tested": 4,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_UT2_ENTRIES",
+        "origin": "feature",
+        "default": 8,
+        "tested": 4,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_WT_BITS",
+        "origin": "feature",
+        "default": 6,
+        "tested": 5,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_UT_BITS",
+        "origin": "feature",
+        "default": 6,
+        "tested": 5,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_DECAY_CTR_BITS",
+        "origin": "feature",
+        "default": 8,
+        "tested": 7,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_TAG_BITS",
+        "origin": "feature",
+        "default": 14,
+        "tested": null,
+        "costs_storage": true,
+        "result": "pinned"
+      },
+      {
+        "macro": "SR_MAX_INFLIGHT_BRANCHES",
+        "origin": "feature",
+        "default": 1024,
+        "tested": null,
+        "costs_storage": true,
+        "result": "pinned"
+      },
+      {
+        "macro": "SR_USEFUL_MULTIPLIER",
+        "origin": "feature",
+        "default": 2.5,
+        "tested": 1.625,
+        "costs_storage": false,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_USEFUL_THRESHOLD",
+        "origin": "feature",
+        "default": 0,
+        "tested": -1,
+        "costs_storage": false,
+        "result": "inert"
+      },
+      {
+        "macro": "SR_UT_UPDATE_RULE",
+        "origin": "feature",
+        "default": "sign_flip",
+        "tested": 1,
+        "costs_storage": false,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGG",
+        "origin": "host",
+        "default": 10,
+        "tested": 9,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_TBITS",
+        "origin": "host",
+        "default": 8,
+        "tested": 7,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_NBANKLOW",
+        "origin": "host",
+        "default": 10,
+        "tested": 9,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_NBANKHIGH",
+        "origin": "host",
+        "default": 20,
+        "tested": 19,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_CWIDTH",
+        "origin": "host",
+        "default": 3,
+        "tested": 2,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_UWIDTH",
+        "origin": "host",
+        "default": 1,
+        "tested": 2,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGB",
+        "origin": "host",
+        "default": 13,
+        "tested": 12,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_HYSTSHIFT",
+        "origin": "host",
+        "default": 2,
+        "tested": 1,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_PERCWIDTH",
+        "origin": "host",
+        "default": 6,
+        "tested": 5,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGBIAS",
+        "origin": "host",
+        "default": 8,
+        "tested": 7,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGGNB",
+        "origin": "host",
+        "default": 10,
+        "tested": 9,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGPNB",
+        "origin": "host",
+        "default": 9,
+        "tested": 8,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGLNB",
+        "origin": "host",
+        "default": 10,
+        "tested": 9,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGSNB",
+        "origin": "host",
+        "default": 9,
+        "tested": 8,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGTNB",
+        "origin": "host",
+        "default": 10,
+        "tested": 9,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGINB",
+        "origin": "host",
+        "default": 8,
+        "tested": 7,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGIMNB",
+        "origin": "host",
+        "default": 9,
+        "tested": 8,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_LOGL",
+        "origin": "host",
+        "default": 5,
+        "tested": 4,
+        "costs_storage": true,
+        "result": "inert"
+      },
+      {
+        "macro": "HOST_EWIDTH",
+        "origin": "host",
+        "default": 6,
+        "tested": 5,
+        "costs_storage": true,
+        "result": "inert"
+      }
+    ],
+    "blocking": [
+      "SR_NUM_BANKS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "SR_WT0_ENTRIES = 256 builds the same binary as 512: nothing reads it, yet the evaluator would credit its storage",
+      "SR_WT1_ENTRIES = 128 builds the same binary as 256: nothing reads it, yet the evaluator would credit its storage",
+      "SR_WT2_ENTRIES = 64 builds the same binary as 128: nothing reads it, yet the evaluator would credit its storage",
+      "SR_UT0_ENTRIES = 4 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "SR_UT1_ENTRIES = 4 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "SR_UT2_ENTRIES = 4 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "SR_WT_BITS = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage",
+      "SR_UT_BITS = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage",
+      "SR_DECAY_CTR_BITS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGG = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_TBITS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_NBANKLOW = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_NBANKHIGH = 19 builds the same binary as 20: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_CWIDTH = 2 builds the same binary as 3: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_UWIDTH = 2 builds the same binary as 1: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGB = 12 builds the same binary as 13: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_HYSTSHIFT = 1 builds the same binary as 2: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_PERCWIDTH = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGBIAS = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGGNB = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGPNB = 8 builds the same binary as 9: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGLNB = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGSNB = 8 builds the same binary as 9: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGTNB = 9 builds the same binary as 10: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGINB = 7 builds the same binary as 8: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGIMNB = 8 builds the same binary as 9: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_LOGL = 4 builds the same binary as 5: nothing reads it, yet the evaluator would credit its storage",
+      "HOST_EWIDTH = 5 builds the same binary as 6: nothing reads it, yet the evaluator would credit its storage"
+    ],
+    "warnings": [
+      "SR_USEFUL_MULTIPLIER = 1.625 builds the same binary as 2.5: nothing reads it",
+      "SR_USEFUL_THRESHOLD = -1 builds the same binary as 0: nothing reads it",
+      "SR_UT_UPDATE_RULE = 1 builds the same binary as sign_flip: nothing reads it"
+    ]
+  }
+}

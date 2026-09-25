@@ -1,0 +1,123 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:recover",
+        "algo:update",
+        "algo:allocate",
+        "algo:predict",
+        "orphan+global"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 1,
+        "warn": 5,
+        "info": 5
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 5,
+        "info": 5
+      },
+      "inconsistent_patches": 1,
+      "hedged_evidence": 0,
+      "carried_source_notes": 0,
+      "verdicts": {
+        "UNSUPPORTED": 40,
+        "SUPPORTED": 38,
+        "INCONSISTENT": 2,
+        "UNDERSPECIFIED": 6
+      },
+      "accepted": false,
+      "reject_reason": "1 INCONSISTENT patch(es) landed but the error count did not fall (1 -> 1)",
+      "patches_landed": 7,
+      "knobs_minted": 1,
+      "stop_reason": "round rejected: 1 INCONSISTENT patch(es) landed but the error count did not fall (1 -> 1)",
+      "retry_of": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/resource_accounting/total_storage_bits",
+        "code": "feature_budget_fit",
+        "severity": "warn",
+        "message": "total_storage_bits 15029 is 10997 bits over the 4032 bits budgeted for this feature by the paper, as resource_accounting itself states. That is 3.73x the allowance, and the difference has to be taken from another structure on the chip. Either bring the feature back under the figure or name the donor and the size of the cut in budget_donors."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'push(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'pop_oldest(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'elements(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'remove(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'reversed(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'recover' reads 'InFlightQueue.elements', but no algorithm in the spec ever writes it. The producing side of that handshake is missing, so an implementer must invent both what the field holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update' reads 'InFlightQueue.is_empty', but no algorithm in the spec ever writes it. The producing side of that handshake is missing, so an implementer must invent both what the field holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update' reads 'InFlightQueue.pop_oldest', but no algorithm in the spec ever writes it. The producing side of that handshake is missing, so an implementer must invent both what the field holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'predict' reads 'InFlightQueue.size', but no algorithm in the spec ever writes it. The producing side of that handshake is missing, so an implementer must invent both what the field holds and which stage fills it."
+      },
+      {
+        "pointer": "/algorithms/-",
+        "code": "missing_recovery_algorithm",
+        "severity": "error",
+        "message": "the spec holds speculative state -- it names 'branch_tag' -- but no algorithm unwinds it. An entry tagged with an instruction that never commits is never put back, so the table drifts out of step with the machine and stays there. Add an algorithm at /algorithms/- whose trigger names the flush, the squash or the mispredict, and whose pseudocode does the undoing: a loop over the affected entries that clears or restores them, saying which survive and which are discarded. Both halves are required. Adding 'or squash' to the trigger of an algorithm that goes on to do the ordinary update does not clear this, and neither does a body that only reads the entries. Where the paper declines to say what survives, choose a policy and record the alternative in open_questions: silence is not one of the options, because an implementer has to write something."
+      }
+    ],
+    "errors": 1,
+    "open_questions": 2,
+    "questions_pruned": {
+      "before": 3,
+      "stale": 0,
+      "merged": 1,
+      "after": 2
+    },
+    "parameters": 12,
+    "complete": true,
+    "unreviewed_units": []
+  },
+  "source_ambiguities": []
+}

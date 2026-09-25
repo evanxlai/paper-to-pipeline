@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2300" height="1080" viewBox="0 0 2300 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Adopt-a-paper CHIA loop</title>
+  <desc id="desc">The paper-to-pipeline workflow: distill and review a paper, plan and integrate the feature in a target host, verify it with a deterministic gate, tune it under constraints, and promote finalists on held-out traces. Failed gates return evidence to integration, and frozen-plan issues escalate to planning.</desc>
+  <defs>
+    <style>
+      .ink { fill: #172033; font-family: Arial, Helvetica, sans-serif; }
+      .title { font-size: 40px; font-weight: 800; letter-spacing: .5px; }
+      .section { font-size: 25px; font-weight: 800; letter-spacing: .4px; }
+      .node-title { font-size: 29px; font-weight: 800; }
+      .node-sub { font-size: 20px; font-style: italic; }
+      .artifact { font-size: 18px; font-weight: 700; fill: #526176; }
+      .stage { font-size: 17px; font-weight: 800; letter-spacing: 1px; }
+      .input-title { font-size: 23px; font-weight: 800; }
+      .input-sub { font-size: 18px; }
+      .label { font-size: 20px; font-weight: 800; }
+      .legend { font-size: 21px; font-weight: 700; }
+      .frame { fill: #ffffff; stroke: #93a4bc; stroke-width: 3; stroke-dasharray: 12 10; }
+      .divider { stroke: #cbd5e1; stroke-width: 3; stroke-dasharray: 8 8; }
+      .agent { fill: #f3e8ff; stroke: #7c3aed; stroke-width: 5; }
+      .head { fill: #dcfce7; stroke: #16a34a; stroke-width: 5; }
+      .host { fill: #fce7f3; stroke: #db2777; stroke-width: 5; }
+      .dse { fill: #ffedd5; stroke: #ea580c; stroke-width: 5; }
+      .blue { fill: #eff6ff; stroke: #2563eb; stroke-width: 5; }
+      .decision { fill: #fffbeb; stroke: #f59e0b; stroke-width: 5; }
+      .doc { fill: #fffdf4; stroke: #b48600; stroke-width: 4; }
+      .db { fill: #f8fafc; stroke: #64748b; stroke-width: 4; }
+      .flow { fill: none; stroke: #111827; stroke-width: 5; stroke-linecap: square; stroke-linejoin: round; marker-end: url(#arrow-black); }
+      .flow-green { fill: none; stroke: #16a34a; stroke-width: 5; stroke-linecap: square; stroke-linejoin: round; marker-end: url(#arrow-green); }
+      .flow-purple { fill: none; stroke: #7c3aed; stroke-width: 5; stroke-linecap: square; stroke-linejoin: round; marker-end: url(#arrow-purple); }
+      .flow-blue { fill: none; stroke: #0875be; stroke-width: 5; stroke-linecap: square; stroke-linejoin: round; marker-end: url(#arrow-blue); }
+      .flow-orange { fill: none; stroke: #ea580c; stroke-width: 5; stroke-linecap: square; stroke-linejoin: round; marker-end: url(#arrow-orange); }
+      .flow-red { fill: none; stroke: #ef4444; stroke-width: 5; stroke-linecap: square; stroke-linejoin: round; marker-end: url(#arrow-red); }
+      .soft-link { fill: none; stroke: #94a3b8; stroke-width: 3; stroke-dasharray: 8 8; }
+    </style>
+    <marker id="arrow-black" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L17,9 L0,18 Z" fill="#111827"/></marker>
+    <marker id="arrow-green" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L17,9 L0,18 Z" fill="#16a34a"/></marker>
+    <marker id="arrow-purple" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L17,9 L0,18 Z" fill="#7c3aed"/></marker>
+    <marker id="arrow-blue" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L17,9 L0,18 Z" fill="#0875be"/></marker>
+    <marker id="arrow-orange" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L17,9 L0,18 Z" fill="#ea580c"/></marker>
+    <marker id="arrow-red" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L17,9 L0,18 Z" fill="#ef4444"/></marker>
+  </defs>
+
+  <rect width="2300" height="1080" fill="#ffffff"/>
+
+  <!-- Overall regions -->
+  <text x="1260" y="48" text-anchor="middle" class="ink title">PROGRAMMATIC ORCHESTRATION</text>
+  <rect x="260" y="68" width="2010" height="720" rx="22" class="frame"/>
+  <text x="292" y="118" class="ink section">APPLICATION NODES</text>
+  <text x="28" y="118" class="ink section">INPUTS</text>
+
+  <!-- Paper input document -->
+  <path d="M24 165 H194 L222 193 V286 H24 Z" class="doc"/>
+  <path d="M194 165 V193 H222" fill="#fff4c7" stroke="#b48600" stroke-width="4"/>
+  <text x="123" y="215" text-anchor="middle" class="ink input-title">PAPER</text>
+  <text x="123" y="246" text-anchor="middle" class="ink input-sub">+ optional artifact</text>
+
+  <!-- Target host input database -->
+  <path d="M24 413 C24 398 68 387 123 387 C178 387 222 398 222 413 V500 C222 516 178 527 123 527 C68 527 24 516 24 500 Z" class="db"/>
+  <ellipse cx="123" cy="413" rx="99" ry="26" fill="#f8fafc" stroke="#64748b" stroke-width="4"/>
+  <text x="123" y="457" text-anchor="middle" class="ink input-title">TARGET HOST</text>
+  <text x="123" y="487" text-anchor="middle" class="ink input-sub">clean checkout</text>
+
+  <!-- Success criteria document -->
+  <path d="M24 600 H194 L222 628 V718 H24 Z" class="blue"/>
+  <path d="M194 600 V628 H222" fill="#dbeafe" stroke="#2563eb" stroke-width="4"/>
+  <text x="123" y="650" text-anchor="middle" class="ink input-title">SUCCESS</text>
+  <text x="123" y="680" text-anchor="middle" class="ink input-title">CRITERIA</text>
+
+  <!-- Main stage nodes: stacked cards identify agent nodes -->
+  <text x="310" y="151" class="ink stage" fill="#7c3aed">STAGE 1</text>
+  <rect x="326" y="176" width="220" height="112" rx="17" class="agent"/>
+  <rect x="318" y="168" width="220" height="112" rx="17" class="agent"/>
+  <rect x="310" y="160" width="220" height="112" rx="17" class="agent"/>
+  <text x="420" y="207" text-anchor="middle" class="ink node-title">Distill</text>
+  <text x="420" y="238" text-anchor="middle" class="ink node-sub">paper → feature spec</text>
+
+  <text x="570" y="151" class="ink stage" fill="#7c3aed">STAGE 1.5</text>
+  <rect x="586" y="176" width="220" height="112" rx="17" class="agent"/>
+  <rect x="578" y="168" width="220" height="112" rx="17" class="agent"/>
+  <rect x="570" y="160" width="220" height="112" rx="17" class="agent"/>
+  <text x="680" y="207" text-anchor="middle" class="ink node-title">Spec review</text>
+  <text x="680" y="238" text-anchor="middle" class="ink node-sub">evidence-check claims</text>
+
+  <text x="830" y="151" class="ink stage" fill="#7c3aed">STAGE 2</text>
+  <rect x="846" y="176" width="220" height="112" rx="17" class="agent"/>
+  <rect x="838" y="168" width="220" height="112" rx="17" class="agent"/>
+  <rect x="830" y="160" width="220" height="112" rx="17" class="agent"/>
+  <text x="940" y="207" text-anchor="middle" class="ink node-title">Plan per host</text>
+  <text x="940" y="238" text-anchor="middle" class="ink node-sub">port plan + test plan</text>
+
+  <text x="1090" y="151" class="ink stage" fill="#7c3aed">STAGE 3</text>
+  <rect x="1106" y="176" width="220" height="112" rx="17" class="agent"/>
+  <rect x="1098" y="168" width="220" height="112" rx="17" class="agent"/>
+  <rect x="1090" y="160" width="220" height="112" rx="17" class="agent"/>
+  <text x="1200" y="207" text-anchor="middle" class="ink node-title">Integrate</text>
+  <text x="1200" y="238" text-anchor="middle" class="ink node-sub" font-size="18">coding agent + BashTool</text>
+
+  <!-- Deterministic gate -->
+  <polygon points="1440,151 1535,216 1440,281 1345,216" class="decision"/>
+  <text x="1440" y="207" text-anchor="middle" class="ink node-title" font-size="26">VERIFY</text>
+  <text x="1440" y="237" text-anchor="middle" class="ink label">G1–G6</text>
+
+  <text x="1580" y="151" class="ink stage" fill="#ea580c">STAGE 4</text>
+  <rect x="1596" y="176" width="220" height="112" rx="17" class="dse"/>
+  <rect x="1588" y="168" width="220" height="112" rx="17" class="dse"/>
+  <rect x="1580" y="160" width="220" height="112" rx="17" class="dse"/>
+  <text x="1690" y="207" text-anchor="middle" class="ink node-title">DSE</text>
+  <text x="1690" y="238" text-anchor="middle" class="ink node-sub">constrained search</text>
+
+  <text x="1840" y="151" class="ink stage" fill="#16a34a">STAGE 4b</text>
+  <rect x="1840" y="160" width="220" height="112" rx="17" class="head"/>
+  <text x="1950" y="204" text-anchor="middle" class="ink node-title">Promote</text>
+  <text x="1950" y="235" text-anchor="middle" class="ink node-sub">held-out finalists</text>
+
+  <!-- Final verdict cylinder -->
+  <path d="M2100 184 C2100 169 2135 158 2178 158 C2221 158 2256 169 2256 184 V254 C2256 269 2221 280 2178 280 C2135 280 2100 269 2100 254 Z" class="head"/>
+  <ellipse cx="2178" cy="184" rx="78" ry="26" fill="#dcfce7" stroke="#16a34a" stroke-width="5"/>
+  <text x="2178" y="218" text-anchor="middle" class="ink label">TUNED</text>
+  <text x="2178" y="245" text-anchor="middle" class="ink label">VERDICT</text>
+
+  <!-- Main pipeline arrows and artifact labels -->
+  <path d="M222 216 H310" class="flow"/>
+  <path d="M530 216 H570" class="flow"/>
+  <path d="M790 216 H830" class="flow"/>
+  <path d="M1050 216 H1090" class="flow"/>
+  <path d="M1310 216 H1345" class="flow"/>
+  <path d="M1535 216 H1580" class="flow-green"/>
+  <path d="M1800 216 H1840" class="flow-orange"/>
+  <path d="M2060 216 H2100" class="flow-green"/>
+  <text x="550" y="137" text-anchor="middle" class="artifact">feature spec</text>
+  <text x="810" y="137" text-anchor="middle" class="artifact">reviewed spec</text>
+  <text x="1070" y="137" text-anchor="middle" class="artifact">plan + tests</text>
+  <text x="1327" y="137" text-anchor="middle" class="artifact">patched host</text>
+  <text x="1556" y="137" text-anchor="middle" class="label" fill="#16a34a">pass</text>
+  <text x="1820" y="137" text-anchor="middle" class="artifact">ranked candidates</text>
+
+  <!-- Baseline branch -->
+  <text x="310" y="397" class="ink stage" fill="#16a34a">PREREQUISITE</text>
+  <rect x="310" y="408" width="220" height="112" rx="17" class="head"/>
+  <text x="420" y="454" text-anchor="middle" class="ink node-title" font-size="25">Record baseline</text>
+  <text x="420" y="486" text-anchor="middle" class="ink node-sub">pristine host</text>
+  <path d="M222 457 H310" class="flow"/>
+  <path d="M530 464 H720 V330 H940 V272" class="flow-blue"/>
+  <text x="728" y="354" class="artifact">clean checkout + measured host facts</text>
+  <path d="M530 485 V722 H1900 V272" class="flow-green"/>
+  <text x="552" y="710" class="label" fill="#16a34a">recorded baseline</text>
+
+  <!-- Success criteria feeds planning; the gate consumes the resulting test plan -->
+  <path d="M222 659 H770 V250 H830" class="flow-blue"/>
+  <text x="547" y="646" text-anchor="middle" class="artifact">what counts as success</text>
+
+  <!-- Gate feedback and escalation loops -->
+  <rect x="1106" y="440" width="250" height="112" rx="17" class="agent"/>
+  <rect x="1098" y="432" width="250" height="112" rx="17" class="agent" opacity=".95"/>
+  <rect x="1090" y="424" width="250" height="112" rx="17" class="agent"/>
+  <text x="1215" y="471" text-anchor="middle" class="ink node-title">Debug &amp; repair</text>
+  <text x="1215" y="503" text-anchor="middle" class="ink node-sub">gate evidence only</text>
+  <path d="M1440 281 V370 H1275 V424" class="flow-red"/>
+  <text x="1377" y="356" class="label" fill="#ef4444">fail</text>
+  <path d="M1215 424 V350 H1200 V272" class="flow-purple"/>
+  <text x="1229" y="382" class="label" fill="#7c3aed">diagnose + retry</text>
+  <path d="M1090 492 H1000 V580 H940 V272" class="flow-blue"/>
+  <text x="782" y="573" class="label" fill="#0875be">escalate frozen plan fact → revise / replan</text>
+
+  <!-- Inputs visible only to tuning and promotion -->
+  <path d="M1480 423 H1705 L1732 450 V525 H1480 Z" class="dse"/>
+  <path d="M1705 423 V450 H1732" fill="#fed7aa" stroke="#ea580c" stroke-width="4"/>
+  <text x="1606" y="466" text-anchor="middle" class="ink input-title">CONSTRAINT SET</text>
+  <text x="1606" y="497" text-anchor="middle" class="ink input-sub">e.g. storage allowance</text>
+  <path d="M1690 423 V272" class="flow-orange"/>
+  <text x="1748" y="368" class="label" fill="#ea580c">only stage that sees</text>
+  <text x="1748" y="395" class="label" fill="#ea580c">resource constraints</text>
+
+  <path d="M1515 615 C1515 600 1562 589 1623 589 C1684 589 1732 600 1732 615 V675 C1732 690 1684 701 1623 701 C1562 701 1515 690 1515 675 Z" class="dse"/>
+  <ellipse cx="1623" cy="615" rx="108" ry="26" fill="#ffedd5" stroke="#ea580c" stroke-width="4"/>
+  <text x="1623" y="647" text-anchor="middle" class="ink label">SCREENING</text>
+  <text x="1623" y="674" text-anchor="middle" class="ink label">TRACES</text>
+  <path d="M1623 589 V555 H1660 V272" class="flow-orange"/>
+
+  <path d="M1842 428 C1842 413 1889 402 1950 402 C2011 402 2058 413 2058 428 V488 C2058 503 2011 514 1950 514 C1889 514 1842 503 1842 488 Z" class="head"/>
+  <ellipse cx="1950" cy="428" rx="108" ry="26" fill="#dcfce7" stroke="#16a34a" stroke-width="4"/>
+  <text x="1950" y="460" text-anchor="middle" class="ink label">HELD-OUT</text>
+  <text x="1950" y="487" text-anchor="middle" class="ink label">TRACES</text>
+  <path d="M1950 402 V350 H2000 V272" class="flow-green"/>
+  <text x="1968" y="564" text-anchor="middle" class="artifact">finalists vs baseline + untuned port</text>
+
+  <!-- Library/tool plane, following the visual grammar of the CHIA paper -->
+  <text x="1260" y="829" text-anchor="middle" class="ink title" font-size="34">AGENTIC ORCHESTRATION · CHIA LIBRARY TOOLS</text>
+  <rect x="260" y="846" width="2010" height="144" rx="22" class="frame"/>
+  <line x1="666" y1="862" x2="666" y2="972" class="divider"/>
+  <line x1="1068" y1="862" x2="1068" y2="972" class="divider"/>
+  <line x1="1470" y1="862" x2="1470" y2="972" class="divider"/>
+  <line x1="1872" y1="862" x2="1872" y2="972" class="divider"/>
+
+  <rect x="293" y="878" width="340" height="80" rx="14" class="agent"/>
+  <text x="463" y="913" text-anchor="middle" class="ink label">LLM + coding-agent nodes</text>
+  <text x="463" y="940" text-anchor="middle" class="ink input-sub">distill · review · plan · integrate</text>
+
+  <rect x="699" y="878" width="336" height="80" rx="14" class="blue"/>
+  <text x="867" y="913" text-anchor="middle" class="ink label">BashTool / MCP</text>
+  <text x="867" y="940" text-anchor="middle" class="ink input-sub">controlled access to the host</text>
+
+  <rect x="1101" y="878" width="336" height="80" rx="14" class="host"/>
+  <text x="1269" y="913" text-anchor="middle" class="ink label">Host nodes</text>
+  <text x="1269" y="940" text-anchor="middle" class="ink input-sub">build · run · tests · stats</text>
+
+  <rect x="1503" y="878" width="336" height="80" rx="14" class="dse"/>
+  <text x="1671" y="913" text-anchor="middle" class="ink label">evolve-flows</text>
+  <text x="1671" y="940" text-anchor="middle" class="ink input-sub">candidate search + trace fan-out</text>
+
+  <rect x="1905" y="878" width="332" height="80" rx="14" class="head"/>
+  <text x="2071" y="913" text-anchor="middle" class="ink label">CHIA runtime</text>
+  <text x="2071" y="940" text-anchor="middle" class="ink input-sub">Ray scheduling · profiling</text>
+
+  <!-- Scheduling legend -->
+  <text x="280" y="1040" class="ink section" font-size="23">WHERE EACH NODE IS SCHEDULED</text>
+  <rect x="790" y="1014" width="29" height="29" rx="6" class="agent"/>
+  <text x="834" y="1038" class="ink legend">LLM worker</text>
+  <rect x="1030" y="1014" width="29" height="29" rx="6" class="head"/>
+  <text x="1074" y="1038" class="ink legend">cluster head</text>
+  <rect x="1260" y="1014" width="29" height="29" rx="6" class="host"/>
+  <text x="1304" y="1038" class="ink legend">host worker</text>
+  <rect x="1512" y="1014" width="29" height="29" rx="6" class="dse"/>
+  <text x="1556" y="1038" class="ink legend">DSE / trace workers</text>
+  <path d="M1865 1028 H1920" class="flow"/>
+  <text x="1940" y="1038" class="ink legend">data + control edge</text>
+</svg>

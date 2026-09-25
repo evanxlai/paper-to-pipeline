@@ -1,0 +1,10 @@
+{
+  "passed": false,
+  "reasons": [
+    "G5 [perf_gain] brmispki_50perc_amean moved -0.8747 relative (5.093525 -> 9.548825, decrease is better), which does not beat the 0.0 floor. The mechanism is not reaching the metric.; ipc_50perc_amean regressed +0.1814 relative (2.7057749999999996 -> 2.2149), beyond the 0.01 band. The feature is buying brmispki_50perc_amean with ipc_50perc_amean."
+  ],
+  "warnings": [
+    "perf_gain: brmispki_50perc_amean improved -0.8747 against a claimed 0.01 (Paper's headline claims a measurable CycWPPKI / MPKI improvement). Recorded, not blocking: the port is untuned and closing that gap is stage 4's job."
+  ],
+  "plan_revision": 0
+}

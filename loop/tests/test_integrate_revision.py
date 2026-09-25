@@ -80,7 +80,7 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setattr(loop, "BashTool", lambda **kw: _NullTool())
     monkeypatch.setattr(loop, "make_llm", lambda *a, **kw: None)
 
-    def build(replies, gate_verdicts, port_plan, test_plan, spec):
+    def build(replies, gate_verdicts, port_plan, test_plan, spec, knob_reach=None):
         llm = FakeLLM(replies)
         monkeypatch.setattr(loop, "run_llm", lambda _llm, prompt, _tools: llm(prompt))
         seen: list[tuple] = []
@@ -93,7 +93,7 @@ def harness(tmp_path, monkeypatch):
         adapter = loop.HostAdapter(
             name="toy", work_dir=str(FIXTURES / "toyhost"), notes="(notes)",
             resources={}, baseline=lambda: {"mpki": 1.0, "ipc": 1.0},
-            run_gate=run_gate,
+            run_gate=run_gate, knob_reach=knob_reach,
         )
         dump = helpers.Dumper(out_dir=tmp_path / "out")
         result = loop.integrate(
@@ -339,3 +339,53 @@ def test_revision_budget_is_enforced_and_announced(harness, monkeypatch, spec, p
     assert not plan_revision.revision_paths("toy", "tinysc", 2)[0].exists()
     assert seen[-1][0]["structure"]["choice"] == "first revision"
     assert any("already used its 1 revision" in p for p in llm.prompts)
+
+
+# ------------------------------------------------------------ G6
+
+
+def _reach(reports):
+    """A knob_reach that returns `reports` in order and records each call."""
+    calls = []
+
+    def knob_reach(spec, port_plan):
+        calls.append(port_plan)
+        return reports.pop(0)
+    return knob_reach, calls
+
+
+UNWIRED = {"blocking": ["HOST_LOGG = 9 builds the same binary as 10: nothing reads it, "
+                        "yet the evaluator would credit its storage"], "warnings": []}
+WIRED = {"blocking": [], "warnings": []}
+
+
+def test_g6_runs_only_once_g1_to_g5_hold_and_its_reasons_reach_the_debug_turn(
+    harness, monkeypatch, spec, port, tests, tmp_path,
+):
+    """Run 20260924_102657's miss, closed. A port that passes G1 to G5 with a
+    host knob wired to nothing does not pass: the debug turn is told which
+    macro, and the attempt after the fix passes."""
+    monkeypatch.setattr(C, "NUM_INTEGRATION_ATTEMPTS", 3)
+    knob_reach, calls = _reach([UNWIRED, WIRED])
+    result, seen, llm = harness(
+        replies=["implementing"],
+        gate_verdicts=[gate.GateResult(False, ["G3 [host_suite] failed"]),
+                       gate.GateResult(True), gate.GateResult(True)],
+        port_plan=port, test_plan=tests, spec=spec, knob_reach=knob_reach,
+    )
+    assert result["status"] == "passed" and result["attempts"] == 3
+    assert len(seen) == 3 and len(calls) == 2  # not on the attempt G3 failed
+    assert any("G6 HOST_LOGG = 9" in p for p in llm.prompts)
+    record = json.loads(next((tmp_path / "out").glob("*gate_toy_1.json")).read_text())
+    assert not record["passed"] and record["knob_reach"] == UNWIRED
+
+
+def test_g6_switched_off_is_never_measured(harness, monkeypatch, spec, port, tests):
+    monkeypatch.setattr(C, "NUM_INTEGRATION_ATTEMPTS", 1)
+    monkeypatch.setattr(C, "GATE_KNOB_REACH", False)
+    knob_reach, calls = _reach([UNWIRED])
+    result, _, _ = harness(
+        replies=["implementing"], gate_verdicts=[gate.GateResult(True)],
+        port_plan=port, test_plan=tests, spec=spec, knob_reach=knob_reach,
+    )
+    assert result["status"] == "passed" and calls == []

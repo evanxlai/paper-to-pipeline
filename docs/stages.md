@@ -193,6 +193,7 @@ suite.
 | G3 | the test plan's other `correctness[]` entries pass |
 | G4 | with the feature knob on, the smoke traces complete without error |
 | G5 | the test plan's `performance[]` entries pass their `block_threshold`, and every trace they declare completes — an entry scored on the traces that survived is a number about a different trace set than the plan asked for. On a host with a ranking metric (`plan_checks.RANKING_METRIC`; MPKI on cbp2025), every entry judges that metric, the one stage 4 ranks by |
+| G6 | every knob that costs storage reaches the build: the port rebuilt with that one knob at a second legal value gives a different binary. Stage 4's preflight (`dse.preflight`), run on a copy of the port through `HostAdapter.knob_reach`, and only once G1 to G5 hold. cbp2025 only, the one host stage 4 can search |
 
 There is no storage condition. See the rule at the top.
 
@@ -355,14 +356,18 @@ infeasible still has a direction.
 Before searching, stage 4 builds every knob once at a second legal value (`dse.preflight`).
 Two builds of the same header must give the same binary, and a knob whose change leaves
 the binary unchanged is wired to nothing. For a knob that costs storage that stops the
-stage, because the search would credit bits the predictor never gave up.
+stage, because the search would credit bits the predictor never gave up. Stage 3's G6 has
+already run the same check, so a stop here means the port changed after its gate, or G6 was
+switched off (`P2P_GATE_KNOB_REACH=0`). An operator can hold a knob the port does not realize
+at its default with `P2P_DSE_PIN`: the search cannot move it, its storage is charged at the
+default, and the summary records the pin under `pinned_by_operator`.
 
 ### Promotion
 
 The search ranks candidates on a screening list, and a screening list is small on purpose.
 So the verdict does not come from the search. `dse.promote_finalists` takes the top
 candidates (`P2P_DSE_TOP_K`, 3 by default) and scores them again on traces the search
-never saw (`experiments/promote-16.list`). Two references run on the same traces in the
+never saw (`experiments/promote-45.list`, the 45 training traces outside the screening set). Two references run on the same traces in the
 same job: the kit's default host, built from the pristine checkout, and the port with
 every knob at its default. The finalist with the lowest screening metric on the promotion
 traces is the tuned candidate. Its comparison with the two references is the verdict.

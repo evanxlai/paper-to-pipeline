@@ -1,0 +1,272 @@
+{
+  "schema_errors": [
+    "port plan: host_storage/terms/0: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/0: 'structure' is a required property",
+    "port plan: host_storage/terms/0: 'formula' is a required property",
+    "port plan: host_storage/terms/1: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/1: 'structure' is a required property",
+    "port plan: host_storage/terms/1: 'formula' is a required property",
+    "port plan: host_storage/terms/2: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/2: 'structure' is a required property",
+    "port plan: host_storage/terms/2: 'formula' is a required property",
+    "port plan: host_storage/terms/3: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/3: 'structure' is a required property",
+    "port plan: host_storage/terms/3: 'formula' is a required property",
+    "port plan: host_storage/terms/4: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/4: 'structure' is a required property",
+    "port plan: host_storage/terms/4: 'formula' is a required property",
+    "port plan: host_storage/terms/5: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/5: 'structure' is a required property",
+    "port plan: host_storage/terms/5: 'formula' is a required property",
+    "port plan: host_storage/terms/6: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/6: 'structure' is a required property",
+    "port plan: host_storage/terms/6: 'formula' is a required property",
+    "port plan: host_storage/terms/7: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/7: 'structure' is a required property",
+    "port plan: host_storage/terms/7: 'formula' is a required property",
+    "port plan: host_storage/terms/8: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/8: 'structure' is a required property",
+    "port plan: host_storage/terms/8: 'formula' is a required property",
+    "port plan: host_storage/terms/9: Additional properties are not allowed ('bits', 'name' were unexpected)",
+    "port plan: host_storage/terms/9: 'structure' is a required property",
+    "port plan: host_storage/terms/9: 'formula' is a required property",
+    "test plan: correctness/2/clean_tree_result: None is not of type 'object'",
+    "test plan: correctness/3/clean_tree_result: None is not of type 'object'"
+  ],
+  "findings": [
+    {
+      "pointer": "/plan/interface_resolutions/7/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/host_interfaces/7' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/interface_resolutions/8/spec_pointer",
+      "code": "unresolved_pointer",
+      "severity": "error",
+      "message": "'/host_interfaces/8' does not resolve against the feature spec."
+    },
+    {
+      "pointer": "/plan/host_knobs/5/observed",
+      "code": "host_observed_missing",
+      "severity": "error",
+      "message": "'#define UWIDTH 1\\t\\t\\t// u counter width on the TAGE tagged tables' does not occur in cbp2016_tage_sc_l.h. Copy the line that sets UWIDTH verbatim from the checkout."
+    },
+    {
+      "pointer": "/plan/host_knobs/7/observed",
+      "code": "host_observed_missing",
+      "severity": "error",
+      "message": "'#define HYSTSHIFT 2\\t\\t//log of number of entries in bimodal predictor' does not occur in cbp2016_tage_sc_l.h. Copy the line that sets HYSTSHIFT verbatim from the checkout."
+    },
+    {
+      "pointer": "/plan/host_knobs/14/observed",
+      "code": "host_observed_missing",
+      "severity": "error",
+      "message": "'#define LOGTNB 10\\t\\t// 1 1K + 2 * 512-entry tables' does not occur in cbp2016_tage_sc_l.h. Copy the line that sets LOGTNB verbatim from the checkout."
+    },
+    {
+      "pointer": "/plan/host_knobs/16/observed",
+      "code": "host_observed_missing",
+      "severity": "error",
+      "message": "'#define LOGIMNB 9\\t\\t// 1 512 + 2 * 256-entry tables' does not occur in cbp2016_tage_sc_l.h. Copy the line that sets LOGIMNB verbatim from the checkout."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/0/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/1/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/2/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/3/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/4/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/5/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/6/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/7/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/8/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_storage/terms/9/formula",
+      "code": "host_formula_invalid",
+      "severity": "error",
+      "message": "'' empty formula."
+    },
+    {
+      "pointer": "/plan/host_knobs/0",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logg'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/1",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'tbits'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/2",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'nbanklow'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/3",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'nbankhigh'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/4",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'cwidth'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/5",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'uwidth'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/6",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/7",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'hystshift'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/8",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'percwidth'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/9",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logbias'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/10",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'loggnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/11",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logpnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/12",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'loglnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/13",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logsnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/14",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logtnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/15",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'loginb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/16",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logimnb'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/17",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'logl'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/host_knobs/18",
+      "code": "host_knob_unaccounted",
+      "severity": "warn",
+      "message": "no host_storage term reads 'ewidth'. If it resizes a structure, the search would move it without its cost moving."
+    },
+    {
+      "pointer": "/plan/risks/0",
+      "code": "undetected_risk",
+      "severity": "info",
+      "message": "no test detects this risk: CBP2025 traces do not decode wrong-path instructions."
+    },
+    {
+      "pointer": "/plan/hook_points/2/symbol",
+      "code": "symbol_not_found",
+      "severity": "warn",
+      "message": "'sr_predict' does not occur in my_cond_branch_predictor.cc. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+    },
+    {
+      "pointer": "/plan/feature_enable/default_off",
+      "code": "revision_restated_off_path",
+      "severity": "warn",
+      "message": "this revision rewrites the enable knob's 'default_off'. G2 measures the off path rather than reading this text, so the claim has been restated after the fact; it is recorded here so the restatement is visible next to the port that prompted it."
+    },
+    {
+      "pointer": "/plan/feature_enable/off_path",
+      "code": "revision_restated_off_path",
+      "severity": "warn",
+      "message": "this revision rewrites the enable knob's 'off_path'. G2 measures the off path rather than reading this text, so the claim has been restated after the fact; it is recorded here so the restatement is visible next to the port that prompted it."
+    }
+  ]
+}

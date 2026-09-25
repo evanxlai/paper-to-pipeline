@@ -390,15 +390,44 @@ def run_test_plan(
             results.smoke_failures = list(outcome.failed)
             results.smoke_log_tail = outcome.log_tail
 
+    enable = (port_plan or {}).get("feature_enable")
     for entry in test_plan.get("performance") or []:
         results.performance.append(
-            _run_performance(executor, entry, default_timeout, baseline)
+            _run_performance(executor, entry, default_timeout, baseline, enable)
         )
     return results
 
 
+# Bindings the gate delivers by rebuilding once per state, as the host
+# adapters' _DEFINE_BINDINGS do. Every other binding is one build and a
+# switch at run time.
+_REBUILT_BINDINGS = frozenset({"compile_time_define", "build_config"})
+
+
+def _identical_on_and_off(enable: Optional[dict]) -> str:
+    """What bit-identical feature-on and feature-off numbers mean, for the
+    plan's own binding. On 2026-09-24 the gem5 port wrapped sR in `#if
+    SR_SR_ENABLE`, which nothing defined, while the plan bound that knob at
+    run time. The gate builds once for a runtime binding, so sR was compiled
+    out of both runs, and "not reaching the metric" sent the debug agent
+    after the CPU lookup instead."""
+    fe = enable or {}
+    macro = fe.get("macro") or (fe.get("name") or "").upper() or "the enable macro"
+    if fe.get("binding") in _REBUILT_BINDINGS:
+        return (f" The two runs are identical in every metric. The knob is a "
+                f"{fe.get('binding')}, so the gate builds once per state: check that "
+                f"{macro} is what the mechanism's own code reads, and that the value "
+                f"the gate defines reaches it.")
+    return (f" The two runs are identical in every metric. The knob is bound at run "
+            f"time ({fe.get('binding') or 'not a rebuild'}), so the gate makes ONE build "
+            f"and only switches {macro} in the environment. A `#if {macro}` or "
+            f"`#ifdef {macro}` around the mechanism compiles it out of that build, "
+            f"for both states; so does an enable flag that is set but never read.")
+
+
 def _run_performance(
-    executor: HostExecutor, entry: dict, default_timeout: int, baseline_doc: dict
+    executor: HostExecutor, entry: dict, default_timeout: int, baseline_doc: dict,
+    enable: Optional[dict] = None,
 ) -> PerformanceResult:
     traces = _traces_of(entry)
     metric, direction = entry["metric"], entry["direction"]
@@ -465,11 +494,27 @@ def _run_performance(
     reasons = []
     # Strictly greater, per the schema: with a floor of 0.0 an exactly
     # unchanged metric is not evidence that the mechanism fired.
+    # The verdict is the same either way; the diagnosis is not. The debug
+    # agent reads this text, and on 2026-09-24 the gem5 port moved cond_mpki
+    # 7 to 8 percent the wrong way on two attempts while this line told it
+    # the mechanism was "not reaching the metric" -- a wiring hunt, when the
+    # mechanism was plainly firing and doing harm.
     if not out.relative_improvement > floor:
+        if out.relative_improvement < 0:
+            why = ("It moved the wrong way: the mechanism reaches the metric and "
+                   "makes it worse, so look at what it computes and trains, not "
+                   "at whether it is wired in.")
+        elif out.relative_improvement == 0:
+            why = "The mechanism is not reaching the metric."
+            if all(on.metrics.get(k) == base_metrics.get(k)
+                   for k in wanted if k in on.metrics and k in base_metrics):
+                why += _identical_on_and_off(enable)
+        else:
+            why = "It moved the right way, but not far enough."
         reasons.append(
             f"{metric} moved {out.relative_improvement:+.4f} relative "
             f"({out.baseline} -> {out.measured}, {direction} is better), which does not "
-            f"beat the {floor} floor. The mechanism is not reaching the metric."
+            f"beat the {floor} floor. {why}"
         )
     for companion in block.get("no_regression") or []:
         cname = companion["metric"]
@@ -482,11 +527,14 @@ def _run_performance(
         # Non-strict: max_relative_regression 0.0 means "must not get worse",
         # not "must get strictly better" -- it is a noise band, not a target.
         if -ri > companion["max_relative_regression"]:
+            # "Buying X with Y" is a trade, and only a trade when X improved.
+            trade = (f"The feature is buying {metric} with {cname}."
+                     if out.relative_improvement > 0 else
+                     f"{metric} got no better, so this is a cost, not a trade.")
             reasons.append(
                 f"{cname} regressed {-ri:+.4f} relative "
                 f"({base_metrics[cname]} -> {on.metrics[cname]}), beyond the "
-                f"{companion['max_relative_regression']} band. The feature is buying "
-                f"{metric} with {cname}."
+                f"{companion['max_relative_regression']} band. {trade}"
             )
     out.block_passed = not reasons
     out.reason = "; ".join(reasons)

@@ -1,0 +1,393 @@
+{
+  "feature_name": "sr_hand",
+  "host": "cbp2025",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+  "metric_keys": [
+    "brmispki_50perc_amean",
+    "cycwppki_50perc_amean",
+    "ipc_50perc_amean"
+  ],
+  "baseline_rel_tol": 0,
+  "smoke": {
+    "traces": [
+      "sample_traces/int/sample_int_trace.gz",
+      "sample_traces/fp/sample_fp_trace.gz"
+    ],
+    "run": {
+      "mode": "command_per_trace",
+      "command_template": "./cbp {trace}"
+    },
+    "timeout_seconds": 60
+  },
+  "correctness": [
+    {
+      "id": "existing_regression_int",
+      "kind": "existing_regression",
+      "description": "Int trace feature off must match clean tree.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz | tail -n 15",
+      "feature_state": "off",
+      "timeout_seconds": 60,
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997301 instrs ",
+        "recorded_at": "2026-09-24T20:39:16-07:00"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": "( Read 997301 instrs )"
+      }
+    },
+    {
+      "id": "existing_regression_fp",
+      "kind": "existing_regression",
+      "description": "FP trace feature off must match clean tree.",
+      "command": "./cbp sample_traces/fp/sample_fp_trace.gz | tail -n 15",
+      "feature_state": "off",
+      "timeout_seconds": 60,
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997741 instrs ",
+        "recorded_at": "2026-09-24T20:39:32-07:00"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": "( Read 997741 instrs )"
+      }
+    },
+    {
+      "id": "off_baseline_int",
+      "kind": "feature_off_baseline",
+      "description": "Int trace metrics match exactly.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "timeout_seconds": 60,
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "off_baseline_fp",
+      "kind": "feature_off_baseline",
+      "description": "FP trace metrics match exactly.",
+      "command": "./cbp sample_traces/fp/sample_fp_trace.gz",
+      "feature_state": "off",
+      "timeout_seconds": 60,
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/fp~1sample_fp_trace.gz",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "ut_0",
+      "kind": "spec_unit_test",
+      "description": "digest_int_small",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/0",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "digest_int_small: PASS"
+      }
+    },
+    {
+      "id": "ut_1",
+      "kind": "spec_unit_test",
+      "description": "digest_int_negative",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/1",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "digest_int_negative: PASS"
+      }
+    },
+    {
+      "id": "ut_2",
+      "kind": "spec_unit_test",
+      "description": "digest_int_all_zero_and_all_one",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/2",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "digest_int_all_zero_and_all_one: PASS"
+      }
+    },
+    {
+      "id": "ut_3",
+      "kind": "spec_unit_test",
+      "description": "digest_fp_formats",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/3",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "digest_fp_formats: PASS"
+      }
+    },
+    {
+      "id": "ut_4",
+      "kind": "spec_unit_test",
+      "description": "digest_flags",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/4",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "digest_flags: PASS"
+      }
+    },
+    {
+      "id": "ut_5",
+      "kind": "spec_unit_test",
+      "description": "decay_invalidates_after_256_decodes",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/5",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "decay_invalidates_after_256_decodes: PASS"
+      }
+    },
+    {
+      "id": "ut_6",
+      "kind": "spec_unit_test",
+      "description": "writeback_only_from_newest_producer",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/6",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "writeback_only_from_newest_producer: PASS"
+      }
+    },
+    {
+      "id": "ut_7",
+      "kind": "spec_unit_test",
+      "description": "wide_register_uses_low_lane",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/7",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "wide_register_uses_low_lane: PASS"
+      }
+    },
+    {
+      "id": "ut_8",
+      "kind": "spec_unit_test",
+      "description": "predict_selects_most_useful_register",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/8",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "predict_selects_most_useful_register: PASS"
+      }
+    },
+    {
+      "id": "ut_9",
+      "kind": "spec_unit_test",
+      "description": "predict_centred_weights",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/9",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "predict_centred_weights: PASS"
+      }
+    },
+    {
+      "id": "ut_10",
+      "kind": "spec_unit_test",
+      "description": "predict_gate_closed",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/10",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "predict_gate_closed: PASS"
+      }
+    },
+    {
+      "id": "ut_11",
+      "kind": "spec_unit_test",
+      "description": "predict_empty_bank",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/11",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "predict_empty_bank: PASS"
+      }
+    },
+    {
+      "id": "ut_12",
+      "kind": "spec_unit_test",
+      "description": "wt_index_uses_every_digest_bit",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/12",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "wt_index_uses_every_digest_bit: PASS"
+      }
+    },
+    {
+      "id": "ut_13",
+      "kind": "spec_unit_test",
+      "description": "fold_xor_folds_every_bit",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/13",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "fold_xor_folds_every_bit: PASS"
+      }
+    },
+    {
+      "id": "ut_14",
+      "kind": "spec_unit_test",
+      "description": "decode_allocate_claims_register",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/14",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "decode_allocate_claims_register: PASS"
+      }
+    },
+    {
+      "id": "ut_15",
+      "kind": "spec_unit_test",
+      "description": "squash_recovery_keeps_completed_digests",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/15",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "squash_recovery_keeps_completed_digests: PASS"
+      }
+    },
+    {
+      "id": "ut_16",
+      "kind": "spec_unit_test",
+      "description": "prng_next_is_deterministic",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/16",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "prng_next_is_deterministic: PASS"
+      }
+    },
+    {
+      "id": "ut_17",
+      "kind": "spec_unit_test",
+      "description": "update_trains_one_register_per_bank",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/17",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "update_trains_one_register_per_bank: PASS"
+      }
+    },
+    {
+      "id": "ut_18",
+      "kind": "spec_unit_test",
+      "description": "update_usefulness_sign_flip",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/18",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "update_usefulness_sign_flip: PASS"
+      }
+    },
+    {
+      "id": "ut_19",
+      "kind": "spec_unit_test",
+      "description": "no_training_when_sc_confident_and_right",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "on",
+      "test_file": "my_cond_branch_predictor.cc",
+      "spec_pointer": "/unit_tests/19",
+      "pass_condition": {
+        "kind": "stdout_matches",
+        "pattern": "no_training_when_sc_confident_and_right: PASS"
+      }
+    },
+    {
+      "id": "smoke_int",
+      "kind": "existing_regression",
+      "description": "Does the host still work with the feature on.",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz | tail -n 15",
+      "feature_state": "both",
+      "timeout_seconds": 60,
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997301 instrs ",
+        "recorded_at": "2026-09-24T20:39:16-07:00"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": "( Read 997301 instrs )"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_mpki",
+      "description": "Main performance claim on MPKI",
+      "metric": "brmispki_50perc_amean",
+      "direction": "decrease",
+      "trace_list": "experiments/perf-4.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "run": {
+        "mode": "host_adapter"
+      },
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": [
+          {
+            "metric": "ipc_50perc_amean",
+            "direction": "increase",
+            "max_relative_regression": 0.005
+          }
+        ]
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.0034,
+        "claim_source": "0.34% MPKI on promote-45 from spec source.provenance"
+      }
+    }
+  ]
+}

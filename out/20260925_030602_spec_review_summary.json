@@ -1,0 +1,122 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:predict+algo:allocate+algo:recover",
+        "algo:update",
+        "global",
+        "orphan"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 11,
+        "info": 0
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 8,
+        "info": 0
+      },
+      "inconsistent_patches": 2,
+      "hedged_evidence": 0,
+      "carried_source_notes": 0,
+      "verdicts": {
+        "UNSUPPORTED": 19,
+        "SUPPORTED": 17,
+        "UNDERSPECIFIED": 3,
+        "INCONSISTENT": 3
+      },
+      "accepted": false,
+      "reject_reason": "2 INCONSISTENT patch(es) landed but the error count did not fall (0 -> 0)",
+      "patches_landed": 4,
+      "knobs_minted": 0,
+      "stop_reason": "round rejected: 2 INCONSISTENT patch(es) landed but the error count did not fall (0 -> 0)",
+      "retry_of": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/resource_accounting/total_storage_bits",
+        "code": "feature_budget_fit",
+        "severity": "warn",
+        "message": "total_storage_bits 14761 is 13696 bits over the 1065 bits budgeted for this feature by the paper, as resource_accounting itself states. That is 13.86x the allowance, and the difference has to be taken from another structure on the chip. Either bring the feature back under the figure or name the donor and the size of the cut in budget_donors."
+      },
+      {
+        "pointer": "/unit_tests/1/expect",
+        "code": "vacuous_test",
+        "severity": "warn",
+        "message": "expectation leans on a hedge word ('correct') instead of naming the value. The gate cannot fail this test closed; state the expected result explicitly."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'entry.length' is only assigned inside a conditional branch of allocate, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'entry.length' is only assigned inside a conditional branch of allocate, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'meta.old_history' is only assigned inside a conditional branch of predict, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'meta.old_history' is only assigned inside a conditional branch of predict, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'meta.tage_pred' is only assigned inside a conditional branch of predict, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'meta.tage_pred' is only assigned inside a conditional branch of predict, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'meta.wpt_pred' is only assigned inside a conditional branch of predict, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "conditional_context_write",
+        "severity": "warn",
+        "message": "'meta.wpt_pred' is only assigned inside a conditional branch of predict, but update reads it on an unconditional path. On the paths where the write is skipped the consumer sees the initial sentinel and cannot tell it from a computed value."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'update' reads 'outcome', but no algorithm in the spec ever writes it and no state entry declares it. The producing side of that handshake is missing, so an implementer must invent both what it holds and which stage fills it."
+      }
+    ],
+    "errors": 0,
+    "open_questions": 4,
+    "questions_pruned": {
+      "before": 4,
+      "stale": 0,
+      "merged": 0,
+      "after": 4
+    },
+    "parameters": 10,
+    "complete": true,
+    "unreviewed_units": []
+  },
+  "source_ambiguities": []
+}

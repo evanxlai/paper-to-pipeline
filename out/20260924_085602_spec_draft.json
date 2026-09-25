@@ -1,0 +1,221 @@
+{
+  "feature_name": "sr",
+  "source": {
+    "paper_title": "RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables",
+    "inputs_used": "paper_only"
+  },
+  "summary": "The sR component captures correlations between recently produced register values and branch outcomes to improve prediction accuracy, particularly after a branch flush. It maintains a Tomasulo-like table of recent register values distilled into 12-bit digests. At prediction time, it selects the most historically useful register in each bank, hashes its digest with the PC, and adds a weighted contribution to the statistical corrector (SC).",
+  "state": [
+    {
+      "name": "WT",
+      "organization": "8 banks, each with 3 tables (WT0, WT1, WT2) of 512, 256, 128 entries respectively",
+      "entry_format": "weight (wt_width bits)",
+      "size_bits": 43008,
+      "size_formula": "num_banks * wt_width * (wt0_entries + wt1_entries + wt2_entries)",
+      "indexing": "hash(PC, digest) per table"
+    },
+    {
+      "name": "UT",
+      "organization": "8 banks, each with 3 tables (UT0, UT1, UT2) of 8 entries respectively. Each entry is a vector of weights, one per register in the bank.",
+      "entry_format": "vector of weights, each ut_width bits. Vector size varies by bank (9 for bank 0, 8 for banks 1-7).",
+      "size_bits": 9360,
+      "size_formula": "ut_width * num_logical_regs * ut_entries * 3",
+      "indexing": "skewed PC"
+    },
+    {
+      "name": "tomasulo_table",
+      "organization": "65 entries, one per logical register",
+      "entry_format": "valid (1 bit), payload (14 bits), decay_ctr (int(ceil(log2(decay_timeout))) bits)",
+      "size_bits": 1495,
+      "size_formula": "num_logical_regs * (15 + int(ceil(log2(decay_timeout))))",
+      "indexing": "logical register id"
+    },
+    {
+      "name": "predict_snapshots",
+      "organization": "FIFO queue, one entry per in-flight branch",
+      "entry_format": "Per bank: predict_reg (4), predict_digest (12), update_reg (4), update_digest (12), was_any_valid (1). Total: 8 * 33 = 264 bits",
+      "size_bits": 67584,
+      "size_formula": "inflight_branches * num_banks * 33",
+      "indexing": "Branch ID"
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "digest_register",
+      "trigger": "Called by complete_tomasulo",
+      "pseudocode": "def digest_register(value, reg_type):\n    if reg_type == 'INT':\n        trailing = trailing_zeros(value) % 64\n        leading = leading_zeros(value) % 64\n        return (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ ((value & 0x3F) << 6)\n    elif reg_type == 'FP64':\n        return ((value >> 55) & 0x1FF) << 3\n    elif reg_type == 'FP32':\n        return ((value >> 26) & 0x3F) << 3\n    elif reg_type == 'FP16':\n        return ((value >> 13) & 0x7) << 3\n    elif reg_type == 'FLAG':\n        return (value & 0xF) | ((value & 0xF) << 4) | ((value & 0xF) << 8)\n    else:\n        return 0",
+      "notes": "Handles 64-bit values. FP digest extraction assumes format classification is provided. Defaults to 0 for unrecognised formats."
+    },
+    {
+      "name": "allocate_tomasulo",
+      "trigger": "Instruction decode time (when a logical register is assigned a ROB index)",
+      "pseudocode": "def allocate_tomasulo(reg_id, rob_index):\n    tomasulo_table[reg_id].payload = rob_index\n    tomasulo_table[reg_id].valid = 0",
+      "notes": "Invalidates the register's prediction digest until completion."
+    },
+    {
+      "name": "decode_tick",
+      "trigger": "Every instruction decode event",
+      "pseudocode": "def decode_tick():\n    for reg in range(num_logical_regs):\n        if tomasulo_table[reg].valid == 1:\n            if tomasulo_table[reg].decay_ctr > 0:\n                tomasulo_table[reg].decay_ctr -= 1\n            if tomasulo_table[reg].decay_ctr == 0:\n                tomasulo_table[reg].valid = 0",
+      "notes": "Implements the 256-instruction decay to ensure stale digests do not degrade accuracy."
+    },
+    {
+      "name": "complete_tomasulo",
+      "trigger": "Instruction complete time",
+      "pseudocode": "def complete_tomasulo(reg_id, rob_index, value, reg_type):\n    if tomasulo_table[reg_id].valid == 0 and tomasulo_table[reg_id].payload == rob_index:\n        tomasulo_table[reg_id].payload = digest_register(value, reg_type)\n        tomasulo_table[reg_id].valid = 1\n        tomasulo_table[reg_id].decay_ctr = decay_timeout - 1",
+      "notes": "Only overwrites if the ROB index matches, preventing older instructions from overwriting newer allocations."
+    },
+    {
+      "name": "predict",
+      "trigger": "Branch lookup time",
+      "pseudocode": "def predict(PC, branch_id):\n    # regs_in_bank(bank) returns logical registers where reg % 8 == bank\n    sR = 0\n    for bank in range(num_banks):\n        ut_idx = hash_skewed(PC) % ut_entries\n        max_useful = -1\n        best_reg = -1\n        \n        for i, reg in enumerate(regs_in_bank(bank)):\n            useful_val = UT[bank][0][ut_idx][i] + UT[bank][1][ut_idx][i] + UT[bank][2][ut_idx][i]\n            if useful_val > max_useful and tomasulo_table[reg].valid == 1:\n                max_useful = useful_val\n                best_reg = reg\n        \n        if best_reg != -1:\n            digest = tomasulo_table[best_reg].payload\n            predict_snapshots[branch_id][bank].was_any_valid = 1\n            predict_snapshots[branch_id][bank].predict_reg = best_reg\n            predict_snapshots[branch_id][bank].predict_digest = digest\n            \n            # For training, randomly select ANY currently valid register in this bank\n            valid_regs = [r for r in regs_in_bank(bank) if tomasulo_table[r].valid == 1]\n            update_reg = random_select(valid_regs)\n            predict_snapshots[branch_id][bank].update_reg = update_reg\n            predict_snapshots[branch_id][bank].update_digest = tomasulo_table[update_reg].payload\n            \n            h0 = hash(PC, digest, 0) % wt0_entries\n            h1 = hash(PC, digest, 1) % wt1_entries\n            h2 = hash(PC, digest, 2) % wt2_entries\n            wt_sum = WT[bank][0][h0] + WT[bank][1][h1] + WT[bank][2][h2]\n            \n            if max_useful > 0:\n                sR += wt_sum * useful_multiplier\n        else:\n            predict_snapshots[branch_id][bank].was_any_valid = 0\n            \n    return sR",
+      "notes": "Snapshots the chosen valid register per bank for training. UT weights are evaluated across the 3 tables."
+    },
+    {
+      "name": "update",
+      "trigger": "Branch commit time",
+      "pseudocode": "def update(PC, branch_id, outcome):\n    # index_of_reg_in_bank(reg, bank) returns reg // 8\n    for bank in range(num_banks):\n        if predict_snapshots[branch_id][bank].was_any_valid == 1:\n            # UT update uses the randomly selected register\n            reg_to_update = predict_snapshots[branch_id][bank].update_reg\n            i = index_of_reg_in_bank(reg_to_update, bank)\n            ut_idx = hash_skewed(PC) % ut_entries\n            \n            update_usefulness(UT[bank][0][ut_idx][i], outcome, ut_width)\n            update_usefulness(UT[bank][1][ut_idx][i], outcome, ut_width)\n            update_usefulness(UT[bank][2][ut_idx][i], outcome, ut_width)\n            \n            # WT update uses the randomly selected register's digest\n            digest = predict_snapshots[branch_id][bank].update_digest\n            h0 = hash(PC, digest, 0) % wt0_entries\n            h1 = hash(PC, digest, 1) % wt1_entries\n            h2 = hash(PC, digest, 2) % wt2_entries\n            \n            update_weight(WT[bank][0][h0], outcome, wt_width)\n            update_weight(WT[bank][1][h1], outcome, wt_width)\n            update_weight(WT[bank][2][h2], outcome, wt_width)",
+      "notes": "Uses the randomly selected register/digest snapshotted at prediction time, rather than tracking all valid registers until commit."
+    },
+    {
+      "name": "mispredict_recovery",
+      "trigger": "Pipeline squash (branch mispredict)",
+      "pseudocode": "def mispredict_recovery(squashed_rob_indices):\n    for reg in range(num_logical_regs):\n        if tomasulo_table[reg].valid == 0 and tomasulo_table[reg].payload in squashed_rob_indices:\n            tomasulo_table[reg].valid = 1\n            tomasulo_table[reg].payload = digest_register(arch_reg_value(reg), arch_reg_type(reg))\n            tomasulo_table[reg].decay_ctr = decay_timeout - 1",
+      "notes": "If a speculative allocating instruction is squashed, restores the entry using the architectural value."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "Logical register write at decode",
+      "description": "Destination register ID and ROB index for the allocating instruction.",
+      "fallback": "Cannot function without decode tracking."
+    },
+    {
+      "need": "Logical register value at completion",
+      "description": "Value and type (INT/FP) of the register written.",
+      "fallback": "Cannot function without completion values."
+    },
+    {
+      "need": "Every instruction decode event",
+      "description": "To trigger the decay of the Tomasulo table counters.",
+      "fallback": "Approximate decay using elapsed cycles instead of decoded instructions."
+    },
+    {
+      "need": "Architectural register values on squash",
+      "description": "To recover the Tomasulo table after a speculative writer is flushed.",
+      "fallback": "Clear valid bit, waiting for the next write."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 121447,
+    "storage_breakdown": "WT: 43008 bits, UT: 9360 bits, tomasulo_table: 1495 bits, predict_snapshots: 67584 bits",
+    "logic_cost_notes": "The paper reports 53863 bits for sR auxiliary data + WT + UT in Table 3. However, I added predict_snapshots (67584 bits at default 256 in-flight branches) because the update path randomly selects a valid register to update, which requires a snapshot of its digest from prediction time. Therefore, the total is over the paper's figure by 67584 bits.",
+    "budget_donors": "The Bimodal predictor or TAGE tagged tables could be shrunk slightly to pay for the snapshot storage at iso-storage."
+  },
+  "parameters": [
+    {
+      "name": "num_banks",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 16]",
+      "storage_impact": "scales WT and predict_snapshots linearly"
+    },
+    {
+      "name": "num_logical_regs",
+      "type": "int",
+      "default": 65,
+      "range": "[32, 256]",
+      "storage_impact": "scales UT and tomasulo_table linearly"
+    },
+    {
+      "name": "wt_width",
+      "type": "int",
+      "default": 6,
+      "range": "[4, 16]",
+      "storage_impact": "scales WT linearly"
+    },
+    {
+      "name": "wt0_entries",
+      "type": "int",
+      "default": 512,
+      "range": "[128, 4096] pow2",
+      "storage_impact": "num_banks * wt_width * wt0_entries"
+    },
+    {
+      "name": "wt1_entries",
+      "type": "int",
+      "default": 256,
+      "range": "[64, 2048] pow2",
+      "storage_impact": "num_banks * wt_width * wt1_entries"
+    },
+    {
+      "name": "wt2_entries",
+      "type": "int",
+      "default": 128,
+      "range": "[32, 1024] pow2",
+      "storage_impact": "num_banks * wt_width * wt2_entries"
+    },
+    {
+      "name": "ut_width",
+      "type": "int",
+      "default": 6,
+      "range": "[4, 16]",
+      "storage_impact": "scales UT linearly"
+    },
+    {
+      "name": "ut_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[4, 64] pow2",
+      "storage_impact": "ut_width * num_logical_regs * ut_entries * 3"
+    },
+    {
+      "name": "decay_timeout",
+      "type": "int",
+      "default": 256,
+      "range": "[64, 1024]",
+      "storage_impact": "num_logical_regs * int(ceil(log2(decay_timeout)))"
+    },
+    {
+      "name": "useful_multiplier",
+      "type": "float",
+      "default": 2.5,
+      "range": "[0.0, 10.0]",
+      "storage_impact": "none"
+    },
+    {
+      "name": "inflight_branches",
+      "type": "int",
+      "default": 256,
+      "range": "[64, 1024]",
+      "storage_impact": "inflight_branches * num_banks * 33"
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "INT digest leading/trailing zero count",
+      "given": "allocate_tomasulo executes for register 1 with ROB index Y. Then complete_tomasulo executes writing 0x0000000000000004 to INT register 1, triggering digest_register. Then predict executes.",
+      "expect": "tomasulo_table[1].payload contains the XOR folded digest, predict_snapshots stores this digest, and sR includes WT sum scaled by useful_multiplier if UT usefulness > 0"
+    },
+    {
+      "name": "Tomasulo decay timeout expiration",
+      "given": "complete_tomasulo executes for register 2, setting decay_ctr to decay_timeout - 1. Then decode_tick executes decay_timeout times without register 2 being overwritten.",
+      "expect": "decay_ctr reaches 0 and tomasulo_table[2].valid becomes 0"
+    },
+    {
+      "name": "Update writes random available register",
+      "given": "predict executes and stores state in predict_snapshots. Then update executes for the same branch.",
+      "expect": "update reads predict_snapshots, and modifies WT and UT entries for the randomly selected update_reg"
+    },
+    {
+      "name": "Mispredict recovery restores valid state",
+      "given": "allocate_tomasulo executes for register 3 with ROB index X. Then mispredict_recovery executes for a squash targeting ROB index X.",
+      "expect": "tomasulo_table[3].valid is restored to 1 using the architectural register value"
+    }
+  ],
+  "open_questions": [
+    "U2 (Figure 5c): The wire that selects the x0 or x2.5 multiplier is unlabeled. Assumed it is driven by the bank's max usefulness being > 0. Alternative: a single global static scale of 2.5.",
+    "U3 (Figure 6a): INT leading/trailing count encoding is unclear. Assumed modulo 64. Alternative: count saturates at 63 or counts bits matching the sign bit.",
+    "U4 (Figure 6b): FP field alignment and format classification. Assumed right-alignment at bit 3 and non-floats fall back to INT formatting. Alternative: right-alignment at bit 0 and non-floats map to 0.",
+    "Mispredict recovery for the Tomasulo table is not specified. Assumed squashed allocations restore the entry to valid=1 using the architectural register value. Alternative: simply clear the valid bit, waiting for the next write."
+  ]
+}

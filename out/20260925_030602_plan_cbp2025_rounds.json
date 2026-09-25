@@ -1,0 +1,19 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/tests/correctness/1/pass_condition/baseline_pointer",
+        "code": "baseline_pointer_wrong_workload",
+        "severity": "error",
+        "message": "the command runs int/sample_int_trace.gz, but (the top level) holds the aggregate over every trace in experiments/smoke-2.list. A port that is bit-identical to the baseline fails this entry, and the integration agent cannot fix it: a pass_condition is frozen. Use \"baseline_pointer\": \"/per_trace/int~1sample_int_trace.gz\"."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": []
+  }
+]

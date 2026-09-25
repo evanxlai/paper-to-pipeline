@@ -165,7 +165,12 @@ def _renamed(formula: str, names: dict) -> str:
 
 
 def params_header_name(spec: dict) -> str:
-    """The generated header a port includes for this feature's DSE knobs."""
+    """The generated header a port includes for this feature's DSE knobs.
+    C.PARAMS_HEADER overrides it for a port that includes another name."""
+    if C.PARAMS_HEADER:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*\.h", C.PARAMS_HEADER):
+            raise ValueError(f"invalid P2P_PARAMS_HEADER: {C.PARAMS_HEADER!r}")
+        return C.PARAMS_HEADER
     feature = str((spec or {}).get("feature_name") or "").lower()
     if not re.fullmatch(r"[a-z][a-z0-9_]*", feature):
         raise ValueError(f"invalid feature name for params header: {feature!r}")
@@ -248,6 +253,41 @@ def _port_plan(host: str, spec: dict) -> dict:
     return port_plan or {}
 
 
+def pin_knobs(spec: dict, port_plan: dict, macros) -> tuple[dict, dict, list]:
+    """The spec and plan with each knob in `macros` held at its default.
+
+    For a knob the port is known not to realize, declared by the operator
+    through $P2P_DSE_PIN (C.DSE_PINNED). Its range becomes [default,
+    default], which every consumer already reads as pinned: the preflight
+    skips it (constraints.is_pinned), check_static refuses a candidate that
+    moves it, and the header's range comment tells the proposer it is fixed.
+    Its storage is still charged, at the default, so no candidate is credited
+    for bits it did not remove. Copies: the spec and plan on disk stay as the
+    loop wrote them, and the returned list is what the summary records."""
+    if not macros:
+        return spec, port_plan, []
+    import copy
+
+    spec, port_plan = copy.deepcopy(spec), copy.deepcopy(port_plan or {})
+    entries = {K.FEATURE_PREFIX + str(p["name"]).upper(): p
+               for p in spec.get("parameters") or []}
+    entries.update({k.get("macro") or K.HOST_PREFIX + str(k["name"]).upper(): k
+                    for k in port_plan.get("host_knobs") or []})
+    pinned = []
+    for macro in macros:
+        entry = entries.get(macro)
+        if entry is None:
+            raise SystemExit(f"P2P_DSE_PIN names {macro}, which is no knob of this "
+                             f"spec or port plan")
+        d = entry.get("default")
+        if isinstance(d, bool) or not isinstance(d, (int, float)):
+            raise SystemExit(f"P2P_DSE_PIN names {macro}, whose default {d!r} is not a "
+                             f"number; only a numeric knob can be pinned")
+        pinned.append({"macro": macro, "value": d, "range_was": entry.get("range")})
+        entry["range"] = f"[{d}, {d}]"
+    return spec, port_plan, pinned
+
+
 def _feature_env(port_plan: dict, spec: dict, host: str = "cbp2025") -> dict:
     """The environment that turns the ported feature on during the search.
 
@@ -267,7 +307,27 @@ def _feature_env(port_plan: dict, spec: dict, host: str = "cbp2025") -> dict:
     return cbp2025_adapter.enable_env(enable, True)
 
 
-def constraint_set(budget_name: str) -> list:
+def budget_exempt(host: str) -> tuple:
+    """The kinds of state `host`'s own budget rules do not count, from its
+    adapter's BUDGET_EXEMPT. A host that declares nothing counts everything."""
+    import importlib
+    import sys
+
+    # Only a host with no adapter counts everything. Any other import failure
+    # raises: a swallowed one silently charges the feature for state its host
+    # does not count, and nothing downstream would say so.
+    if str(C.REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(C.REPO_ROOT))
+    try:
+        adapter = importlib.import_module(f"hosts.{host}.adapter")
+    except ModuleNotFoundError as e:
+        if e.name in (f"hosts.{host}", f"hosts.{host}.adapter"):
+            return ()
+        raise
+    return tuple(getattr(adapter, "BUDGET_EXEMPT", ()))
+
+
+def constraint_set(budget_name: str, host: str = "cbp2025") -> list:
     """The constraints stage 4 searches under, for one budget track.
 
     Storage is the only one today, and only for time: a constraint is
@@ -275,7 +335,8 @@ def constraint_set(budget_name: str) -> list:
     or an IPC floor is one more entry here plus, for a pre-build metric, one
     function in constraints.STATIC_METRICS. A measured metric (any key the
     screening aggregate reports) needs no new code at all."""
-    return [K.storage_constraint(budget_name, C.BUDGET_TRACKS_BITS[budget_name])]
+    return [K.storage_constraint(budget_name, C.BUDGET_TRACKS_BITS[budget_name],
+                                 exempt=budget_exempt(host))]
 
 
 def preflight(build, spec: dict, port_plan: dict, header: str) -> dict:
@@ -363,6 +424,31 @@ def _expand(text: str, env: dict) -> str:
     name that is not set stays as the literal placeholder."""
     return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}",
                   lambda m: env.get(m.group(1), m.group(0)), text)
+
+
+_MAX_ITERATIONS_LINE = re.compile(r"^max_iterations:[ \t]*(\d+)", re.MULTILINE)
+
+
+def _max_iterations(config_text: str) -> int | None:
+    m = _MAX_ITERATIONS_LINE.search(config_text)
+    return int(m.group(1)) if m else None
+
+
+def with_max_iterations(config_text: str, n: int | None) -> str:
+    """The search config with its top-level max_iterations set to n, or as it
+    is when n is None. Edits the one line rather than re-dumping the YAML, so
+    the text the evolver gets is the file as written plus that number. The
+    evolver reads this text, not the file at config_path (evolve_flows
+    bridge.py prefers config_content), so this is where an override has to
+    land to take effect."""
+    if n is None:
+        return config_text
+    if n < 1:
+        raise SystemExit(f"P2P_DSE_ITERATIONS must be at least 1, not {n}")
+    if not _MAX_ITERATIONS_LINE.search(config_text):
+        raise SystemExit("P2P_DSE_ITERATIONS is set but the search config has no "
+                         "top-level max_iterations line to override")
+    return _MAX_ITERATIONS_LINE.sub(f"max_iterations: {n}", config_text, count=1)
 
 
 def check_llm(config_path: str, timeout_s: int = 120) -> dict:
@@ -509,8 +595,9 @@ def run_dse(
     os.makedirs(output_dir, exist_ok=True)
 
     port_plan = _port_plan(host, spec)
+    spec, port_plan, pinned = pin_knobs(spec, port_plan, C.DSE_PINNED)
     feature_env = _feature_env(port_plan, spec, host)
-    constraints = constraint_set(budget_name)
+    constraints = constraint_set(budget_name, host)
     initial = params_header(spec, port_plan, constraint_set=constraints)
     start = K.check_static(initial, spec, port_plan, constraints)
     summary = {
@@ -519,6 +606,7 @@ def run_dse(
         "budget": budget_name,
         "constraints": [c.as_dict() for c in constraints],
         "host_knobs": len(port_plan.get("host_knobs") or []),
+        "pinned_by_operator": pinned,
         # The defaults are the paper's feature on the unmodified host. At a
         # tight allowance they do not fit, and the search starts infeasible:
         # it has to shrink something before any candidate scores.
@@ -542,8 +630,6 @@ def run_dse(
     # ported tree itself either, because the evolver overwrites that header
     # on every iteration and the port the gate promoted has to stay on disk
     # as the gate saw it.
-    from chia.base.ChiaFunction import get
-    from chia_nodes.cbp2025.cbp2025_node import CBP2025Node
     from hosts.cbp2025 import adapter as cbp2025_adapter
 
     search_root = cbp2025_adapter.dse_tree()
@@ -551,13 +637,7 @@ def run_dse(
     summary["screening_traces"] = len(screening)
 
     if C.DSE_PREFLIGHT:
-        def build(header_text: str):
-            result = get(CBP2025Node.build.options(
-                resources={C.CBP2025_HOST_RESOURCE: 1.0}
-            ).chia_remote(search_root, {header_name: header_text.encode()},
-                          C.BUILD_TIMEOUT_S, feature_env))
-            return result.binary if result.success else None
-
+        build = cbp2025_adapter.header_build(search_root, header_name, feature_env)
         summary["preflight"] = preflight(build, spec, port_plan, initial)
         if summary["preflight"]["blocking"]:
             return {**summary, "status": "preflight_failed",
@@ -571,7 +651,9 @@ def run_dse(
         constraints=[c.as_dict() for c in constraints],
         params_header_name=header_name,
     )
-    config_content = Path(config_path).read_text()
+    config_content = with_max_iterations(Path(config_path).read_text(),
+                                         C.DSE_MAX_ITERATIONS)
+    summary["max_iterations"] = _max_iterations(config_content)
     evolver_input = EvolverInput(
         config_path=config_path,
         initial_program=initial,
@@ -842,7 +924,10 @@ def promote_finalists(
     feature_name = str(spec.get("feature_name") or C.FEATURE_NAME)
     header_name = params_header_name(spec)
     port_plan = _port_plan(host, spec)
-    constraints = constraint_set(budget_name)
+    # The search's pins, so a finalist is checked under the ranges it was
+    # searched under.
+    spec, port_plan, pinned = pin_knobs(spec, port_plan, C.DSE_PINNED)
+    constraints = constraint_set(budget_name, host)
     finalists, passed_over = select_finalists(population, spec, port_plan, constraints, top_k)
     labels = [f"finalist_{i + 1}" for i in range(len(finalists))]
     defaults_header = params_header(spec, port_plan, constraint_set=constraints)
@@ -854,6 +939,7 @@ def promote_finalists(
         "traces": traces,
         "constraints": [c.as_dict() for c in constraints],
         "population": len(population),
+        "pinned_by_operator": pinned,
         "passed_over": passed_over,
         "finalists": [
             {"label": label, "id": f["id"], "iteration_found": f.get("iteration_found"),

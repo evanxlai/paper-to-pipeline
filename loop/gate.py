@@ -15,6 +15,15 @@ Gate for a performance-model host:
       traces that survived is a number about a different trace set than the
       plan asked for, and on a measure_feature_off entry the two sides can
       drop different traces, which is not a comparison at all.
+  G6  every knob that costs storage reaches the build: rebuilt at a second
+      legal value, the binary changes. Judged here from a report the host
+      adapter measures (`HostAdapter.knob_reach`, which is dse.preflight on
+      a copy of the port), and only once G1 to G5 hold. With every knob at
+      its default a wired port and an unwired one build the same binary, so
+      no other condition can tell them apart. Run 20260924_102657 passed G1
+      to G5 with all 19 host knobs wired to nothing -- a debug turn had
+      reverted the host file and never re-applied them -- and the first
+      check to notice was stage 4's, after this stage had already passed.
 
 There is no storage condition. Only the DSE stage knows about resource
 constraints (docs/stages.md), so a gate that weighed a budget could not tell
@@ -49,6 +58,11 @@ class GateResult:
     passed: bool
     reasons: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    # What G5 measured, pass or fail. Reasons carry the numbers only for an
+    # entry that failed, so a passing gate used to record that it passed and
+    # not by how much -- run 20260924_102657 promoted a port whose winning
+    # improvement is written down nowhere.
+    measurements: list = field(default_factory=list)
 
     @property
     def feedback(self) -> str:
@@ -150,4 +164,28 @@ def check_gate(results) -> GateResult:
         if result.warning:
             warnings.append(result.warning)
 
-    return GateResult(passed=not reasons, reasons=reasons, warnings=warnings)
+    measurements = [
+        {k: getattr(r, k, None) for k in ("id", "metric", "direction", "baseline",
+                                          "measured", "relative_improvement", "n_traces")}
+        for r in results.performance
+    ]
+    return GateResult(passed=not reasons, reasons=reasons, warnings=warnings,
+                      measurements=measurements)
+
+
+def check_knob_reach(result: GateResult, report: dict | None) -> GateResult:
+    """G6: fold the knob-reach report into a verdict on G1 to G5.
+
+    `report` is dse.preflight's: `blocking` is every storage-costed knob the
+    rebuild showed to be inert, plus a default header that does not build or
+    two builds that disagree -- either of which leaves the other knobs
+    unprovable. Each is a reason, one per knob, so the debug turn sees which
+    macros to wire. `warnings` (an inert knob that costs nothing, a second
+    value that does not compile) stay warnings: the search only wastes
+    proposals on them. None means the host measures no such report."""
+    if report is None:
+        return result
+    reasons = list(result.reasons) + [f"G6 {b}" for b in report.get("blocking") or []]
+    warnings = list(result.warnings) + [f"G6 {w}" for w in report.get("warnings") or []]
+    return GateResult(passed=result.passed and not reasons, reasons=reasons,
+                      warnings=warnings, measurements=result.measurements)

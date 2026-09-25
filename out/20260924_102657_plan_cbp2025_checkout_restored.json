@@ -1,0 +1,20 @@
+{
+  "root": "/home/laievan/cbp2025",
+  "was_dirty": true,
+  "removed": [
+    "Removing cbp",
+    "Removing cond_branch_predictor_interface.o",
+    "Removing lib/bp.o",
+    "Removing lib/cache.o",
+    "Removing lib/cbp.o",
+    "Removing lib/gzstream.o",
+    "Removing lib/libcbp.a",
+    "Removing lib/my_value_predictor.o",
+    "Removing lib/parameters.o",
+    "Removing lib/resource_schedule.o",
+    "Removing lib/uarchsim.o",
+    "Removing my_cond_branch_predictor.o",
+    "Removing test_out.txt"
+  ],
+  "revision": "607496629452740887dc1b90a46834cc90dda1e0"
+}

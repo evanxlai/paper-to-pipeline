@@ -1,0 +1,45 @@
+{
+  "round": 0,
+  "units": [
+    "algo:predict+algo:allocate_dest_reg+algo:decay_tick+algo:complete_dest_reg+algo:recovery",
+    "algo:update",
+    "global"
+  ],
+  "failed_units": [
+    "algo:predict+algo:allocate_dest_reg+algo:decay_tick+algo:complete_dest_reg+algo:recovery",
+    "algo:update",
+    "global",
+    "coverage"
+  ],
+  "quota_exhausted": false,
+  "records": [],
+  "rejections": [],
+  "parse_errors": [
+    "algo:predict+algo:allocate_dest_reg+algo:decay_tick+algo:complete_dest_reg+algo:recovery: backend call failed (\u001b[36mray::AntigravityLLM.prompt()\u001b[39m (pid=236, ip=10.128.0.2)\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/base/ChiaFunction.py\", line 456, in _chia_trampoline_profiled\n    result = func(*args, **kwargs)\n  File \"/home/laievan/chia-hackathon/chia/chia/models/antigravity.py\", line 334, in prompt\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/models/antigravity.py\", line 756, in _classify_error\n    raise error_cls(node_id=node_id, exit_code=cli.returncode, raw_message=combined[:300])\nchia.models.antigravity.InvalidRequestError: invalid_request on eaed5efa9c80d54eeb610bf9a1fc7065007530fdb649e3ad209d2577: error: Selected model is not supported in the selected location. For a full list of available locations and deployment endpoints, please refer to Antigravity documentation at https://antigravity.googl)",
+    "algo:update: backend call failed (\u001b[36mray::AntigravityLLM.prompt()\u001b[39m (pid=416, ip=10.128.0.2)\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/base/ChiaFunction.py\", line 456, in _chia_trampoline_profiled\n    result = func(*args, **kwargs)\n  File \"/home/laievan/chia-hackathon/chia/chia/models/antigravity.py\", line 334, in prompt\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/models/antigravity.py\", line 756, in _classify_error\n    raise error_cls(node_id=node_id, exit_code=cli.returncode, raw_message=combined[:300])\nchia.models.antigravity.InvalidRequestError: invalid_request on eaed5efa9c80d54eeb610bf9a1fc7065007530fdb649e3ad209d2577: error: Selected model is not supported in the selected location. For a full list of available locations and deployment endpoints, please refer to Antigravity documentation at https://antigravity.googl)",
+    "global: backend call failed (\u001b[36mray::AntigravityLLM.prompt()\u001b[39m (pid=417, ip=10.128.0.2)\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/base/ChiaFunction.py\", line 456, in _chia_trampoline_profiled\n    result = func(*args, **kwargs)\n  File \"/home/laievan/chia-hackathon/chia/chia/models/antigravity.py\", line 334, in prompt\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/models/antigravity.py\", line 756, in _classify_error\n    raise error_cls(node_id=node_id, exit_code=cli.returncode, raw_message=combined[:300])\nchia.models.antigravity.InvalidRequestError: invalid_request on eaed5efa9c80d54eeb610bf9a1fc7065007530fdb649e3ad209d2577: error: Selected model is not supported in the selected location. For a full list of available locations and deployment endpoints, please refer to Antigravity documentation at https://antigravity.googl)",
+    "coverage: backend call failed (\u001b[36mray::AntigravityLLM.prompt()\u001b[39m (pid=419, ip=10.128.0.2)\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/base/ChiaFunction.py\", line 456, in _chia_trampoline_profiled\n    result = func(*args, **kwargs)\n  File \"/home/laievan/chia-hackathon/chia/chia/models/antigravity.py\", line 334, in prompt\n  File \"/home/ray/anaconda3/lib/python3.10/site-packages/chia/models/antigravity.py\", line 756, in _classify_error\n    raise error_cls(node_id=node_id, exit_code=cli.returncode, raw_message=combined[:300])\nchia.models.antigravity.InvalidRequestError: invalid_request on eaed5efa9c80d54eeb610bf9a1fc7065007530fdb649e3ad209d2577: error: Selected model is not supported in the selected location. For a full list of available locations and deployment endpoints, please refer to Antigravity documentation at https://antigravity.googl)"
+  ],
+  "checks_before": {
+    "error": 3,
+    "warn": 3,
+    "info": 4
+  },
+  "checks_after": {
+    "error": 3,
+    "warn": 3,
+    "info": 4
+  },
+  "inconsistent_patches": 0,
+  "hedged_evidence": 0,
+  "carried_source_notes": 0,
+  "regressions": [],
+  "schema_errors": [],
+  "verdicts": {},
+  "accepted": true,
+  "reject_reason": null,
+  "patches_landed": 0,
+  "knobs_minted": 0,
+  "stop_reason": null,
+  "retry_of": null
+}

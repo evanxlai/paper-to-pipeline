@@ -7,6 +7,8 @@ so it must be dispatched onto the container holding that backend's
 credentials, via the matching resource token.
 """
 
+import json
+import os
 import time
 
 from chia.base.ChiaFunction import get
@@ -30,9 +32,53 @@ def load_prompt(name: str, **subs: str) -> str:
     return text
 
 
+# Linux caps ONE argv string at 32 pages (MAX_ARG_STRLEN, 131072 bytes with
+# its NUL), whatever ARG_MAX says. AntigravityLLM passes the whole prompt as
+# the value of `--print`, so a longer prompt is not sent late or truncated: it
+# is never sent at all. execve fails with E2BIG ("[Errno 7] Argument list too
+# long: 'agy'"), all three of chia's retries fail the same way, and the stage
+# dies before the model sees a byte. The gem5 planner prompt was the first to
+# cross it, on 2026-09-24: 148,826 bytes, because hosts/gem5/NOTES.md is
+# three times the CBP2025 notes. The CBP2025 planner prompt is 99,110.
+_ARGV_STRING_MAX = 131072
+
+
+class StdinAntigravityLLM(AntigravityLLM):
+    """AntigravityLLM that hands agy a prompt too long for argv on stdin.
+
+    agy 1.2.10 reads print-mode input from stdin with `--input-format
+    stream-json`, one NDJSON message per turn, and it requires the
+    `--output-format stream-json` chia already passes. The message shape is
+    {"event": "user", "message": {"content": <prompt>}}: agy names the
+    missing field for every other shape tried. A prompt that fits argv gets
+    exactly the command AntigravityLLM builds, byte for byte.
+
+    `exec` matters. chia's Popen hook tracks the direct child's PID and a
+    stop kills that PID alone, not its process group, so an `sh` that forked
+    agy would leave agy running after its job was stopped. The prompt file
+    lives in chia's per-call run home, which chia deletes after every call.
+    """
+
+    def _prepare_run_home(self, tools):
+        self._run_home = super()._prepare_run_home(tools)
+        return self._run_home
+
+    def _build_cmd(self, user_message: str) -> list[str]:
+        cmd = super()._build_cmd(user_message)
+        assert cmd[-2] == "--print", cmd[-2:]  # chia passes the prompt last
+        prompt = cmd[-1]
+        if len(prompt.encode()) < _ARGV_STRING_MAX:
+            return cmd
+        path = os.path.join(self._run_home, "prompt.ndjson")
+        with open(path, "w") as f:
+            f.write(json.dumps({"event": "user", "message": {"content": prompt}}) + "\n")
+        return ["sh", "-c", 'exec "$@" < "$0"', path,
+                *cmd[:-2], "--input-format", "stream-json"]
+
+
 def make_llm(backend: str, tools: list[ChiaTool], resume: bool = True):
     if backend == "antigravity":
-        return AntigravityLLM(
+        return StdinAntigravityLLM(
             model=C.ANTIGRAVITY_MODEL,
             system_message=_SYSTEM,
             timeout_seconds=C.LLM_TIMEOUT_SECONDS,

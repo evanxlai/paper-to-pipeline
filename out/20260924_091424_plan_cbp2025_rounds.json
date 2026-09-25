@@ -1,0 +1,61 @@
+[
+  {
+    "turn": 0,
+    "schema_errors": [],
+    "findings": [
+      {
+        "pointer": "/plan/knobs/13/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships 0 where the spec's default is 'saturate'. A port that quietly ships a different default measures something the spec does not describe."
+      },
+      {
+        "pointer": "/plan/knobs/14/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships 0 where the spec's default is 'stride_interleaved'. A port that quietly ships a different default measures something the spec does not describe."
+      },
+      {
+        "pointer": "/plan/knobs/15/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships 0 where the spec's default is 'commit'. A port that quietly ships a different default measures something the spec does not describe."
+      },
+      {
+        "pointer": "/plan/knobs/16/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships 0 where the spec's default is 'align_bit_3'. A port that quietly ships a different default measures something the spec does not describe."
+      },
+      {
+        "pointer": "/plan/knobs/17/default",
+        "code": "knob_default_drift",
+        "severity": "error",
+        "message": "the plan ships 0 where the spec's default is 'max_u_greater_than_zero'. A port that quietly ships a different default measures something the spec does not describe."
+      },
+      {
+        "pointer": "/plan/open_questions/3/cost_if_wrong",
+        "code": "budget_language",
+        "severity": "warn",
+        "message": "this field talks about a resource budget ('budget'). Only stage 4 knows about constraints; the integrator never shrinks a host structure to make room, so a budget written here is an instruction no stage is allowed to follow."
+      },
+      {
+        "pointer": "/plan/hook_points/6/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'includes' does not occur in cbp2016_tage_sc_l.h. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      },
+      {
+        "pointer": "/plan/hook_points/7/symbol",
+        "code": "symbol_not_found",
+        "severity": "warn",
+        "message": "'Macros for sizing' does not occur in cbp2016_tage_sc_l.h. This is a substring scan and a symbol can legitimately be spelled differently in the file than in the plan, so check before believing it."
+      }
+    ]
+  },
+  {
+    "turn": 1,
+    "schema_errors": [],
+    "findings": []
+  }
+]

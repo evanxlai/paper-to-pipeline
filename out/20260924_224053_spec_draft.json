@@ -1,0 +1,213 @@
+{
+  "feature_name": "wormhole",
+  "source": {
+    "paper_title": "Wormhole: Wisely Predicting Multidimensional Branches",
+    "inputs_used": "paper_only"
+  },
+  "summary": "Wormhole is a side-predictor targeting branches inside nested loops whose outcomes correlate across iterations of the outer loop. By folding the linear branch history into a multidimensional matrix based on the inner loop's iteration count, it successfully exposes and predicts complex cross-iteration patterns like diagonals or identical behaviors with a low hardware cost.",
+  "state": [
+    {
+      "name": "WPT",
+      "organization": "Fully associative, wpt_entries entries",
+      "entry_format": "tag (tag_bits bits), conf (conf_bits bits), ranking (ranking_bits bits), length (length_bits bits), history (history_bits bits), counters (num_counters x counter_bits bits)",
+      "size_bits": 10997,
+      "size_formula": "wpt_entries * (tag_bits + conf_bits + ranking_bits + length_bits + history_bits + (num_counters * counter_bits))",
+      "indexing": "Fully associative search by branch PC"
+    },
+    {
+      "name": "InFlightQueue",
+      "organization": "FIFO queue, max_in_flight_branches entries",
+      "entry_format": "valid (1 bit), wpt_idx (ceil(log2(wpt_entries)) bits), counter_idx (ceil(log2(num_counters)) bits), wormhole_pred (1 bit), instruction_age (8 bits)",
+      "size_bits": 4032,
+      "size_formula": "max_in_flight_branches * (1 + ceil(log2(wpt_entries)) + ceil(log2(num_counters)) + 1 + 8)",
+      "indexing": "FIFO, pushed at predict, popped at commit"
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "predict",
+      "trigger": "lookup time",
+      "pseudocode": "branch_tag = branch_PC & ((1 << tag_bits) - 1)\nmatch = -1\nfor i in range(wpt_entries):\n    if WPT[i].tag == branch_tag:\n        match = i\n        break\n\nif match != -1:\n    entry = WPT[match]\n    bit0 = (entry.history >> 0) & 1\n    bit1 = (entry.history >> entry.length) & 1\n    bit2 = (entry.history >> (entry.length - 1)) & 1\n    bit3 = (entry.history >> (entry.length - 2)) & 1\n    idx = (bit0 << 3) | (bit1 << 2) | (bit2 << 1) | bit3\n    if use_32kb_indexing:\n        bit4 = (entry.history >> 1) & 1\n        bit5 = (entry.history >> (2 * entry.length)) & 1\n        bit6 = (entry.history >> (2 * entry.length - 1)) & 1\n        bit7 = (entry.history >> (2 * entry.length - 2)) & 1\n        idx = (idx << 4) | (bit4 << 3) | (bit5 << 2) | (bit6 << 1) | bit7\n    \n    idx = idx % num_counters\n    sat_value = entry.counters[idx]\n    pred = (sat_value >= 0)\n    \n    if InFlightQueue.size < max_in_flight_branches:\n        InFlightQueue.push(valid=True, wpt_idx=match, counter_idx=idx, wormhole_pred=pred, instruction_age=current_age)\n    \n    if entry.conf > 0 and abs(2 * sat_value + 1) >= prediction_threshold:\n        return pred\n\nif InFlightQueue.size < max_in_flight_branches:\n    InFlightQueue.push(valid=False, wpt_idx=0, counter_idx=0, wormhole_pred=False, instruction_age=current_age)\nreturn TAGE_prediction",
+      "notes": "The history bit selection depends on the configuration. The prediction requires the confidence to be > 0 and the saturating counter absolute value to exceed the threshold. sat_value is assumed to be a signed integer."
+    },
+    {
+      "name": "update",
+      "trigger": "commit time",
+      "pseudocode": "if InFlightQueue.is_empty():\n    return\ninflight = InFlightQueue.pop_oldest()\nif not inflight.valid:\n    return\n\nentry = WPT[inflight.wpt_idx]\nidx = inflight.counter_idx\nwormhole_pred = inflight.wormhole_pred\n\nif branch_outcome == TAKEN:\n    entry.counters[idx] = min(entry.counters[idx] + 1, (1 << (counter_bits - 1)) - 1)\nelse:\n    entry.counters[idx] = max(entry.counters[idx] - 1, -(1 << (counter_bits - 1)))\n    \nif wormhole_pred != TAGE_prediction:\n    if wormhole_pred == branch_outcome:\n        entry.conf = min(entry.conf + 1, (1 << conf_bits) - 1)\n    else:\n        entry.conf = max(entry.conf - 1, 0)\n        \nentry.history = ((entry.history << 1) | branch_outcome) & ((1 << history_bits) - 1)",
+      "notes": "Confidence counter is only updated when the wormhole prediction differs from TAGE. History is updated at commit time, which assumes no speculative history recovery."
+    },
+    {
+      "name": "allocate",
+      "trigger": "commit time, when statistical corrector identifies branch as problematic",
+      "pseudocode": "if LPT_TOTAL > 0:\n    branch_tag = branch_PC & ((1 << tag_bits) - 1)\n    match = -1\n    for i in range(wpt_entries):\n        if WPT[i].tag == branch_tag:\n            match = i\n            break\n    if match != -1:\n        WPT[match].ranking = min(WPT[match].ranking + 1, (1 << ranking_bits) - 1)\n    else:\n        replace_idx = 0\n        lowest_rank = WPT[0].ranking\n        for i in range(1, wpt_entries):\n            if WPT[i].ranking < lowest_rank:\n                lowest_rank = WPT[i].ranking\n                replace_idx = i\n        WPT[replace_idx].tag = branch_tag\n        WPT[replace_idx].conf = 0\n        WPT[replace_idx].ranking = initial_ranking\n        WPT[replace_idx].length = LPT_TOTAL & ((1 << length_bits) - 1)\n        WPT[replace_idx].history = 0\n        for i in range(num_counters):\n            WPT[replace_idx].counters[i] = 0",
+      "notes": "Candidate branches must be inside a loop and frequently mispredicted by TAGE. Replaces the lowest ranked entry."
+    },
+    {
+      "name": "recover",
+      "trigger": "pipeline squash",
+      "pseudocode": "for inflight in reversed(InFlightQueue.elements()):\n    if inflight.instruction_age > squash_point:\n        InFlightQueue.remove(inflight)\n    else:\n        break",
+      "notes": "Unwinds the InFlightQueue. Entries for instructions that are squashed are discarded. Entries for instructions older than the squash point survive. WPT history is not unwound because it is only updated at commit."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "branch_PC",
+      "description": "Program counter of the branch, used to index/search the WPT.",
+      "fallback": "Hash of the PC or truncated PC"
+    },
+    {
+      "need": "LPT_TOTAL",
+      "description": "Total expected number of iterations for the current innermost loop, provided by the baseline loop predictor.",
+      "fallback": "0 (implies not in a loop, disabling Wormhole allocation)"
+    },
+    {
+      "need": "problematic_branch_signal",
+      "description": "Signal from the baseline statistical corrector indicating the branch is frequently mispredicted.",
+      "fallback": "Independent local confidence counter tracking mispredictions"
+    },
+    {
+      "need": "TAGE_prediction",
+      "description": "The direction prediction from the base TAGE predictor.",
+      "fallback": "Prediction from a simple bimodal predictor"
+    },
+    {
+      "need": "branch_outcome",
+      "description": "The resolved outcome of the branch.",
+      "fallback": "Resolved outcome at squash or retire"
+    },
+    {
+      "need": "current_age",
+      "description": "Identifier or age of the branch instruction being predicted, pushed to the InFlightQueue.",
+      "fallback": "Incrementing local counter"
+    },
+    {
+      "need": "squash_point",
+      "description": "Identifier or age of the oldest squashed instruction, used to flush younger entries from InFlightQueue.",
+      "fallback": "Flush entire InFlightQueue on any squash (pessimistic)."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 15029,
+    "storage_breakdown": "WPT: 7 entries * 1571 bits = 10997 bits. InFlightQueue: 192 entries * 21 bits = 4032 bits.",
+    "logic_cost_notes": "The paper states 10997 bits for the 32KB configuration. Our total is 15029 bits; we are over the paper's figure by 4032 bits because the paper omitted the in-flight metadata queue (InFlightQueue) required to pass the lookup index and prediction to the commit stage, which is necessary to avoid recomputing indexes with shifted history.",
+    "budget_donors": "TAGE components or the statistical corrector can shrink to pay for this at iso-storage."
+  },
+  "parameters": [
+    {
+      "name": "wpt_entries",
+      "type": "int",
+      "default": 7,
+      "range": "[1, 32]",
+      "storage_impact": "Linear impact on total WPT storage."
+    },
+    {
+      "name": "tag_bits",
+      "type": "int",
+      "default": 18,
+      "range": "[8, 32]",
+      "storage_impact": "Increases size of each WPT entry by tag_bits."
+    },
+    {
+      "name": "conf_bits",
+      "type": "int",
+      "default": 4,
+      "range": "[1, 8]",
+      "storage_impact": "Increases size of each WPT entry by conf_bits."
+    },
+    {
+      "name": "ranking_bits",
+      "type": "int",
+      "default": 3,
+      "range": "[1, 8]",
+      "storage_impact": "Increases size of each WPT entry by ranking_bits."
+    },
+    {
+      "name": "length_bits",
+      "type": "int",
+      "default": 9,
+      "range": "[4, 16]",
+      "storage_impact": "Increases size of each WPT entry by length_bits."
+    },
+    {
+      "name": "history_bits",
+      "type": "int",
+      "default": 257,
+      "range": "[16, 1024]",
+      "storage_impact": "Increases size of each WPT entry by history_bits."
+    },
+    {
+      "name": "num_counters",
+      "type": "int",
+      "default": 256,
+      "range": "choices: 16|256",
+      "storage_impact": "Increases size of each WPT entry by num_counters * counter_bits."
+    },
+    {
+      "name": "counter_bits",
+      "type": "int",
+      "default": 5,
+      "range": "[2, 8]",
+      "storage_impact": "Increases size of each WPT entry by num_counters * counter_bits."
+    },
+    {
+      "name": "prediction_threshold",
+      "type": "int",
+      "default": 16,
+      "range": "[0, 31]",
+      "storage_impact": "None"
+    },
+    {
+      "name": "use_32kb_indexing",
+      "type": "bool",
+      "default": true,
+      "range": "choices: true|false",
+      "storage_impact": "None directly, but conceptually linked to num_counters and history_bits."
+    },
+    {
+      "name": "initial_ranking",
+      "type": "int",
+      "default": 3,
+      "range": "[0, 7]",
+      "storage_impact": "None"
+    },
+    {
+      "name": "max_in_flight_branches",
+      "type": "int",
+      "default": 192,
+      "range": "[32, 512]",
+      "storage_impact": "Increases InFlightQueue size linearly."
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "walk_conf_counter",
+      "given": "WPT has an entry 0 with conf=14. InFlightQueue has two entries for this branch with valid=True, wpt_idx=0, wormhole_pred=True. TAGE_prediction is False, branch_outcome is TAKEN. Call update 2 times.",
+      "expect": "After the first update, WPT[0].conf is 15. After the second update, WPT[0].conf remains 15 (saturates)."
+    },
+    {
+      "name": "walk_sat_counter",
+      "given": "WPT has an entry 0 with counters[0]=14. InFlightQueue has two entries with valid=True, wpt_idx=0, counter_idx=0, wormhole_pred=True. branch_outcome is TAKEN. Call update 2 times.",
+      "expect": "After the first update, WPT[0].counters[0] is 15. After the second update, WPT[0].counters[0] remains 15 (saturates without wrapping)."
+    },
+    {
+      "name": "walk_ranking_counter",
+      "given": "WPT has an entry 0 with ranking=6. LPT_TOTAL=10. Call allocate 2 times with the same branch_PC matching entry 0.",
+      "expect": "After the first allocate, WPT[0].ranking is 7. After the second allocate, WPT[0].ranking remains 7."
+    },
+    {
+      "name": "predict_identical_behavior",
+      "given": "use_32kb_indexing=False, WPT entry 0 matches branch_PC. length=10. history has bit0=1, bit10=1, bit9=1, bit8=1. counters[15]=10, conf=5. InFlightQueue is empty.",
+      "expect": "predict computes idx=15, pushes an entry to InFlightQueue with valid=True, wpt_idx=0, counter_idx=15, wormhole_pred=True, and returns True."
+    },
+    {
+      "name": "recover_queue_flush",
+      "given": "InFlightQueue has 3 entries with instruction_age 1, 2, and 3. squash_point is 1.",
+      "expect": "recover removes entries with age 2 and 3, leaving only the entry with age 1."
+    }
+  ],
+  "open_questions": [
+    "The signedness and initial values of the saturating counters are not explicitly stated; assumed signed 5-bit counters initialized to 0.",
+    "The initial value for the ranking counter when an entry is allocated is not explicitly specified; assumed to be 3.",
+    "The paper does not detail whether the history is updated speculatively at lookup time or non-speculatively at commit time. Assumed commit time update to avoid a complex history recovery mechanism."
+  ]
+}

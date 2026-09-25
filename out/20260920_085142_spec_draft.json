@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "feature_name": "sr",
+  "source": {
+    "paper_title": "RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables",
+    "citation": "Toru Koizumi, Toshiki Maekawa, Masanari Mizuno, Maru Kuroki, Tomoaki Tsumura, and Ryota Shioya. 2025. RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables. In Proceedings of the 6th Championship Branch Prediction (CBP 2025), in conjunction with ISCA 2025, June 21, 2025, Tokyo, Japan, pp. 1-6.",
+    "inputs_used": "paper_only"
+  },
+  "summary": "The sR component extends the Statistical Corrector (SC) perceptron predictor by exploiting correlations between recently produced register values and branch outcomes. It maintains a 65-entry Tomasulo-like register status table that tracks whether logical registers (R0-R64) hold valid 12-bit value digests or pending instruction tags. The registers are partitioned across 8 banks. For each bank, 3 Usefulness Tables (UT0-UT2) evaluate the prediction utility of available registers; the digest of the most useful register in each bank indexes 3 Prediction Weight Tables (WT0-WT2). Bank weight sums are conditionally scaled by 2.5 if useful (or suppressed to 0 if not), and the 8 bank outputs are summed to form the sR partial sum added into the SC LSUM. Digests expire after 256 decoded instructions to prevent stale values from degrading accuracy.",
+  "state": [
+    {
+      "name": "sR_WT",
+      "organization": "8 banks; each bank contains 3 direct-mapped weight tables: WT0 (512 entries), WT1 (256 entries), WT2 (128 entries)",
+      "entry_format": "Signed 6-bit weight counter (saturating [-32, 31])",
+      "size_bits": 43008,
+      "indexing": "Bank b (0 <= b <= 7) selected by logical register ID modulo 8. Within bank b, table indices are computed by hashing PC with the selected 12-bit register digest: idx0 = hash0(PC, digest) % 512, idx1 = hash1(PC, digest) % 256, idx2 = hash2(PC, digest) % 128."
+    },
+    {
+      "name": "sR_UT",
+      "organization": "8 banks; each bank contains 3 direct-mapped usefulness tables: UT0 (8 entries), UT1 (8 entries), UT2 (8 entries). Each entry stores a vector of 6-bit usefulness weights, one for each register mapped to that bank",
+      "entry_format": "Bank 0: 9 x 6-bit signed usefulness weights per entry (for R0, R8, ..., R64). Banks 1-7: 8 x 6-bit signed usefulness weights per entry (for Ri, Ri+8, ..., Ri+56)",
+      "size_bits": 9360,
+      "indexing": "Directly indexed by PC hashes/skews: idx0 = hash_u0(PC) % 8, idx1 = hash_u1(PC) % 8, idx2 = hash_u2(PC) % 8. Each table outputs the usefulness weight vector for all registers in that bank."
+    },
+    {
+      "name": "sR_RegStatus",
+      "organization": "65-entry flat table (one entry per logical register R0..R64)",
+      "entry_format": "valid: 1 bit, payload: 14 bits (holds 14-bit ROB tag when valid == 0, or 12-bit register digest padded to 14 bits when valid == 1), decay_ctr: 8 bits (instruction decay down-counter initialized to 256)",
+      "size_bits": 1495,
+      "indexing": "Directly indexed by architectural/logical register ID (0 to 64)."
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "generate_digest",
+      "trigger": "Execution unit writeback / instruction completion when a 64-bit register value is produced",
+      "pseudocode": "function generate_digest(reg_type, reg_val64):\n    if reg_type == INT:\n        // Count trailing and leading identical bits (0s or 1s)\n        trailing = (reg_val64 & 1) ? count_trailing_ones(reg_val64) : count_trailing_zeros(reg_val64)\n        leading  = ((reg_val64 >> 63) & 1) ? count_leading_ones(reg_val64) : count_leading_zeros(reg_val64)\n        t_bits = trailing & 0x3F  // 6 bits\n        l_bits = leading & 0x3F   // 6 bits\n        v_bits = reg_val64 & 0x3F // 6 bits LSB\n        // Overlapping XOR fold per Figure 6(a)\n        digest = (t_bits) ^ (l_bits << 3) ^ (v_bits << 6)\n        return digest & 0x0FFF\n    elif reg_type == FP:\n        // Inspect format per Figure 6(b)\n        if is_fp16(reg_val64):\n            // Val[15:13] placed at digest[5:3]\n            val_slice = (reg_val64 >> 13) & 0x7\n            return (val_slice << 3) & 0x0FFF\n        elif is_fp32(reg_val64):\n            // Val[31:26] placed at digest[8:3]\n            val_slice = (reg_val64 >> 26) & 0x3F\n            return (val_slice << 3) & 0x0FFF\n        else: // FP64 default\n            // Val[63:55] placed at digest[11:3]\n            val_slice = (reg_val64 >> 55) & 0x1FF\n            return (val_slice << 3) & 0x0FFF\n    elif reg_type == FLAG:\n        // Figure 6(c): Replicate 4-bit flags three times into 12 bits\n        f4 = reg_val64 & 0x0F\n        return (f4 | (f4 << 4) | (f4 << 8)) & 0x0FFF\n    else:\n        return (reg_val64 & 0x0FFF)",
+      "notes": "Generates a 12-bit digest. In INT registers, count values saturating at 63 fit in 6 bits. In FP registers, bits [2:0] remain 0. In FLAG registers, replication fills [11:0]."
+    },
+    {
+      "name": "decode_rename",
+      "trigger": "Instruction decode / rename stage for each decoded instruction",
+      "pseudocode": "function decode_rename(inst):\n    // Step 1: Advance decay for all valid digests in sR_RegStatus\n    for r = 0 to 64:\n        if sR_RegStatus[r].valid == 1:\n            if sR_RegStatus[r].decay_ctr > 1:\n                sR_RegStatus[r].decay_ctr = sR_RegStatus[r].decay_ctr - 1\n            else:\n                // 256 decoded instructions elapsed; invalidate stale digest\n                sR_RegStatus[r].valid = 0\n                sR_RegStatus[r].payload = 0\n                sR_RegStatus[r].decay_ctr = 0\n    // Step 2: Mark destination register pending\n    if inst.writes_register:\n        dest_reg = inst.dest_logical_reg\n        if dest_reg >= 0 and dest_reg <= 64:\n            sR_RegStatus[dest_reg].valid = 0\n            sR_RegStatus[dest_reg].payload = inst.rob_tag & 0x3FFF\n            sR_RegStatus[dest_reg].decay_ctr = 0",
+      "notes": "Invalidation after 256 decoded instructions prevents stale register digests from polluting predictions. Writing instructions immediately clear the valid bit."
+    },
+    {
+      "name": "writeback_complete",
+      "trigger": "Instruction execution writeback / completion",
+      "pseudocode": "function writeback_complete(rob_tag, dest_reg, reg_type, reg_val64):\n    if dest_reg >= 0 and dest_reg <= 64:\n        // Check if the pending instruction is the one writing back\n        if sR_RegStatus[dest_reg].valid == 0 and sR_RegStatus[dest_reg].payload == (rob_tag & 0x3FFF):\n            sR_RegStatus[dest_reg].payload = generate_digest(reg_type, reg_val64) & 0x0FFF\n            sR_RegStatus[dest_reg].valid = 1\n            sR_RegStatus[dest_reg].decay_ctr = 256",
+      "notes": "When the producer finishes execution, its result digest becomes immediately visible to subsequent branch predictions."
+    },
+    {
+      "name": "predict",
+      "trigger": "Branch prediction lookup time at fetch/frontend",
+      "pseudocode": "function predict(PC):\n    sR = 0\n    // Save prediction context for update stage\n    branch_context.sR_selected_reg = [-1] * 8\n    branch_context.sR_bank_sum = [0] * 8\n    branch_context.sR_available_regs = [[] for _ in range(8)]\n\n    for b = 0 to 7:\n        // Determine list of registers belonging to bank b\n        regs_in_bank = [r for r = b; r <= 64; r += 8]\n        // Check which registers currently have valid digests\n        avail = [r for r in regs_in_bank if sR_RegStatus[r].valid == 1]\n        branch_context.sR_available_regs[b] = avail\n\n        if len(avail) == 0:\n            // No valid register digest in bank: contribution is zero\n            continue\n\n        // Query UT0, UT1, UT2 with PC\n        u_idx0 = hash_u0(PC) % 8\n        u_idx1 = hash_u1(PC) % 8\n        u_idx2 = hash_u2(PC) % 8\n\n        best_reg = -1\n        max_useful = -999999\n\n        for r in avail:\n            // Sum usefulness from 3 UT tables for register r\n            u_val = sR_UT[b].UT0[u_idx0][r] + sR_UT[b].UT1[u_idx1][r] + sR_UT[b].UT2[u_idx2][r]\n            if u_val > max_useful:\n                max_useful = u_val\n                best_reg = r\n\n        branch_context.sR_selected_reg[b] = best_reg\n\n        // Multiplier stage: x2.5 if bank is useful (max_useful > 0), else x0\n        if max_useful > 0 and best_reg != -1:\n            digest = sR_RegStatus[best_reg].payload & 0x0FFF\n            w_idx0 = hash0(PC, digest) % 512\n            w_idx1 = hash1(PC, digest) % 256\n            w_idx2 = hash2(PC, digest) % 128\n\n            sum_bank = sR_WT[b].WT0[w_idx0] + sR_WT[b].WT1[w_idx1] + sR_WT[b].WT2[w_idx2]\n            branch_context.sR_bank_sum[b] = sum_bank\n            // Scale by 2.5 using fixed-point: floor(sum_bank * 5 / 2)\n            scaled_bank = (sum_bank * 5) / 2\n            sR += scaled_bank\n\n    return sR",
+      "notes": "sR is added directly to LSUM in the SC summation tree. If all registers in a bank are invalid or non-useful, that bank outputs 0."
+    },
+    {
+      "name": "update",
+      "trigger": "Branch commit / resolution time",
+      "pseudocode": "function update(PC, actual_taken, sc_needs_update, sc_correct, base_correct):\n    if not sc_needs_update:\n        return\n\n    for b = 0 to 7:\n        avail = branch_context.sR_available_regs[b]\n        if len(avail) == 0:\n            continue\n\n        // Paper Section 4.2: If multiple registers were available, randomly select one for single-port update\n        reg_to_update = avail[pseudo_random() % len(avail)]\n        digest = sR_RegStatus[reg_to_update].payload & 0x0FFF\n\n        w_idx0 = hash0(PC, digest) % 512\n        w_idx1 = hash1(PC, digest) % 256\n        w_idx2 = hash2(PC, digest) % 128\n\n        // 1. Update WT saturating counters (+1 if taken, -1 if not taken)\n        step = actual_taken ? +1 : -1\n        sR_WT[b].WT0[w_idx0] = clamp(sR_WT[b].WT0[w_idx0] + step, -32, 31)\n        sR_WT[b].WT1[w_idx1] = clamp(sR_WT[b].WT1[w_idx1] + step, -32, 31)\n        sR_WT[b].WT2[w_idx2] = clamp(sR_WT[b].WT2[w_idx2] + step, -32, 31)\n\n        // 2. Update UT usefulness tables\n        u_idx0 = hash_u0(PC) % 8\n        u_idx1 = hash_u1(PC) % 8\n        u_idx2 = hash_u2(PC) % 8\n\n        bank_pred_taken = (branch_context.sR_bank_sum[b] >= 0)\n        u_step = 0\n        if bank_pred_taken == actual_taken and bank_pred_taken != base_correct:\n            u_step = +1\n        elif bank_pred_taken != actual_taken:\n            u_step = -1\n\n        if u_step != 0:\n            sR_UT[b].UT0[u_idx0][reg_to_update] = clamp(sR_UT[b].UT0[u_idx0][reg_to_update] + u_step, -32, 31)\n            sR_UT[b].UT1[u_idx1][reg_to_update] = clamp(sR_UT[b].UT1[u_idx1][reg_to_update] + u_step, -32, 31)\n            sR_UT[b].UT2[u_idx2][reg_to_update] = clamp(sR_UT[b].UT2[u_idx2][reg_to_update] + u_step, -32, 31)",
+      "notes": "Only registers available at prediction time are trained. Randomly picking one available register enables single-write-port RAMs."
+    },
+    {
+      "name": "recover_squash",
+      "trigger": "Pipeline misprediction recovery / flush",
+      "pseudocode": "function recover_squash(mispredicted_branch):\n    // Flush speculative pending register tags from instructions after the mispredicted branch\n    for r = 0 to 64:\n        if sR_RegStatus[r].valid == 0:\n            // If the pending ROB tag belongs to a flushed instruction, restore previous state or leave invalid\n            if rob_is_flushed(sR_RegStatus[r].payload):\n                sR_RegStatus[r].payload = 0\n                sR_RegStatus[r].decay_ctr = 0\n    // Valid completed digests remain valid; upon restart after flush, recently completed producer results become visible to subsequent branch predictions",
+      "notes": "Section 4.2: Instructions that completed execution while the misprediction was in-flight have written their digests, enlarging the valid set upon restart to correct subsequent branches."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "Execution unit register writeback and completion bus",
+      "description": "Signals providing the destination logical register ID (R0-R64), instruction type (INT, FP, FLAG), and produced 64-bit value at writeback.",
+      "fallback": "If 64-bit values cannot be snooped at writeback, compute digests at commit or retirement; or if FP format is unknown, treat all FP as FP64 or use raw LSBs."
+    },
+    {
+      "need": "Decode/rename stage register destination and ROB tag",
+      "description": "Signals notifying that an instruction writing a destination register has been decoded, providing the destination register ID and assigned ROB tag.",
+      "fallback": "If speculative rename status is unavailable, clear register valid bit upon decode without ROB tag matching and re-enable only when architectural register updates commit."
+    },
+    {
+      "need": "Instruction decode counter / tick",
+      "description": "A notification on each decoded instruction to decrement the 8-bit decay counters in the register status table.",
+      "fallback": "Decrement decay counters once per fetch block (e.g. by fetch block width) or once per cycle."
+    },
+    {
+      "need": "SC LSUM integration",
+      "description": "Integration point in the host Statistical Corrector summation tree to accept the signed sR partial sum into LSUM.",
+      "fallback": "If host has no SC, feed sR into a threshold comparator to override or bias the primary branch direction."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 53863,
+    "storage_breakdown": "WT (Prediction Weight Tables): 6 bits * (512 + 256 + 128 entries) * 8 banks = 43,008 bits. UT (Usefulness Weight Tables): 6 bits * 65 registers * (8 + 8 + 8 entries) = 9,360 bits. Auxiliary Status Table: 65 registers * (1 valid bit + 14 payload bits + 8 decay_ctr bits) = 1,495 bits. Total = 43,008 + 9,360 + 1,495 = 53,863 bits (6.57 KiB).",
+    "logic_cost_notes": "Digest generation logic requires parallel zero/one count leading/trailing bit-counters, format muxes, and 6-bit XOR gates. Per bank requires an 8-to-1 or 9-to-1 comparator to identify max usefulness, a 2.5x multiplier ((x * 5) >> 1), and an 8-input adder tree for sR.",
+    "budget_donors": "To maintain iso-storage against a baseline TAGE-SC-L, the 53,863 bits can be reclaimed by shrinking tagged table bank counts, reducing high-bank entry capacity, or downsizing base bimodal table entries."
+  },
+  "parameters": [
+    {
+      "name": "decay_instructions",
+      "type": "int",
+      "default": 256,
+      "range": "[64, 1024] pow2",
+      "storage_impact": "Changes decay_ctr width from 8 bits to log2(decay_instructions) bits in sR_RegStatus (65 * log2(decay_instructions) bits)."
+    },
+    {
+      "name": "useful_multiplier",
+      "type": "float",
+      "default": 2.5,
+      "range": "[1.0, 4.0] step 0.5",
+      "storage_impact": "0 bits (pure logic scaling factor)."
+    },
+    {
+      "name": "num_banks",
+      "type": "int",
+      "default": 8,
+      "range": "[4, 16] pow2",
+      "storage_impact": "Directly scales WT storage: num_banks * 5376 bits."
+    },
+    {
+      "name": "wt_entries",
+      "type": "enum",
+      "default": "512,256,128",
+      "range": "choices: 256,128,64 | 512,256,128 | 1024,512,256",
+      "storage_impact": "Directly scales total entries per bank * 6 bits * num_banks."
+    },
+    {
+      "name": "ut_entries_per_table",
+      "type": "int",
+      "default": 8,
+      "range": "[4, 32] pow2",
+      "storage_impact": "Changes UT size: 6 bits * 65 registers * (3 * ut_entries_per_table) bits."
+    },
+    {
+      "name": "weight_width_bits",
+      "type": "int",
+      "default": 6,
+      "range": "[5, 8]",
+      "storage_impact": "Scales both WT and UT total bits proportional to weight_width_bits / 6."
+    },
+    {
+      "name": "digest_width_bits",
+      "type": "int",
+      "default": 12,
+      "range": "[8, 16]",
+      "storage_impact": "Sets payload field width in sR_RegStatus = max(14, digest_width_bits)."
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "int_digest_xor_folding",
+      "given": "An INT register value with value 0x0000000000000008 (trailing zeros = 3 -> t_bits = 0x03; leading zeros = 60 -> l_bits = 0x3C; value[5:0] = 0x08 -> v_bits = 0x08).",
+      "expect": "generate_digest produces (0x03) ^ (0x3C << 3) ^ (0x08 << 6) = 0x03 ^ 0x1E0 ^ 0x200 = 0x03E3 (12-bit digest 0x3E3)."
+    },
+    {
+      "name": "flag_digest_replication",
+      "given": "A FLAG register with 4-bit value 0x9 (Value[3:0] = 1001b).",
+      "expect": "generate_digest replicates 0x9 across three 4-bit nibbles, yielding digest 0x999."
+    },
+    {
+      "name": "fp32_digest_extraction",
+      "given": "An FP32 register value with bits [31:26] = 0x2B (sign + high 5 exponent bits).",
+      "expect": "generate_digest extracts bits [31:26] and shifts to digest[8:3], yielding (0x2B << 3) = 0x0158 (digest bits [2:0] are 0)."
+    },
+    {
+      "name": "stale_digest_invalidation_after_256_instructions",
+      "given": "Register R4 is written and marked valid with decay_ctr = 256. 256 subsequent instructions are decoded without further writes to R4.",
+      "expect": "On the 256th decode step, R4 decay_ctr counts down to 0 and valid bit is cleared to 0."
+    },
+    {
+      "name": "bank_usefulness_scaling_and_suppression",
+      "given": "Bank 0 has only R0 valid with digest D. UT usefulness sum for R0 is -3 (non-positive). Bank 1 has R1 valid with UT usefulness sum +5, and its WT sum is +4.",
+      "expect": "Bank 0 outputs 0 due to non-positive usefulness (x0 multiplier). Bank 1 outputs floor(+4 * 2.5) = +10. Total sR from these two banks is +10."
+    },
+    {
+      "name": "restart_after_misprediction_digest_availability",
+      "given": "A branch at fetch mispredicts. An independent arithmetic instruction ahead in the ROB completed writeback and set valid=1 for R12 during wrong-path execution before pipeline flush.",
+      "expect": "Upon pipeline flush recovery, R12 remains valid=1 with its produced digest, allowing subsequent predictions to immediately use R12."
+    }
+  ],
+  "open_questions": [
+    "How are leading/trailing counts of identical bits encoded if the count exceeds 63 (e.g. 64 for an all-zero or all-one 64-bit register)? Assumed saturated at 63 so it fits in 6 bits.",
+    "Does floating-point format detection (FP16 vs FP32 vs FP64) rely on instruction opcode metadata or hardware NaN-boxing / MSB inspection? Assumed instruction type or standard NaN-boxing convention.",
+    "Does the fixed-point scaling floor(sum * 2.5) round towards zero, round to nearest, or truncate? Assumed integer division floor((sum * 5) / 2)."
+  ]
+}

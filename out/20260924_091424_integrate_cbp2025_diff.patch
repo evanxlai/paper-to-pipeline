@@ -1,0 +1,1322 @@
+--- diffstat ---
+ PORT_NOTES.md                            |   5 +
+ a.out                                    | Bin 0 -> 16912 bytes
+ cbp2016_tage_sc_l.h                      |  50 ++++---
+ cond_branch_predictor_interface.cc       |  18 +++
+ debug_digest.cc                          |  14 ++
+ my_cond_branch_predictor.cc              | 105 ++++++++++++++
+ my_cond_branch_predictor.h               | 240 +++++++++++++++++++++++++++----
+ patch_bounds.py                          |   9 ++
+ patch_cond_branch_predictor_interface.py |  41 ++++++
+ patch_lsum.py                            |  13 ++
+ patch_my_cond_branch_predictor_h.py      |  61 ++++++++
+ patch_my_cond_branch_predictor_h2.py     |  61 ++++++++
+ patch_pred_time.py                       |  23 +++
+ patch_predict_update.py                  | 117 +++++++++++++++
+ patch_recovery.py                        |  22 +++
+ patch_setup.py                           |  22 +++
+ patch_sr_cache.py                        |  61 ++++++++
+ patch_udelta.py                          |  28 ++++
+ patch_udelta2.py                         |  18 +++
+ patch_update.py                          |  22 +++
+ sr_params.h                              |  63 ++++++++
+ 21 files changed, 948 insertions(+), 45 deletions(-)
+--- patch ---
+diff --git a/PORT_NOTES.md b/PORT_NOTES.md
+new file mode 100644
+index 0000000..37884b4
+--- /dev/null
++++ b/PORT_NOTES.md
+@@ -0,0 +1,5 @@
++# sR Port Notes
++
++- **Fidelity Note**: Using the unique sequence ID instead of a physical ROB tag implies the digest table payload holds larger values, requiring care with bit limits.
++- **Fidelity Note**: All floating-point instructions are digested using the FP64 extraction rule, which misinterprets the sign and exponent bits for FP32/16 results.
++- **Fidelity Note**: The predictor never observes squashes, so pending register writes are never cleared due to squash, diverging from real hardware behavior.
+diff --git a/a.out b/a.out
+new file mode 100755
+index 0000000..e80cc43
+Binary files /dev/null and b/a.out differ
+diff --git a/cbp2016_tage_sc_l.h b/cbp2016_tage_sc_l.h
+index 00eebcb..f03006d 100644
+--- a/cbp2016_tage_sc_l.h
++++ b/cbp2016_tage_sc_l.h
+@@ -2,6 +2,8 @@
+ #define _TAGE_PREDICTOR_H_
+ 
+ #include <stdlib.h>
++#include "sr_params.h"
++#include "my_cond_branch_predictor.h"
+ #include <string.h>
+ #include <assert.h>
+ #include <inttypes.h>
+@@ -14,7 +16,7 @@
+ 
+ 
+ //parameters of the loop predictor
+-#define LOGL 5
++#define LOGL HOST_LOGL
+ #define WIDTHNBITERLOOP 10  // we predict only loops with less than 1K iterations
+ #define LOOPTAG 10      //tag width in the loop predictor
+ 
+@@ -39,10 +41,10 @@
+ 
+ //The statistical corrector components
+ 
+-#define PERCWIDTH 6     //Statistical corrector  counter width 5 -> 6 : 0.6 %
++#define PERCWIDTH HOST_PERCWIDTH     //Statistical corrector  counter width 5 -> 6 : 0.6 %
+ //The three BIAS tables in the SC component
+ //We play with the TAGE  confidence here, with the number of the hitting bank
+-#define LOGBIAS 8
++#define LOGBIAS HOST_LOGBIAS
+ int8_t Bias[(1 << LOGBIAS)];
+ int8_t BiasSK[(1 << LOGBIAS)];
+ int8_t BiasBank[(1 << LOGBIAS)];
+@@ -51,14 +53,14 @@ int8_t BiasBank[(1 << LOGBIAS)];
+ 
+ // IMLI-SIC -> Micro 2015  paper: a big disappointment on  CBP2016 traces
+ #ifdef IMLI
+-#define LOGINB 8        // 128-entry
++#define LOGINB HOST_LOGINB        // 128-entry
+ #define INB 1
+ int Im[INB] = { 8 };
+ int8_t IGEHLA[INB][(1 << LOGINB)] = { {0} };
+ 
+ int8_t *IGEHL[INB];
+ 
+-#define LOGIMNB 9       // 2 * 256-entry
++#define LOGIMNB HOST_LOGIMNB       // 2 * 256-entry
+ #define IMNB 2
+ 
+ int IMm[IMNB] = { 10, 4 };
+@@ -69,7 +71,7 @@ int8_t *IMGEHL[IMNB];
+ #endif
+ 
+ //global branch GEHL
+-#define LOGGNB 10       // 1 1K + 2 * 512-entry tables
++#define LOGGNB HOST_LOGGNB       // 1 1K + 2 * 512-entry tables
+ #define GNB 3
+ int Gm[GNB] = { 40, 24, 10 };
+ int8_t GGEHLA[GNB][(1 << LOGGNB)] = { {0} };
+@@ -78,14 +80,14 @@ int8_t *GGEHL[GNB];
+ 
+ //variation on global branch history
+ #define PNB 3
+-#define LOGPNB 9        // 1 512 + 2 * 256-entry tables
++#define LOGPNB HOST_LOGPNB        // 1 512 + 2 * 256-entry tables
+ int Pm[PNB] = { 25, 16, 9 };
+ int8_t PGEHLA[PNB][(1 << LOGPNB)] = { {0} };
+ 
+ int8_t *PGEHL[PNB];
+ 
+ //first local history
+-#define LOGLNB  10      // 1 1K + 2 * 512-entry tables
++#define LOGLNB HOST_LOGLNB      // 1 1K + 2 * 512-entry tables
+ #define LNB 3
+ int Lm[LNB] = { 11, 6, 3 };
+ int8_t LGEHLA[LNB][(1 << LOGLNB)] = { {0} };
+@@ -95,7 +97,7 @@ int8_t *LGEHL[LNB];
+ #define NLOCAL (1<<LOGLOCAL)
+ 
+ // second local history
+-#define LOGSNB 9        // 1 512 + 2 * 256-entry tables
++#define LOGSNB HOST_LOGSNB        // 1 512 + 2 * 256-entry tables
+ #define SNB 3
+ int Sm[SNB] = { 16, 11, 6 };
+ int8_t SGEHLA[SNB][(1 << LOGSNB)] = { {0} };
+@@ -105,7 +107,7 @@ int8_t *SGEHL[SNB];
+ #define NSECLOCAL (1<<LOGSECLOCAL)  //Number of second local histories
+ 
+ //third local history
+-#define LOGTNB 10       // 2 * 512-entry tables
++#define LOGTNB HOST_LOGTNB       // 2 * 512-entry tables
+ #define TNB 2
+ int Tm[TNB] = { 9, 4 };
+ int8_t TGEHLA[TNB][(1 << LOGTNB)] = { {0} };
+@@ -138,7 +140,7 @@ int8_t WP[(1 << LOGSIZEUPS)];
+ int8_t WI[(1 << LOGSIZEUPS)];
+ int8_t WIM[(1 << LOGSIZEUPS)];
+ int8_t WB[(1 << LOGSIZEUPS)];
+-#define EWIDTH 6
++#define EWIDTH HOST_EWIDTH
+ int LSUM;
+ 
+ // The two counters used to choose between TAGE and SC on Low Conf SC
+@@ -191,8 +193,8 @@ class gentry            // TAGE global table entry
+ 
+ #define NHIST 36        // twice the number of different histories
+ 
+-#define NBANKLOW 10     // number of banks in the shared bank-interleaved for the low history lengths
+-#define NBANKHIGH 20        // number of banks in the shared bank-interleaved for the  history lengths
++#define NBANKLOW HOST_NBANKLOW     // number of banks in the shared bank-interleaved for the low history lengths
++#define NBANKHIGH HOST_NBANKHIGH        // number of banks in the shared bank-interleaved for the  history lengths
+ 
+ int SizeTable[NHIST + 1];
+ 
+@@ -209,8 +211,8 @@ int SizeTable[NHIST + 1];
+ #define MAXHIST 3000
+ 
+ 
+-#define LOGG 10         /* logsize of the  banks in the  tagged TAGE tables */
+-#define TBITS 8         //minimum width of the tags  (low history lengths), +4 for high history lengths
++#define LOGG HOST_LOGG         /* logsize of the  banks in the  tagged TAGE tables */
++#define TBITS HOST_TBITS         //minimum width of the tags  (low history lengths), +4 for high history lengths
+ 
+ 
+ bool NOSKIP[NHIST + 1];     // to manage the associativity for different history lengths
+@@ -218,13 +220,13 @@ bool NOSKIP[NHIST + 1];     // to manage the associativity for different history
+ 
+ 
+ #define NNN 1           // number of extra entries allocated on a TAGE misprediction (1+NNN)
+-#define HYSTSHIFT 2     // bimodal hysteresis shared by 4 entries
+-#define LOGB 13         // log of number of entries in bimodal predictor
++#define HYSTSHIFT HOST_HYSTSHIFT     // bimodal hysteresis shared by 4 entries
++#define LOGB HOST_LOGB         // log of number of entries in bimodal predictor
+ 
+ 
+ #define PHISTWIDTH 27       // width of the path history used in TAGE
+-#define UWIDTH 1        // u counter width on TAGE (2 bits not worth the effort for a 512 Kbits predictor 0.2 %)
+-#define CWIDTH 3        // predictor counter width on the TAGE tagged tables
++#define UWIDTH HOST_UWIDTH        // u counter width on TAGE (2 bits not worth the effort for a 512 Kbits predictor 0.2 %)
++#define CWIDTH HOST_CWIDTH        // predictor counter width on the TAGE tagged tables
+ 
+ 
+ //the counter(s) to chose between longest match and alternate prediction on TAGE when weak counters
+@@ -1071,6 +1073,9 @@ class CBP2016_TAGE_SC_L
+             LSUM += Gpredict (PC, hist_to_use.IMHIST[(hist_to_use.IMLIcount)], IMm, IMGEHL, IMNB, LOGIMNB, WIM);
+             LSUM += Gpredict (PC, hist_to_use.IMLIcount, Im, IGEHL, INB, LOGINB, WI);
+ #endif
++            if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.sr_predict(PC, cond_predictor_impl.get_unique_inst_id(seq_no, piece), pred_time_predict);
++            }
+             bool SCPRED = (LSUM >= 0);
+             //just  an heuristic if the respective contribution of component groups can be multiplied by 2 or not
+             THRES = (updatethreshold>>3)+Pupdatethreshold[INDUPD]
+@@ -1241,11 +1246,11 @@ class CBP2016_TAGE_SC_L
+             //    assert(false);
+             //} 
+             // remove checkpointed hist
+-            update(PC, resolveDir, pred_taken, nextPC, pred_time_history);
++            update(PC, resolveDir, pred_taken, nextPC, pred_time_history, seq_no, piece);
+             pred_time_histories.erase(pred_hist_key);
+         }
+ 
+-        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)
++        void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no = 0, uint8_t piece = 0)
+         {
+ #ifdef SC
+ #ifdef LOOPPREDICTOR
+@@ -1332,6 +1337,9 @@ class CBP2016_TAGE_SC_L
+                 ctrupdate (Bias[get_bias_index(PC)], resolveDir, PERCWIDTH);
+                 ctrupdate (BiasSK[get_biassk_index(PC)], resolveDir, PERCWIDTH);
+                 ctrupdate (BiasBank[get_biasbank_index(PC)], resolveDir, PERCWIDTH);
++                if (cond_predictor_impl.sr_enabled) {
++                    cond_predictor_impl.sr_update(PC, cond_predictor_impl.get_unique_inst_id(seq_no, piece), resolveDir, SCPRED == resolveDir);
++                }
+                 Gupdate ((PC << 1) + pred_inter, resolveDir,
+                         hist_to_use.GHIST, Gm, GGEHL, GNB, LOGGNB, WG);
+                 Gupdate (PC, resolveDir, hist_to_use.phist, Pm, PGEHL, PNB, LOGPNB, WP);
+diff --git a/cond_branch_predictor_interface.cc b/cond_branch_predictor_interface.cc
+index b189157..2be8ba2 100644
+--- a/cond_branch_predictor_interface.cc
++++ b/cond_branch_predictor_interface.cc
+@@ -115,6 +115,12 @@ void spec_update(uint64_t seq_no, uint8_t piece, uint64_t pc, InstClass inst_cla
+ // For the sample predictor implementation, we do not leverage decode information
+ void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
+ {
++    if (cond_predictor_impl.sr_enabled) {
++        uint64_t rob_index = cond_predictor_impl.get_unique_inst_id(seq_no, piece);
++        bool has_dest = _decode_info.dst_reg_info.has_value();
++        uint64_t dest_reg = has_dest ? _decode_info.dst_reg_info.value() : 0;
++        cond_predictor_impl.allocate_register(rob_index, has_dest, dest_reg);
++    }
+ }
+ 
+ //
+@@ -137,6 +143,18 @@ void notify_agen_complete(uint64_t seq_no, uint8_t piece, uint64_t pc, const Dec
+ // At the moment, we do not consider updating any other structure, but the contestants are allowed to  update any other predictor state.
+ void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
+ {
++    if (cond_predictor_impl.sr_enabled) {
++        uint64_t rob_index = cond_predictor_impl.get_unique_inst_id(seq_no, piece);
++        bool has_dest = _exec_info.dec_info.dst_reg_info.has_value();
++        uint64_t dest_reg = has_dest ? _exec_info.dec_info.dst_reg_info.value() : 0;
++        if (has_dest && _exec_info.dst_reg_value.has_value()) {
++            uint64_t result_value = _exec_info.dst_reg_value.value();
++            bool is_int = (dest_reg < 32);
++            bool is_fp = (dest_reg >= 32 && dest_reg < 64);
++            bool is_flag = (dest_reg == 64);
++            cond_predictor_impl.write_register_digest(rob_index, has_dest, dest_reg, result_value, is_int, is_fp, is_flag);
++        }
++    }
+     const bool is_branch = is_br(_exec_info.dec_info.insn_class);
+     if(is_branch)
+     {
+diff --git a/debug_digest.cc b/debug_digest.cc
+new file mode 100644
+index 0000000..fe0ed6d
+--- /dev/null
++++ b/debug_digest.cc
+@@ -0,0 +1,14 @@
++#include <iostream>
++#include <cstdint>
++
++int main() {
++    uint64_t val = 0xFFFFFFFFFFFFFFF0ULL;
++    int trailing = val == 0 ? 64 : __builtin_ctzll(val);
++    int leading = val == 0 ? 64 : __builtin_clzll(val);
++    trailing = trailing > 63 ? 63 : trailing;
++    leading = leading > 63 ? 63 : leading;
++    uint64_t val6 = val & 0x3F;
++    uint64_t digest = (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ (val6 << 6);
++    std::cout << std::hex << digest << std::endl;
++    return 0;
++}
+diff --git a/my_cond_branch_predictor.cc b/my_cond_branch_predictor.cc
+index e69de29..fcea007 100755
+--- a/my_cond_branch_predictor.cc
++++ b/my_cond_branch_predictor.cc
+@@ -0,0 +1,105 @@
++#include "my_cond_branch_predictor.h"
++#include <iostream>
++#include <cstring>
++
++void SampleCondPredictor::run_tests() {
++    static bool tests_run = false;
++    if (tests_run) return;
++    tests_run = true;
++
++    auto backup_table = sR_RegTable[5];
++
++    // ut_decay
++    {
++        sR_RegTable[5].valid = 0;
++        sR_RegTable[5].payload = 100;
++        sR_RegTable[5].decay_ctr = 0;
++        write_register_digest(100, true, 5, 0, true, false, false);
++        bool decay_started = (sR_RegTable[5].decay_ctr == ((1 << SR_DECAY_CTR_BITS) - 1));
++        
++        for (int i = 0; i < ((1 << SR_DECAY_CTR_BITS) - 1); i++) {
++            allocate_register(999, false, 0);
++        }
++        bool reaches_zero = (sR_RegTable[5].decay_ctr == 0);
++        allocate_register(999, false, 0);
++        bool cleared = (sR_RegTable[5].valid == 0);
++        
++        if (decay_started && reaches_zero && cleared) {
++            std::cout << "PASS: decay_counter_walks_down\n";
++        }
++    }
++
++    // ut_int_digest
++    {
++        sR_RegTable[5].valid = 0;
++        sR_RegTable[5].payload = 200;
++        sR_RegTable[5].decay_ctr = 0;
++        write_register_digest(200, true, 5, 0xFFFFFFFFFFFFFFF0ULL, true, false, false);
++        if (sR_RegTable[5].valid == 1 && sR_RegTable[5].payload == 0xC04) {
++            std::cout << "PASS: int_digest_generation\n";
++        }
++    }
++
++    // ut_predict_useful
++    {
++        memset(sR_RegTable, 0, sizeof(sR_RegTable));
++        memset(sR_UT0, 0, sizeof(sR_UT0));
++        memset(sR_UT1, 0, sizeof(sR_UT1));
++        memset(sR_UT2, 0, sizeof(sR_UT2));
++        memset(sR_WT0, 0, sizeof(sR_WT0));
++        memset(sR_WT1, 0, sizeof(sR_WT1));
++        memset(sR_WT2, 0, sizeof(sR_WT2));
++
++        sR_RegTable[0].valid = 1;
++        sR_RegTable[0].payload = 0xAAA;
++        sR_RegTable[8].valid = 1;
++        sR_RegTable[8].payload = 0xBBB;
++
++        uint64_t PC = 0x1000;
++        uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++
++        sR_UT0[0][u_idx0][8] = 10;
++        sR_UT0[0][u_idx0][0] = -10;
++
++        uint32_t w_idx0_8 = hash_wt(PC, 0xBBB, 0) % SR_WT0_ENTRIES;
++        sR_WT0[0][w_idx0_8] = 50;
++
++        int32_t pred = sr_predict(PC, 999, true);
++        if (pred == (int32_t)(50 * SR_USEFUL_MULTIPLIER)) {
++            std::cout << "PASS: predict_selects_most_useful\n";
++        }
++    }
++
++    // ut_update_random
++    {
++        memset(sR_WT0, 0, sizeof(sR_WT0));
++        memset(sR_UT0, 0, sizeof(sR_UT0));
++        uint64_t PC = 0x2000;
++        uint64_t rob = 555;
++        sR_InFlightState[rob].valid_regs[0] = 1;
++        sR_InFlightState[rob].valid_regs[8] = 1;
++        sR_RegTable[0].payload = 0x111;
++        sR_RegTable[8].payload = 0x222;
++        
++        sr_update(PC, rob, true, true);
++        
++        uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++        int changed = 0;
++        if (sR_UT0[0][u_idx0][0] != 0) changed++;
++        if (sR_UT0[0][u_idx0][8] != 0) changed++;
++        if (changed == 1) {
++            std::cout << "PASS: update_random_selection\n";
++        }
++    }
++
++    // ut_recovery
++    {
++        memset(sR_RegTable, 0, sizeof(sR_RegTable));
++        sR_RegTable[5].valid = 0;
++        sR_RegTable[5].payload = 900 & ((1ULL << SR_ROB_IDX_BITS) - 1);
++        recovery(900);
++        if (sR_RegTable[5].valid == 0 && sR_RegTable[5].payload == 0) {
++            std::cout << "PASS: recovery_clears_pending\n";
++        }
++    }
++}
+diff --git a/my_cond_branch_predictor.h b/my_cond_branch_predictor.h
+index e96ebb8..d492d2b 100644
+--- a/my_cond_branch_predictor.h
++++ b/my_cond_branch_predictor.h
+@@ -2,51 +2,249 @@
+ #define _PREDICTOR_H_
+ 
+ #include <stdlib.h>
++#include <cstdint>
++#include <vector>
++#include <unordered_map>
++#include <cassert>
++#include <cmath>
++#include <algorithm>
++#include "sr_params.h"
+ 
+ struct SampleHist
+ {
+       uint64_t ghist;
+       bool tage_pred;
+-      //
+-      SampleHist()
+-      {
++      SampleHist() {
+           ghist = 0;
+       }
+ };
+ 
+-
+ class SampleCondPredictor
+ {
+-        SampleHist active_hist;
+-        std::unordered_map<uint64_t/*key*/, SampleHist/*val*/> pred_time_histories;
+     public:
++        SampleHist active_hist;
++        std::unordered_map<uint64_t, SampleHist> pred_time_histories;
+ 
+-        SampleCondPredictor (void)
+-        {
+-        }
++        bool sr_enabled = false;
++
++        int8_t sR_WT0[SR_NUM_BANKS][SR_WT0_ENTRIES] = {0};
++        int8_t sR_WT1[SR_NUM_BANKS][SR_WT1_ENTRIES] = {0};
++        int8_t sR_WT2[SR_NUM_BANKS][SR_WT2_ENTRIES] = {0};
++
++        int8_t sR_UT0[SR_NUM_BANKS][SR_UT0_ENTRIES][SR_NUM_LOGICAL_REGS] = {0};
++        int8_t sR_UT1[SR_NUM_BANKS][SR_UT1_ENTRIES][SR_NUM_LOGICAL_REGS] = {0};
++        int8_t sR_UT2[SR_NUM_BANKS][SR_UT2_ENTRIES][SR_NUM_LOGICAL_REGS] = {0};
++
++        struct RegEntry {
++            uint8_t valid;
++            uint32_t payload;
++            uint32_t decay_ctr;
++        };
++        RegEntry sR_RegTable[SR_NUM_LOGICAL_REGS] = {0};
++
++        struct InFlightEntry {
++            uint8_t valid_regs[SR_NUM_LOGICAL_REGS];
++            int32_t cached_sR;
++        };
++        std::unordered_map<uint64_t, InFlightEntry> sR_InFlightState;
++
++        SampleCondPredictor (void) {}
++
++        void run_tests();
+ 
+         void setup()
+         {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            if (sr_enabled) {
++                run_tests();
++            }
+         }
+ 
+-        void terminate()
+-        {
+-        }
++        void terminate() {}
+ 
+-        // sample function to get unique instruction id
+         uint64_t get_unique_inst_id(uint64_t seq_no, uint8_t piece) const
+         {
+             assert(piece < 16);
+             return (seq_no << 4) | (piece & 0x000F);
+         }
+ 
++        uint64_t extract_fp_sign_and_exp(uint64_t val) {
++            return (val >> 55) & 0x1FF;
++        }
++
++        void allocate_register(uint64_t rob_index, bool has_dest, uint64_t dest_reg) {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if (sR_RegTable[r].decay_ctr > 0) {
++                    sR_RegTable[r].decay_ctr--;
++                } else if (sR_RegTable[r].decay_ctr == 0) {
++                    sR_RegTable[r].valid = 0;
++                }
++            }
++            if (has_dest && dest_reg < SR_NUM_LOGICAL_REGS) {
++                sR_RegTable[dest_reg].valid = 0;
++                sR_RegTable[dest_reg].payload = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            }
++        }
++
++        void write_register_digest(uint64_t rob_index, bool has_dest, uint64_t dest_reg, uint64_t result_value, bool is_int, bool is_fp, bool is_flag) {
++            if (!sr_enabled) return;
++            if (has_dest && dest_reg < SR_NUM_LOGICAL_REGS) {
++                uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++                if (sR_RegTable[dest_reg].valid == 0 && sR_RegTable[dest_reg].payload == masked_rob) {
++                    uint64_t val = result_value;
++                    uint64_t digest = 0;
++                    if (is_int) {
++                        int trailing = val == 0 ? 64 : __builtin_ctzll(val);
++                        int leading = val == 0 ? 64 : __builtin_clzll(val);
++                        trailing = trailing > 63 ? 63 : trailing;
++                        leading = leading > 63 ? 63 : leading;
++                        uint64_t val6 = val & 0x3F;
++                        digest = (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ (val6 << 6);
++                    } else if (is_fp) {
++                        digest = extract_fp_sign_and_exp(val) << 3;
++                    } else if (is_flag) {
++                        uint64_t val4 = val & 0xF;
++                        digest = val4 | (val4 << 4) | (val4 << 8);
++                    } else {
++                        digest = 0;
++                    }
++                    
++                    sR_RegTable[dest_reg].payload = digest & 0xFFF;
++                    sR_RegTable[dest_reg].valid = 1;
++                    sR_RegTable[dest_reg].decay_ctr = (1 << SR_DECAY_CTR_BITS) - 1;
++                }
++            }
++        }
++
++        uint32_t hash_ut(uint64_t PC, int table) {
++            return (PC ^ (PC >> (2 + table * 2)));
++        }
++        uint32_t hash_wt(uint64_t PC, uint32_t digest, int table) {
++            return (PC ^ (digest << (table + 1)));
++        }
++
++                int32_t sr_predict(uint64_t PC, uint64_t rob_index, bool snapshot) {
++            if (!sr_enabled) return 0;
++            
++            uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            InFlightEntry& if_entry = sR_InFlightState[masked_rob];
++            
++            if (!snapshot) {
++                return if_entry.cached_sR;
++            }
++            
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if_entry.valid_regs[r] = sR_RegTable[r].valid;
++            }
++
++            int32_t sR = 0;
++            for (int b = 0; b < SR_NUM_BANKS; b++) {
++                uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                
++                int32_t max_u = -99999;
++                int best_reg = -1;
++                
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                    if ((r % SR_NUM_BANKS) == b && sR_RegTable[r].valid == 1) {
++                        int32_t u_sum = sR_UT0[b][u_idx0][r] + sR_UT1[b][u_idx1][r] + sR_UT2[b][u_idx2][r];
++                        if (u_sum > max_u) {
++                            max_u = u_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                
++                int32_t bank_sum = 0;
++                if (best_reg != -1) {
++                    uint32_t digest = sR_RegTable[best_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                }
++                
++                if (max_u > 0) {
++                    sR += (int32_t)(bank_sum * SR_USEFUL_MULTIPLIER);
++                }
++            }
++            if_entry.cached_sR = sR;
++            return sR;
++        }
++
++        void sr_update(uint64_t PC, uint64_t rob_index, bool taken, bool match) {
++            if (!sr_enabled) return;
++            
++            uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            if (sR_InFlightState.find(masked_rob) == sR_InFlightState.end()) return;
++            InFlightEntry if_entry = sR_InFlightState[masked_rob];
++            sR_InFlightState.erase(masked_rob);
++            
++            for (int b = 0; b < SR_NUM_BANKS; b++) {
++                int num_available = 0;
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                    if ((r % SR_NUM_BANKS) == b && if_entry.valid_regs[r] == 1) {
++                        num_available++;
++                    }
++                }
++                
++                if (num_available > 0) {
++                    int chosen_idx = (PC + b) % num_available;
++                    int current_idx = 0;
++                    int chosen_reg = 0;
++                    for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                        if ((r % SR_NUM_BANKS) == b && if_entry.valid_regs[r] == 1) {
++                            if (current_idx == chosen_idx) {
++                                chosen_reg = r;
++                            }
++                            current_idx++;
++                        }
++                    }
++                    
++                    uint32_t digest = sR_RegTable[chosen_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int32_t bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                    bool bank_pred = bank_sum >= 0;
++                    int32_t u_delta = (bank_pred == taken) ? 1 : -1;
++                    
++                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES; 
++                    
++                    sR_UT0[b][u_idx0][chosen_reg] = std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1, sR_UT0[b][u_idx0][chosen_reg] + u_delta));
++                    sR_UT1[b][u_idx1][chosen_reg] = std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1, sR_UT1[b][u_idx1][chosen_reg] + u_delta));
++                    sR_UT2[b][u_idx2][chosen_reg] = std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1, sR_UT2[b][u_idx2][chosen_reg] + u_delta));
++                    
++                    int32_t w_delta = taken ? 1 : -1;
++                    sR_WT0[b][w_idx0] = std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1, sR_WT0[b][w_idx0] + w_delta));
++                    sR_WT1[b][w_idx1] = std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1, sR_WT1[b][w_idx1] + w_delta));
++                    sR_WT2[b][w_idx2] = std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1, sR_WT2[b][w_idx2] + w_delta));
++                }
++            }
++        }
++
++        void recovery(uint64_t squashed_rob) {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if (sR_RegTable[r].valid == 0) {
++                    if (sR_RegTable[r].payload == (squashed_rob & ((1ULL << SR_ROB_IDX_BITS) - 1))) {
++                        sR_RegTable[r].payload = 0;
++                    }
++                }
++            }
++        }
++
+         bool predict (uint64_t seq_no, uint8_t piece, uint64_t PC, const bool tage_pred)
+         {
+             active_hist.tage_pred = tage_pred;
+-            // checkpoint current hist
+             pred_time_histories.emplace(get_unique_inst_id(seq_no, piece), active_hist);
+-            const bool pred_taken = predict_using_given_hist(seq_no, piece, PC, active_hist, true/*pred_time_predict*/);
+-            return pred_taken;
++            return predict_using_given_hist(seq_no, piece, PC, active_hist, true);
+         }
+ 
+         bool predict_using_given_hist (uint64_t seq_no, uint8_t piece, uint64_t PC, const SampleHist& hist_to_use, const bool pred_time_predict)
+@@ -57,10 +255,7 @@ class SampleCondPredictor
+         void history_update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool taken, uint64_t nextPC)
+         {
+             active_hist.ghist = active_hist.ghist << 1;
+-            if(taken)
+-            {
+-                active_hist.ghist |= 1;
+-            }
++            if(taken) active_hist.ghist |= 1;
+         }
+ 
+         void update (uint64_t seq_no, uint8_t piece, uint64_t PC, bool resolveDir, bool predDir, uint64_t nextPC)
+@@ -75,9 +270,6 @@ class SampleCondPredictor
+         {
+         }
+ };
+-// =================
+-// Predictor End
+-// =================
+ 
+-#endif
+ static SampleCondPredictor cond_predictor_impl;
++#endif
+diff --git a/patch_bounds.py b/patch_bounds.py
+new file mode 100644
+index 0000000..5ca65c9
+--- /dev/null
++++ b/patch_bounds.py
+@@ -0,0 +1,9 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++content = content.replace("std::max(-128, std::min(127", "std::max(-(1 << (SR_WT_BITS - 1)), std::min((1 << (SR_WT_BITS - 1)) - 1")
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_cond_branch_predictor_interface.py b/patch_cond_branch_predictor_interface.py
+new file mode 100644
+index 0000000..436339a
+--- /dev/null
++++ b/patch_cond_branch_predictor_interface.py
+@@ -0,0 +1,41 @@
++import re
++
++with open("cond_branch_predictor_interface.cc", "r") as f:
++    content = f.read()
++
++decode_body = """
++void notify_instr_decode(uint64_t seq_no, uint8_t piece, uint64_t pc, const DecodeInfo& _decode_info, const uint64_t decode_cycle)
++{
++    if (cond_predictor_impl.sr_enabled) {
++        uint64_t rob_index = cond_predictor_impl.get_unique_inst_id(seq_no, piece);
++        bool has_dest = _decode_info.dst_reg_info.has_value();
++        uint64_t dest_reg = has_dest ? _decode_info.dst_reg_info.value() : 0;
++        cond_predictor_impl.allocate_register(rob_index, has_dest, dest_reg);
++    }
++}
++"""
++
++content = re.sub(r'void notify_instr_decode\([^)]*\)\s*\{\s*\}', decode_body.strip(), content)
++
++exec_head = """
++void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)
++{
++    if (cond_predictor_impl.sr_enabled) {
++        uint64_t rob_index = cond_predictor_impl.get_unique_inst_id(seq_no, piece);
++        bool has_dest = _exec_info.dec_info.dst_reg_info.has_value();
++        uint64_t dest_reg = has_dest ? _exec_info.dec_info.dst_reg_info.value() : 0;
++        if (has_dest && _exec_info.dst_reg_value.has_value()) {
++            uint64_t result_value = _exec_info.dst_reg_value.value();
++            bool is_int = (dest_reg < 32);
++            bool is_fp = (dest_reg >= 32 && dest_reg < 64);
++            bool is_flag = (dest_reg == 64);
++            cond_predictor_impl.write_register_digest(rob_index, has_dest, dest_reg, result_value, is_int, is_fp, is_flag);
++        }
++    }
++    const bool is_branch = is_br(_exec_info.dec_info.insn_class);
++"""
++
++content = content.replace("void notify_instr_execute_resolve(uint64_t seq_no, uint8_t piece, uint64_t pc, const bool pred_dir, const ExecuteInfo& _exec_info, const uint64_t execute_cycle)\n{\n    const bool is_branch = is_br(_exec_info.dec_info.insn_class);", exec_head.strip())
++
++with open("cond_branch_predictor_interface.cc", "w") as f:
++    f.write(content)
+diff --git a/patch_lsum.py b/patch_lsum.py
+new file mode 100644
+index 0000000..1f7f74c
+--- /dev/null
++++ b/patch_lsum.py
+@@ -0,0 +1,13 @@
++with open("cbp2016_tage_sc_l.h", "r") as f:
++    content = f.read()
++
++target = "bool SCPRED = (LSUM >= 0);"
++replacement = """if (cond_predictor_impl.sr_enabled) {
++                LSUM += cond_predictor_impl.sr_predict(PC, cond_predictor_impl.get_unique_inst_id(seq_no, piece));
++            }
++            bool SCPRED = (LSUM >= 0);"""
++
++content = content.replace(target, replacement, 1) # Only replace the first occurrence in predict()
++
++with open("cbp2016_tage_sc_l.h", "w") as f:
++    f.write(content)
+diff --git a/patch_my_cond_branch_predictor_h.py b/patch_my_cond_branch_predictor_h.py
+new file mode 100644
+index 0000000..c724bdd
+--- /dev/null
++++ b/patch_my_cond_branch_predictor_h.py
+@@ -0,0 +1,61 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++content = content.replace("#include <stdlib.h>", "#include <stdlib.h>\n#include \"sr_params.h\"\n#include <vector>\n#include <unordered_map>\n#include <cassert>\n#include <cmath>")
++
++state_vars = """
++        bool sr_enabled = false;
++
++        // sR State
++        int8_t sR_WT0[SR_NUM_BANKS][SR_WT0_ENTRIES] = {0};
++        int8_t sR_WT1[SR_NUM_BANKS][SR_WT1_ENTRIES] = {0};
++        int8_t sR_WT2[SR_NUM_BANKS][SR_WT2_ENTRIES] = {0};
++
++        int8_t sR_UT0[SR_NUM_BANKS][SR_UT0_ENTRIES][SR_NUM_LOGICAL_REGS] = {0};
++        int8_t sR_UT1[SR_NUM_BANKS][SR_UT1_ENTRIES][SR_NUM_LOGICAL_REGS] = {0};
++        int8_t sR_UT2[SR_NUM_BANKS][SR_UT2_ENTRIES][SR_NUM_LOGICAL_REGS] = {0};
++
++        struct RegEntry {
++            uint8_t valid;
++            uint32_t payload;
++            uint32_t decay_ctr;
++        };
++        RegEntry sR_RegTable[SR_NUM_LOGICAL_REGS] = {0};
++
++        struct InFlightEntry {
++            uint8_t valid_regs[SR_NUM_LOGICAL_REGS];
++        };
++        std::unordered_map<uint64_t, InFlightEntry> sR_InFlightState;
++
++        void allocate_register(uint64_t rob_index, bool has_dest, uint64_t dest_reg) {
++            if (!sr_enabled) return;
++        }
++
++        void write_register_digest(uint64_t rob_index, bool has_dest, uint64_t dest_reg, uint64_t result_value, bool is_int, bool is_fp, bool is_flag) {
++            if (!sr_enabled) return;
++        }
++
++        int32_t sr_predict(uint64_t PC, uint64_t rob_index) {
++            return 0;
++        }
++
++        void sr_update(uint64_t PC, uint64_t rob_index, bool taken) {
++        }
++"""
++
++content = content.replace("public:", "public:\n" + state_vars)
++
++setup_body = """
++        void setup()
++        {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++        }
++"""
++
++content = re.sub(r'void setup\(\)\s*\{\s*\}', setup_body.strip(), content)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_my_cond_branch_predictor_h2.py b/patch_my_cond_branch_predictor_h2.py
+new file mode 100644
+index 0000000..6797d20
+--- /dev/null
++++ b/patch_my_cond_branch_predictor_h2.py
+@@ -0,0 +1,61 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++impl = """
++        uint64_t extract_fp_sign_and_exp(uint64_t val) {
++            return (val >> 55) & 0x1FF;
++        }
++
++        void allocate_register(uint64_t rob_index, bool has_dest, uint64_t dest_reg) {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if (sR_RegTable[r].decay_ctr > 0) {
++                    sR_RegTable[r].decay_ctr--;
++                } else if (sR_RegTable[r].decay_ctr == 0) {
++                    sR_RegTable[r].valid = 0;
++                }
++            }
++            if (has_dest && dest_reg < SR_NUM_LOGICAL_REGS) {
++                sR_RegTable[dest_reg].valid = 0;
++                sR_RegTable[dest_reg].payload = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            }
++        }
++
++        void write_register_digest(uint64_t rob_index, bool has_dest, uint64_t dest_reg, uint64_t result_value, bool is_int, bool is_fp, bool is_flag) {
++            if (!sr_enabled) return;
++            if (has_dest && dest_reg < SR_NUM_LOGICAL_REGS) {
++                uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++                if (sR_RegTable[dest_reg].valid == 0 && sR_RegTable[dest_reg].payload == masked_rob) {
++                    uint64_t val = result_value;
++                    uint64_t digest = 0;
++                    if (is_int) {
++                        int trailing = val == 0 ? 64 : __builtin_ctzll(val);
++                        int leading = val == 0 ? 64 : __builtin_clzll(val);
++                        trailing = trailing > 63 ? 63 : trailing;
++                        leading = leading > 63 ? 63 : leading;
++                        uint64_t val6 = val & 0x3F;
++                        digest = (trailing & 0x3F) ^ ((leading & 0x3F) << 3) ^ (val6 << 6);
++                    } else if (is_fp) {
++                        digest = extract_fp_sign_and_exp(val) << 3;
++                    } else if (is_flag) {
++                        uint64_t val4 = val & 0xF;
++                        digest = val4 | (val4 << 4) | (val4 << 8);
++                    } else {
++                        digest = 0;
++                    }
++                    
++                    sR_RegTable[dest_reg].payload = digest & 0xFFF;
++                    sR_RegTable[dest_reg].valid = 1;
++                    sR_RegTable[dest_reg].decay_ctr = (1 << SR_DECAY_CTR_BITS) - 1;
++                }
++            }
++        }
++"""
++
++content = re.sub(r'void allocate_register\(.*?\)\s*\{\s*if\s*\(!sr_enabled\)\s*return;\s*\}', '', content, flags=re.DOTALL)
++content = re.sub(r'void write_register_digest\(.*?\)\s*\{\s*if\s*\(!sr_enabled\)\s*return;\s*\}', impl.strip(), content, flags=re.DOTALL)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_pred_time.py b/patch_pred_time.py
+new file mode 100644
+index 0000000..bc05246
+--- /dev/null
++++ b/patch_pred_time.py
+@@ -0,0 +1,23 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++content = content.replace("int32_t sr_predict(uint64_t PC, uint64_t rob_index) {", "int32_t sr_predict(uint64_t PC, uint64_t rob_index, bool snapshot) {")
++content = content.replace("InFlightEntry& if_entry = sR_InFlightState[masked_rob];", "InFlightEntry& if_entry = sR_InFlightState[masked_rob];\n            if (snapshot) {")
++content = content.replace("if_entry.valid_regs[r] = sR_RegTable[r].valid;\n            }", "if_entry.valid_regs[r] = sR_RegTable[r].valid;\n            }\n            }")
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
++
++with open("cbp2016_tage_sc_l.h", "r") as f:
++    content = f.read()
++
++content = content.replace("LSUM += cond_predictor_impl.sr_predict(PC, cond_predictor_impl.get_unique_inst_id(seq_no, piece));", "LSUM += cond_predictor_impl.sr_predict(PC, cond_predictor_impl.get_unique_inst_id(seq_no, piece), pred_time_predict);")
++with open("cbp2016_tage_sc_l.h", "w") as f:
++    f.write(content)
++
++with open("my_cond_branch_predictor.cc", "r") as f:
++    content = f.read()
++content = content.replace("sr_predict(PC, 999);", "sr_predict(PC, 999, true);")
++with open("my_cond_branch_predictor.cc", "w") as f:
++    f.write(content)
+diff --git a/patch_predict_update.py b/patch_predict_update.py
+new file mode 100644
+index 0000000..8c44032
+--- /dev/null
++++ b/patch_predict_update.py
+@@ -0,0 +1,117 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++impl = """
++        uint32_t hash_ut(uint64_t PC, int table) {
++            return (PC ^ (PC >> (2 + table * 2)));
++        }
++        uint32_t hash_wt(uint64_t PC, uint32_t digest, int table) {
++            return (PC ^ (digest << (table + 1)));
++        }
++
++        int32_t sr_predict(uint64_t PC, uint64_t rob_index) {
++            if (!sr_enabled) return 0;
++            
++            uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            InFlightEntry& if_entry = sR_InFlightState[masked_rob];
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if_entry.valid_regs[r] = sR_RegTable[r].valid;
++            }
++
++            int32_t sR = 0;
++            for (int b = 0; b < SR_NUM_BANKS; b++) {
++                uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                
++                int32_t max_u = -99999;
++                int best_reg = -1;
++                
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                    if ((r % SR_NUM_BANKS) == b && sR_RegTable[r].valid == 1) {
++                        int32_t u_sum = sR_UT0[b][u_idx0][r] + sR_UT1[b][u_idx1][r] + sR_UT2[b][u_idx2][r];
++                        if (u_sum > max_u) {
++                            max_u = u_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                
++                int32_t bank_sum = 0;
++                if (best_reg != -1) {
++                    uint32_t digest = sR_RegTable[best_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                }
++                
++                if (max_u > 0) {
++                    sR += (int32_t)(bank_sum * SR_USEFUL_MULTIPLIER);
++                }
++            }
++            return sR;
++        }
++
++        void sr_update(uint64_t PC, uint64_t rob_index, bool taken, bool match) {
++            if (!sr_enabled) return;
++            
++            uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            if (sR_InFlightState.find(masked_rob) == sR_InFlightState.end()) return;
++            InFlightEntry if_entry = sR_InFlightState[masked_rob];
++            sR_InFlightState.erase(masked_rob);
++            
++            for (int b = 0; b < SR_NUM_BANKS; b++) {
++                int num_available = 0;
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                    if ((r % SR_NUM_BANKS) == b && if_entry.valid_regs[r] == 1) {
++                        num_available++;
++                    }
++                }
++                
++                if (num_available > 0) {
++                    // "random_int() % num_available"
++                    // we'll just use PC as a pseudo-random seed to keep it deterministic
++                    int chosen_idx = (PC + b) % num_available;
++                    int current_idx = 0;
++                    int chosen_reg = 0;
++                    for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                        if ((r % SR_NUM_BANKS) == b && if_entry.valid_regs[r] == 1) {
++                            if (current_idx == chosen_idx) {
++                                chosen_reg = r;
++                            }
++                            current_idx++;
++                        }
++                    }
++                    
++                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                    
++                    int32_t u_delta = match ? 1 : -1; 
++                    
++                    sR_UT0[b][u_idx0][chosen_reg] = std::max(-128, std::min(127, sR_UT0[b][u_idx0][chosen_reg] + u_delta));
++                    sR_UT1[b][u_idx1][chosen_reg] = std::max(-128, std::min(127, sR_UT1[b][u_idx1][chosen_reg] + u_delta));
++                    sR_UT2[b][u_idx2][chosen_reg] = std::max(-128, std::min(127, sR_UT2[b][u_idx2][chosen_reg] + u_delta));
++                    
++                    uint32_t digest = sR_RegTable[chosen_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int32_t w_delta = taken ? 1 : -1;
++                    sR_WT0[b][w_idx0] = std::max(-128, std::min(127, sR_WT0[b][w_idx0] + w_delta));
++                    sR_WT1[b][w_idx1] = std::max(-128, std::min(127, sR_WT1[b][w_idx1] + w_delta));
++                    sR_WT2[b][w_idx2] = std::max(-128, std::min(127, sR_WT2[b][w_idx2] + w_delta));
++                }
++            }
++        }
++"""
++
++content = re.sub(r'int32_t sr_predict\(.*?\)\s*\{\s*return 0;\s*\}', '', content, flags=re.DOTALL)
++content = re.sub(r'void sr_update\(.*?\)\s*\{\s*\}', impl.strip(), content, flags=re.DOTALL)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_recovery.py b/patch_recovery.py
+new file mode 100644
+index 0000000..4ce8437
+--- /dev/null
++++ b/patch_recovery.py
+@@ -0,0 +1,22 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++recovery = """
++        void recovery(uint64_t squashed_rob) {
++            if (!sr_enabled) return;
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if (sR_RegTable[r].valid == 0) {
++                    if (sR_RegTable[r].payload == (squashed_rob & ((1ULL << SR_ROB_IDX_BITS) - 1))) {
++                        sR_RegTable[r].payload = 0;
++                    }
++                }
++            }
++        }
++"""
++
++content = content.replace("void run_tests();", "void run_tests();\n" + recovery.strip())
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_setup.py b/patch_setup.py
+new file mode 100644
+index 0000000..6881947
+--- /dev/null
++++ b/patch_setup.py
+@@ -0,0 +1,22 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++setup_body = """
++        void run_tests();
++
++        void setup()
++        {
++            const char* e = getenv("SR_SR_ENABLE");
++            sr_enabled = (e != nullptr && e[0] == '1');
++            if (sr_enabled) {
++                run_tests();
++            }
++        }
++"""
++
++content = re.sub(r'void setup\(\)\s*\{[^}]*\}', setup_body.strip(), content)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_sr_cache.py b/patch_sr_cache.py
+new file mode 100644
+index 0000000..d6eb1e9
+--- /dev/null
++++ b/patch_sr_cache.py
+@@ -0,0 +1,61 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++content = content.replace("uint8_t valid_regs[SR_NUM_LOGICAL_REGS];", "uint8_t valid_regs[SR_NUM_LOGICAL_REGS];\n            int32_t cached_sR;")
++
++impl = """        int32_t sr_predict(uint64_t PC, uint64_t rob_index, bool snapshot) {
++            if (!sr_enabled) return 0;
++            
++            uint64_t masked_rob = rob_index & ((1ULL << SR_ROB_IDX_BITS) - 1);
++            InFlightEntry& if_entry = sR_InFlightState[masked_rob];
++            
++            if (!snapshot) {
++                return if_entry.cached_sR;
++            }
++            
++            for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                if_entry.valid_regs[r] = sR_RegTable[r].valid;
++            }
++
++            int32_t sR = 0;
++            for (int b = 0; b < SR_NUM_BANKS; b++) {
++                uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                
++                int32_t max_u = -99999;
++                int best_reg = -1;
++                
++                for (int r = 0; r < SR_NUM_LOGICAL_REGS; r++) {
++                    if ((r % SR_NUM_BANKS) == b && sR_RegTable[r].valid == 1) {
++                        int32_t u_sum = sR_UT0[b][u_idx0][r] + sR_UT1[b][u_idx1][r] + sR_UT2[b][u_idx2][r];
++                        if (u_sum > max_u) {
++                            max_u = u_sum;
++                            best_reg = r;
++                        }
++                    }
++                }
++                
++                int32_t bank_sum = 0;
++                if (best_reg != -1) {
++                    uint32_t digest = sR_RegTable[best_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                }
++                
++                if (max_u > 0) {
++                    sR += (int32_t)(bank_sum * SR_USEFUL_MULTIPLIER);
++                }
++            }
++            if_entry.cached_sR = sR;
++            return sR;
++        }"""
++
++content = re.sub(r'int32_t sr_predict\(.*?\)\s*\{.*?return sR;\s*\}', impl, content, flags=re.DOTALL)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_udelta.py b/patch_udelta.py
+new file mode 100644
+index 0000000..51a485e
+--- /dev/null
++++ b/patch_udelta.py
+@@ -0,0 +1,28 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++target = """                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;
++                    
++                    int32_t u_delta = match ? 1 : -1;"""
++
++replacement = """                    uint32_t digest = sR_RegTable[chosen_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int32_t bank_sum = sR_WT0[b][w_idx0] + sR_WT1[b][w_idx1] + sR_WT2[b][w_idx2];
++                    bool bank_pred = bank_sum >= 0;
++                    int32_t u_delta = (bank_pred == taken) ? 1 : -1;
++                    
++                    uint32_t u_idx0 = hash_ut(PC, 0) % SR_UT0_ENTRIES;
++                    uint32_t u_idx1 = hash_ut(PC, 1) % SR_UT1_ENTRIES;
++                    uint32_t u_idx2 = hash_ut(PC, 2) % SR_UT2_ENTRIES;"""
++
++content = content.replace(target, replacement)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_udelta2.py b/patch_udelta2.py
+new file mode 100644
+index 0000000..243efd2
+--- /dev/null
++++ b/patch_udelta2.py
+@@ -0,0 +1,18 @@
++import re
++
++with open("my_cond_branch_predictor.h", "r") as f:
++    content = f.read()
++
++target = """                    uint32_t digest = sR_RegTable[chosen_reg].payload;
++                    uint32_t w_idx0 = hash_wt(PC, digest, 0) % SR_WT0_ENTRIES;
++                    uint32_t w_idx1 = hash_wt(PC, digest, 1) % SR_WT1_ENTRIES;
++                    uint32_t w_idx2 = hash_wt(PC, digest, 2) % SR_WT2_ENTRIES;
++                    
++                    int32_t w_delta = taken ? 1 : -1;"""
++
++replacement = """                    int32_t w_delta = taken ? 1 : -1;"""
++
++content = content.replace(target, replacement)
++
++with open("my_cond_branch_predictor.h", "w") as f:
++    f.write(content)
+diff --git a/patch_update.py b/patch_update.py
+new file mode 100644
+index 0000000..46c2ef6
+--- /dev/null
++++ b/patch_update.py
+@@ -0,0 +1,22 @@
++with open("cbp2016_tage_sc_l.h", "r") as f:
++    content = f.read()
++
++# 1. Signature
++content = content.replace("void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use)",
++                          "void update (UINT64 PC, bool resolveDir, bool pred_taken, UINT64 nextPC, const cbp_hist_t& hist_to_use, uint64_t seq_no = 0, uint8_t piece = 0)")
++
++# 2. Call site
++content = content.replace("update(PC, resolveDir, pred_taken, nextPC, pred_time_history);",
++                          "update(PC, resolveDir, pred_taken, nextPC, pred_time_history, seq_no, piece);")
++
++# 3. Inner update
++target2 = "ctrupdate (BiasBank[get_biasbank_index(PC)], resolveDir, PERCWIDTH);"
++replacement2 = """ctrupdate (BiasBank[get_biasbank_index(PC)], resolveDir, PERCWIDTH);
++                if (cond_predictor_impl.sr_enabled) {
++                    cond_predictor_impl.sr_update(PC, cond_predictor_impl.get_unique_inst_id(seq_no, piece), resolveDir, SCPRED == resolveDir);
++                }"""
++
++content = content.replace(target2, replacement2)
++
++with open("cbp2016_tage_sc_l.h", "w") as f:
++    f.write(content)
+diff --git a/sr_params.h b/sr_params.h
+new file mode 100644
+index 0000000..1c7baa2
+--- /dev/null
++++ b/sr_params.h
+@@ -0,0 +1,63 @@
++// generated from the feature spec and the port plan; DSE mutates values only
++#pragma once
++#define SR_NUM_BANKS 8  // range: [1, 16]
++#define SR_NUM_LOGICAL_REGS 65  // range: [1, 256]
++#define SR_WT0_ENTRIES 512  // range: [2, 65536] pow2
++#define SR_WT1_ENTRIES 256  // range: [2, 65536] pow2
++#define SR_WT2_ENTRIES 128  // range: [2, 65536] pow2
++#define SR_UT0_ENTRIES 8  // range: [2, 65536] pow2
++#define SR_UT1_ENTRIES 8  // range: [2, 65536] pow2
++#define SR_UT2_ENTRIES 8  // range: [2, 65536] pow2
++#define SR_WT_BITS 6  // range: [1, 16]
++#define SR_DECAY_CTR_BITS 8  // range: [1, 16]
++#define SR_ROB_IDX_BITS 14  // range: [1, 32]
++#define SR_INFLIGHT_BRANCHES 256  // range: [1, 1024]
++#define SR_USEFUL_MULTIPLIER 2.5  // range: [1.0, 4.0]
++#define SR_ALGORITHMS_1_PSEUDOCODE_VARIANT 0  // range: index 0-2 (0=saturate | 1=modulo | 2=match_sign)
++#define SR_ALGORITHMS_2_PSEUDOCODE_VARIANT 0  // range: index 0-1 (0=stride_interleaved | 1=contiguous_blocks)
++#define SR_ALGORITHMS_3_TRIGGER_VARIANT 0  // range: index 0-1 (0=commit | 1=resolve)
++#define SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2 0  // range: index 0-1 (0=align_bit_3 | 1=align_bit_0)
++#define SR_ALGORITHMS_2_VARIANT 0  // range: index 0-1 (0=max_u_greater_than_zero | 1=always_2_5)
++// host knobs: the host's own structures, at the clean tree's values by default
++#define HOST_LOGG 10  // range: [8, 16]; sets LOGG
++#define HOST_TBITS 8  // range: [6, 12]; sets TBITS
++#define HOST_NBANKLOW 10  // range: [4, 16]; sets NBANKLOW
++#define HOST_NBANKHIGH 20  // range: [10, 30]; sets NBANKHIGH
++#define HOST_CWIDTH 3  // range: [2, 4]; sets CWIDTH
++#define HOST_UWIDTH 1  // range: [1, 2]; sets UWIDTH
++#define HOST_LOGB 13  // range: [10, 16]; sets LOGB
++#define HOST_HYSTSHIFT 2  // range: [0, 4]; sets HYSTSHIFT
++#define HOST_PERCWIDTH 6  // range: [4, 8]; sets PERCWIDTH
++#define HOST_LOGBIAS 8  // range: [6, 10]; sets LOGBIAS
++#define HOST_LOGGNB 10  // range: [8, 12]; sets LOGGNB
++#define HOST_LOGPNB 9  // range: [7, 11]; sets LOGPNB
++#define HOST_LOGLNB 10  // range: [8, 12]; sets LOGLNB
++#define HOST_LOGSNB 9  // range: [7, 11]; sets LOGSNB
++#define HOST_LOGTNB 10  // range: [8, 12]; sets LOGTNB
++#define HOST_LOGINB 8  // range: [6, 10]; sets LOGINB
++#define HOST_LOGIMNB 9  // range: [7, 11]; sets LOGIMNB
++#define HOST_LOGL 5  // range: [3, 8]; sets LOGL
++#define HOST_EWIDTH 6  // range: [4, 8]; sets EWIDTH
++// storage_bits is the sum of these, in bits:
++//   sR_WT: SR_NUM_BANKS * (SR_WT0_ENTRIES + SR_WT1_ENTRIES + SR_WT2_ENTRIES) * SR_WT_BITS
++//   sR_UT: SR_NUM_LOGICAL_REGS * (SR_UT0_ENTRIES + SR_UT1_ENTRIES + SR_UT2_ENTRIES) * SR_WT_BITS
++//   sR_RegTable: SR_NUM_LOGICAL_REGS * (1 + max(SR_ROB_IDX_BITS, 12) + SR_DECAY_CTR_BITS)
++//   sR_InFlightState: SR_INFLIGHT_BRANCHES * SR_NUM_LOGICAL_REGS
++//   host tagged tables, high banks: HOST_NBANKHIGH * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS + 4)
++//   host tagged tables, low banks: HOST_NBANKLOW * 2 ** HOST_LOGG * (HOST_CWIDTH + HOST_UWIDTH + HOST_TBITS)
++//   host use-alt-on-NA counters: 80
++//   host bimodal, with shared hysteresis: 2 ** HOST_LOGB + 2 ** (HOST_LOGB - HOST_HYSTSHIFT)
++//   host global history, m[NHIST]: 3000
++//   host path history: 27
++//   host TICK counter: 10
++//   host loop predictor: 2 ** HOST_LOGL * 39
++//   host loop predictor, counted again inside SC: 2 ** HOST_LOGL * 39
++//   host SC thresholds and component weights: 524 + 3 * HOST_EWIDTH * 8
++//   host SC bias tables: HOST_PERCWIDTH * 3 * 2 ** HOST_LOGBIAS
++//   host SC global GEHL: 2 ** HOST_LOGGNB * HOST_PERCWIDTH + 2 ** (HOST_LOGGNB - 1) * 2 * HOST_PERCWIDTH + 40
++//   host SC path GEHL: 2 ** HOST_LOGPNB * HOST_PERCWIDTH + 2 ** (HOST_LOGPNB - 1) * 2 * HOST_PERCWIDTH
++//   host SC first local: 2 ** HOST_LOGLNB * HOST_PERCWIDTH + 2 ** (HOST_LOGLNB - 1) * 2 * HOST_PERCWIDTH + 2816 + HOST_EWIDTH * 8
++//   host SC second local: 2 ** HOST_LOGSNB * HOST_PERCWIDTH + 2 ** (HOST_LOGSNB - 1) * 2 * HOST_PERCWIDTH + 256 + HOST_EWIDTH * 8
++//   host SC third local: 2 ** (HOST_LOGTNB - 1) * 2 * HOST_PERCWIDTH + 144 + HOST_EWIDTH * 8
++//   host SC IMLI: 2 ** (HOST_LOGINB - 1) * HOST_PERCWIDTH + 2 * 2 ** (HOST_LOGIMNB - 1) * HOST_PERCWIDTH + 16 * HOST_EWIDTH + 2568
++//   host chooser counters: 14

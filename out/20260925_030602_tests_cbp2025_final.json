@@ -1,0 +1,102 @@
+{
+  "feature_name": "wormhole",
+  "host": "cbp2025",
+  "host_revision": "607496629452740887dc1b90a46834cc90dda1e0",
+  "metric_keys": [
+    "brmispki_50perc_amean",
+    "cycwppki_50perc_amean",
+    "ipc_50perc_amean"
+  ],
+  "smoke": {
+    "trace_list": "experiments/smoke-2.list",
+    "timeout_seconds": 300
+  },
+  "correctness": [
+    {
+      "id": "reg_int",
+      "kind": "existing_regression",
+      "description": "Baseline integer trace run",
+      "command": "make clean && make -s && ./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "clean_tree_result": {
+        "exit_code": 0,
+        "passed": true,
+        "summary": " Read 997301 instrs ",
+        "recorded_at": "2026-09-24T20:15:00Z"
+      },
+      "pass_condition": {
+        "kind": "matches_clean_tree",
+        "pattern": " Read [0-9]+ instrs "
+      }
+    },
+    {
+      "id": "f_off_base",
+      "kind": "feature_off_baseline",
+      "description": "Metrics match baseline with feature off",
+      "command": "./cbp sample_traces/int/sample_int_trace.gz",
+      "feature_state": "off",
+      "pass_condition": {
+        "kind": "metrics_equal_baseline",
+        "baseline_pointer": "/per_trace/int~1sample_int_trace.gz",
+        "rel_tol": 0
+      }
+    },
+    {
+      "id": "ut_alloc",
+      "kind": "spec_unit_test",
+      "description": "Allocate entry on problematic branch",
+      "command": "g++ -std=c++17 -o test_wormhole test_wormhole.cc && ./test_wormhole",
+      "feature_state": "both",
+      "test_file": "test_wormhole.cc",
+      "spec_pointer": "/unit_tests/0",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "ut_walk",
+      "kind": "spec_unit_test",
+      "description": "Walk confidence and saturating counter over time with constant history",
+      "command": "g++ -std=c++17 -o test_wormhole test_wormhole.cc && ./test_wormhole",
+      "feature_state": "both",
+      "test_file": "test_wormhole.cc",
+      "spec_pointer": "/unit_tests/1",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    },
+    {
+      "id": "ut_recover",
+      "kind": "spec_unit_test",
+      "description": "Recover history on squash",
+      "command": "g++ -std=c++17 -o test_wormhole test_wormhole.cc && ./test_wormhole",
+      "feature_state": "both",
+      "test_file": "test_wormhole.cc",
+      "spec_pointer": "/unit_tests/2",
+      "pass_condition": {
+        "kind": "exit_zero"
+      }
+    }
+  ],
+  "performance": [
+    {
+      "id": "perf_mpki",
+      "description": "MPKI improves on training list",
+      "metric": "brmispki_50perc_amean",
+      "direction": "decrease",
+      "trace_list": "experiments/perf-4.list",
+      "baseline": {
+        "source": "measure_feature_off"
+      },
+      "timeout_seconds": 1800,
+      "block_threshold": {
+        "min_relative_improvement": 0.0,
+        "no_regression": []
+      },
+      "warn_threshold": {
+        "target_relative_improvement": 0.0,
+        "claim_source": "Paper Table III"
+      }
+    }
+  ]
+}

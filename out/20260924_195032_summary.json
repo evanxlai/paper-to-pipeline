@@ -1,0 +1,24 @@
+{
+  "stage": [
+    "integrate"
+  ],
+  "budget": "iso-64KiB",
+  "integrate": [
+    {
+      "host": "gem5",
+      "baseline": "iso-64KiB",
+      "status": "failed",
+      "attempts": 6,
+      "plan_revisions": 0,
+      "replans": 0,
+      "rounds": [
+        {
+          "round": 0,
+          "artifacts": "20260924_195032_",
+          "status": "failed",
+          "attempts": 6
+        }
+      ]
+    }
+  ]
+}

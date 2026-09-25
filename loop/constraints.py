@@ -309,15 +309,71 @@ def host_storage(port_plan: dict | None, values: dict) -> dict:
     return out
 
 
-def storage_bits(spec: dict, port_plan: dict | None, feature: dict, host: dict):
+# State that exists only to carry a prediction to its update. The CBP2025
+# kit's README: "The amount of state needed to checkpoint histories will NOT
+# be counted towards the predictor budget", and the host's own checkpoint map
+# (pred_time_histories) is not in its predictorsize(). A spec says so in its
+# own words: one entry per in-flight branch, or indexed by one. Which hosts
+# exempt it is theirs to say (a host adapter's BUDGET_EXEMPT); what it is,
+# is read off the spec here.
+_CHECKPOINT_RE = re.compile(
+    r"\bper\s+in[\s-]?flight\s+branch\b|\bin[\s-]?flight\s+branch\s+(?:id|index)\b", re.I)
+EXEMPT_PREFIX = "exempt:"
+
+
+# The structural signal, which does not depend on wording: the entry's
+# size_formula is multiplied by a count of predictions in flight. The 23:05
+# draft wrote "metadata for each in-flight branch", indexed by "Branch ID /
+# ROB index", which the wording pattern alone missed, and its 27,776 bits
+# would have been charged.
+_INFLIGHT_FACTOR_RE = re.compile(r"in_?flight", re.I)
+
+
+def _formula_factors(formula: str) -> set[str]:
+    """Identifiers a size_formula multiplies by, outside any log2(...)."""
+    while True:
+        stripped = re.sub(r"log2\s*\([^()]*\)", "0", formula)
+        if stripped == formula:
+            break
+        formula = stripped
+    return set(re.findall(r"[A-Za-z_]\w*", formula))
+
+
+def is_checkpoint_state(entry: dict) -> bool:
+    """Whether a spec `state[]` entry is per-in-flight-branch checkpoint state:
+    its own words say one entry per in-flight branch, or its size is a count
+    of in-flight predictions times something."""
+    entry = entry or {}
+    text = " ".join(str(entry.get(k, "")) for k in ("organization", "indexing"))
+    if _CHECKPOINT_RE.search(text):
+        return True
+    return any(_INFLIGHT_FACTOR_RE.search(n)
+               for n in _formula_factors(str(entry.get("size_formula") or "")))
+
+
+def storage_bits(spec: dict, port_plan: dict | None, feature: dict, host: dict,
+                 exempt: tuple = ()):
     """(total bits, breakdown) for one candidate: the feature's structures plus
-    the host's, so shrinking a host structure is what pays for the feature."""
+    the host's, so shrinking a host structure is what pays for the feature.
+
+    `exempt` names the kinds of state the host's budget does not count;
+    "checkpoint" is the only kind so far. An exempt structure stays in the
+    breakdown under EXEMPT_PREFIX, so a report still shows its size, and is
+    left out of the total. Before this, run 20260924_181851 charged sR 16,640
+    bits of in-flight state the kit's rules exempt, which alone put every
+    candidate 18,403 bits over the iso-64KiB allowance with sR at its minimum."""
     breakdown = {**feature_storage(spec, feature), **host_storage(port_plan, host)}
-    return sum(breakdown.values()), breakdown
+    if "checkpoint" in exempt:
+        for entry in (spec or {}).get("state") or []:
+            key = f"feature:{entry.get('name')}"
+            if key in breakdown and is_checkpoint_state(entry):
+                breakdown[EXEMPT_PREFIX + key] = breakdown.pop(key)
+    total = sum(v for k, v in breakdown.items() if not k.startswith(EXEMPT_PREFIX))
+    return total, breakdown
 
 
-# A static metric is f(spec, port_plan, feature_values, host_values) ->
-# (value, breakdown). Add new pre-build metrics here.
+# A static metric is f(spec, port_plan, feature_values, host_values, exempt)
+# -> (value, breakdown). Add new pre-build metrics here.
 STATIC_METRICS = {
     "storage_bits": storage_bits,
 }
@@ -337,6 +393,8 @@ class Constraint:
     comparison: str
     allowance: float
     name: str = ""
+    # Kinds of state the host's budget does not count (see storage_bits).
+    exempt: tuple = ()
 
     @property
     def phase(self) -> str:
@@ -347,15 +405,17 @@ class Constraint:
 
     def describe(self) -> str:
         label = f" ({self.name})" if self.name else ""
-        return f"{self.metric} {self.comparison} {self.allowance:g}{label}"
+        uncounted = f", {' and '.join(self.exempt)} state not counted" if self.exempt else ""
+        return f"{self.metric} {self.comparison} {self.allowance:g}{label}{uncounted}"
 
     def as_dict(self) -> dict:
         return {"metric": self.metric, "comparison": self.comparison,
-                "allowance": self.allowance, "name": self.name, "phase": self.phase}
+                "allowance": self.allowance, "name": self.name, "phase": self.phase,
+                "exempt": list(self.exempt)}
 
 
-def storage_constraint(track: str, allowance_bits: int) -> Constraint:
-    return Constraint("storage_bits", "<=", allowance_bits, track)
+def storage_constraint(track: str, allowance_bits: int, exempt: tuple = ()) -> Constraint:
+    return Constraint("storage_bits", "<=", allowance_bits, track, tuple(exempt))
 
 
 @dataclass
@@ -396,7 +456,8 @@ def check_static(header: str, spec: dict, port_plan: dict | None,
         if c.phase != "static":
             continue
         try:
-            value, breakdown = STATIC_METRICS[c.metric](spec, port_plan, feature, host)
+            value, breakdown = STATIC_METRICS[c.metric](spec, port_plan, feature, host,
+                                                        exempt=c.exempt)
         except FormulaError as e:
             report.errors.append(f"{c.metric} could not be computed: {e}")
             continue

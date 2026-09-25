@@ -190,7 +190,7 @@ Every candidate the search screens goes into
 metrics. The search's own database keeps only a small population. Without
 this log, a candidate the population dropped is gone, header and all.
 
-### 6. Promote, about 2.5 hours
+### 6. Promote
 
 ```bash
 chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
@@ -199,10 +199,13 @@ chia job submit -- python "$(pwd)/loop/adopt_a_paper_loop.py" \
 ```
 
 The search picks its winners on a few traces. Promotion scores the top 3
-again on `experiments/promote-16.list`: 16 training traces that are in
-neither screening list. The same job runs two references on the same
-traces: the kit's default host, and the port with every knob at its
-default. That is 5 runs of about 30 minutes each on 4 trace slots.
+again on `experiments/promote-45.list`: the 45 training traces outside
+`screening-60.list`. Screening plus promotion is then all 105, so the verdict
+compares baseline and tuned over the full training set. The same job runs two
+references on the same traces: the kit's default host, and the port with
+every knob at its default. That is 5 runs. On the older
+`experiments/promote-16.list` and 4 trace slots each run took about 30
+minutes; promote-45 on the scaled-out cluster has not been timed yet.
 
 The result is `out/<run>_promote_cbp2025.json`. Its `verdict` names the
 winner and says whether it beats each reference. `vs_baseline` and
@@ -342,7 +345,10 @@ design.
 | `P2P_CBP2025_PORT_FRESH` | 1 | 0 resumes a stage 3 run on the tree it left |
 | `P2P_SPEC_REVIEW` | 1 | 0 skips stage 1.5, which is most of distill's cost |
 | `P2P_DSE_CONFIG` | the 250-iteration config | the smoke config runs 3, the medium one 24 |
+| `P2P_DSE_ITERATIONS` | the config's own | overrides the config's `max_iterations` |
 | `P2P_DSE_TOP_K` | 3 | how many finalists the promote stage scores again |
+| `P2P_GATE_KNOB_REACH` | 1 | 0 skips G6, the per-knob rebuild (~6.5 min) on an attempt that passed G1 to G5 |
+| `P2P_DSE_PIN` | empty | comma-separated knob macros stage 4 holds at their defaults, for knobs the port does not realize; recorded in the summary |
 
 `--screening-list` and `--baseline-list` are command-line flags rather than
 environment variables, so they go after the script name.

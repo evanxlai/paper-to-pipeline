@@ -546,7 +546,12 @@ def test_evaluator_refuses_an_over_budget_candidate_without_building(spec, host,
     import sr_evaluator
     from skydiscover.evaluation.chia_evaluator import ChiaEvaluator
 
-    cs = [K.storage_constraint("iso-64KiB", 524288)]
+    # The constraint stage 4 builds, host rule included. Built by hand without
+    # it, this test failed from 2026-09-24 on: 578,478 is the host's 524,615
+    # plus sR's three counted structures, and the spec that day gained 16,640
+    # bits of in-flight checkpoint state the kit does not count.
+    import dse
+    cs = dse.constraint_set("iso-64KiB", "cbp2025")
     ev = sr_evaluator.SRParamsEvaluator(
         "/nonexistent", ["int/x.gz"], str(tmp_path), 60, 60,
         spec=spec, port_plan=host, constraints=[c.as_dict() for c in cs])
@@ -566,3 +571,65 @@ def test_evaluator_refuses_an_over_budget_candidate_without_building(spec, host,
     assert over.metrics["storage_bits"] == 578478
     # Below every feasible score, and higher the closer it gets.
     assert 0 < over.metrics["combined_score"] < closer.metrics["combined_score"] < 1
+
+
+# ------------------------------------------------ state the host does not count
+# The CBP2025 kit exempts "the amount of state needed to checkpoint histories"
+# from the budget, and its own checkpoint map is not in predictorsize(). Run
+# 20260924_181851 charged sR 16,640 bits of exactly that state, so with sR at
+# its minimum every candidate was still 18,403 bits over iso-64KiB.
+
+IN_FLIGHT = {"name": "q", "organization": "FIFO queue, one entry per in-flight branch",
+             "indexing": "ROB index / in-flight branch ID", "size_bits": 100}
+
+
+@pytest.mark.parametrize("entry,expected", [
+    (IN_FLIGHT, True),
+    ({"organization": "table", "indexing": "in-flight branch id"}, True),
+    ({"organization": "One entry per logical register", "indexing": "logical register ID"}, False),
+    ({"organization": "8 banks, 3 tables per bank", "indexing": "PC (skewed)"}, False),
+    # A table *about* in-flight state is not the checkpoint itself.
+    ({"organization": "counts how many branches are in flight", "indexing": "PC"}, False),
+    # The 23:05 draft's wording, caught by its formula instead.
+    ({"organization": "Queue storing metadata for each in-flight branch to be used at update time",
+      "indexing": "Branch ID / ROB index",
+      "size_formula": "num_inflight_branches * (num_logical_regs + num_banks * (7 + 12))"}, True),
+    ({"organization": "FIFO", "size_formula": "max_in_flight_branches * num_banks * 16"}, True),
+    # In-flight inside log2 sizes a field width, not the structure.
+    ({"organization": "table", "size_formula": "64 * ceil(log2(num_inflight_branches))"}, False),
+])
+def test_what_counts_as_checkpoint_state(entry, expected):
+    assert K.is_checkpoint_state(entry) is expected
+
+
+def test_an_exempt_structure_leaves_the_total_and_stays_in_the_breakdown():
+    spec = {"state": [IN_FLIGHT, {"name": "t", "organization": "table", "size_bits": 7}]}
+    counted, br = K.storage_bits(spec, None, {}, {})
+    assert counted == 107
+    free, br = K.storage_bits(spec, None, {}, {}, exempt=("checkpoint",))
+    assert free == 7
+    assert br == {"feature:t": 7, K.EXEMPT_PREFIX + "feature:q": 100}
+
+
+def test_the_exemption_survives_the_trip_to_the_evaluator():
+    """The evaluator rebuilds constraints from as_dict(); a field it drops is
+    an exemption the search never applies."""
+    c = K.storage_constraint("iso-64KiB", 524288, exempt=("checkpoint",))
+    d = c.as_dict()
+    assert d["exempt"] == ["checkpoint"] and "not counted" in c.describe()
+    rebuilt = K.Constraint(d["metric"], d["comparison"], d["allowance"], d.get("name", ""),
+                           tuple(d.get("exempt") or ()))
+    assert rebuilt == c
+
+
+def test_cbp2025_declares_checkpoint_state_exempt_and_other_hosts_do_not():
+    import dse
+    (c,) = dse.constraint_set("iso-64KiB", "cbp2025")
+    assert c.exempt == ("checkpoint",)
+    assert dse.constraint_set("iso-64KiB", "gem5")[0].exempt == ()
+    assert dse.constraint_set("iso-64KiB", "no_such_host")[0].exempt == ()
+
+
+def test_on_the_live_spec_only_the_in_flight_state_is_exempt(spec):
+    exempt = [s["name"] for s in spec["state"] if K.is_checkpoint_state(s)]
+    assert len(exempt) <= 1, exempt  # one checkpoint structure at most, in any sR spec so far

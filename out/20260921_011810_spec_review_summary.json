@@ -1,0 +1,231 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:register_tracking_update",
+        "algo:update",
+        "algo:predict",
+        "orphan+global+algo:digest_generation"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 11,
+        "info": 13
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 11,
+        "info": 12
+      },
+      "inconsistent_patches": 0,
+      "verdicts": {
+        "SUPPORTED": 108,
+        "UNSUPPORTED": 21,
+        "UNDERSPECIFIED": 1
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 1,
+      "units": [
+        "algo:register_tracking_update",
+        "algo:update",
+        "algo:predict",
+        "orphan+global+algo:digest_generation"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 11,
+        "info": 12
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 10,
+        "info": 12
+      },
+      "inconsistent_patches": 0,
+      "verdicts": {
+        "SUPPORTED": 93,
+        "CONTRADICTED": 1,
+        "UNSUPPORTED": 17
+      },
+      "accepted": true,
+      "reject_reason": null
+    },
+    {
+      "round": 2,
+      "units": [
+        "algo:register_tracking_update",
+        "algo:update",
+        "algo:predict",
+        "algo:digest_generation+global+orphan"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 0,
+        "warn": 10,
+        "info": 12
+      },
+      "checks_after": {
+        "error": 0,
+        "warn": 10,
+        "info": 12
+      },
+      "inconsistent_patches": 0,
+      "verdicts": {
+        "SUPPORTED": 92,
+        "UNSUPPORTED": 19
+      },
+      "accepted": true,
+      "reject_reason": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/parameters/5/name",
+        "code": "unreferenced_param",
+        "severity": "warn",
+        "message": "parameter 'weight_bits' appears in no algorithm pseudocode; the DSE would tune a knob nothing reads."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'cnt(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'if(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'decode(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'execution_complete(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'pipeline_flush(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'squashed(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'bank(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'bits(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'tables(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'confidence(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'or(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'randomly_select(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'tables(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'update_saturating_counter(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT0' is subscripted at depth 2 by 'reg_pos' in every algorithm, but 'reg_pos' is bound from a different source in each: update assigned `index of chosen_r in bank`; predict assigned `index of r in bank`. Matching names do not make matching domains; one of these indexes out of bounds."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT0' is subscripted at depth 2 by 'reg_pos' in every algorithm, but 'reg_pos' is bound from a different source in each: update assigned `index of chosen_r in bank`; predict assigned `index of r in bank`. Matching names do not make matching domains; one of these indexes out of bounds."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT1' is subscripted at depth 2 by 'reg_pos' in every algorithm, but 'reg_pos' is bound from a different source in each: update assigned `index of chosen_r in bank`; predict assigned `index of r in bank`. Matching names do not make matching domains; one of these indexes out of bounds."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT1' is subscripted at depth 2 by 'reg_pos' in every algorithm, but 'reg_pos' is bound from a different source in each: update assigned `index of chosen_r in bank`; predict assigned `index of r in bank`. Matching names do not make matching domains; one of these indexes out of bounds."
+      },
+      {
+        "pointer": "/algorithms/2/pseudocode",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT2' is subscripted at depth 2 by 'reg_pos' in every algorithm, but 'reg_pos' is bound from a different source in each: update assigned `index of chosen_r in bank`; predict assigned `index of r in bank`. Matching names do not make matching domains; one of these indexes out of bounds."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "inconsistent_index",
+        "severity": "warn",
+        "message": "'UT2' is subscripted at depth 2 by 'reg_pos' in every algorithm, but 'reg_pos' is bound from a different source in each: update assigned `index of chosen_r in bank`; predict assigned `index of r in bank`. Matching names do not make matching domains; one of these indexes out of bounds."
+      },
+      {
+        "pointer": "/algorithms/1/pseudocode",
+        "code": "unproduced_context",
+        "severity": "warn",
+        "message": "'register_tracking_update' reads 'inst.rob_idx', but no algorithm in the spec ever writes it. The producing side of that handshake is missing, so an implementer must invent both what the field holds and which stage fills it."
+      }
+    ],
+    "errors": 0,
+    "open_questions": 40,
+    "parameters": 14,
+    "complete": true,
+    "unreviewed_units": []
+  }
+}

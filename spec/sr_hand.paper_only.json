@@ -1,0 +1,381 @@
+{
+  "feature_name": "sr_hand",
+  "source": {
+    "paper_title": "RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables",
+    "citation": "Toru Koizumi, Toshiki Maekawa, Masanari Mizuno, Maru Kuroki, Tomoaki Tsumura, and Ryota Shioya. 2025. RUNLTS: Register-value-aware Predictor Utilizing Nested Large Tables. In Championship Branch Prediction (CBP 2025).",
+    "inputs_used": "paper_only",
+    "provenance": "HAND-REVISED, not produced by the loop's distill or spec-review stages. Written on 2026-09-25 from spec/sr.paper_only.json (loop run 20260924_091424, the spec behind the iso-64KiB DSE that gained 0.34% MPKI on promote-45) and out/20260921_055502_spec_final.json, re-checked against a visual read of the paper's Figure 5(c), Figure 6 and Tables 2-3, and against the CBP2025 kit source for the register numbering, the flag-register layout and the FP lane format. Named sr_hand so that no artifact of the loop-produced sR runs is overwritten and no result from this spec can be mistaken for one the loop distilled unaided."
+  },
+  "summary": "sR is one more additive component of the TAGE-SC statistical corrector (SC): its output is summed into LSUM together with the other SC components (Figure 5(d): LSUM = sB + sG + sP + sC + sI + sL + sS + sT + sR), so it corrects TAGE through the SC's existing threshold and chooser rather than overriding the prediction. It correlates branch directions with recently produced register values. Every 64-bit value written to one of the 65 logical registers is reduced to a 12-bit digest (Figure 6). A Tomasulo-like status table tracks, per logical register, whether its newest producer has completed; only completed digests are visible at prediction time, and a digest expires after 256 further instructions are decoded. The 65 registers are split into 8 banks. In each bank three usefulness tables (UT, indexed by skewed PC hashes, one counter per register) pick the most useful available register; its digest is hashed with the PC into three weight tables (WT), whose centred weights are summed and scaled by x2.5 when the chosen register is useful and by x0 otherwise. The gain comes mostly right after a misprediction: while the mispredicted branch waited to resolve, many older instructions completed, so after the flush far more digests are valid and sR can correct the following branches (Section 4.2).",
+  "state": [
+    {
+      "name": "sr_wt",
+      "organization": "num_banks banks; each bank owns three weight tables WT0 (wt0_entries), WT1 (wt1_entries) and WT2 (wt2_entries). Figure 5(c): 512, 256 and 128 entries, so 896 entries per bank and 8 banks at the defaults.",
+      "entry_format": "weight: wt_bits-bit signed saturating counter, range [-2^(wt_bits-1), 2^(wt_bits-1) - 1] ([-32, 31] at the default 6 bits); it contributes the centred value 2*weight + 1, as every SC weight in TAGE-SC-L does",
+      "size_bits": 43008,
+      "size_formula": "num_banks * (wt0_entries + wt1_entries + wt2_entries) * wt_bits",
+      "indexing": "WT_k of bank b is indexed by wt_index(PC, d, k, log2(wtk_entries)), where d is the 12-bit digest of the register the bank selected (or chose for training). The index depends on the PC and the digest only, not on which register the digest came from (Figure 5(c): 'PC + reg. digest' into h0, h1, h2)."
+    },
+    {
+      "name": "sr_ut",
+      "organization": "three usefulness tables UT0 (ut0_entries), UT1 (ut1_entries), UT2 (ut2_entries) per bank. Each entry is a vector with one usefulness counter per logical register of that bank: 9 counters in bank 0, 8 in banks 1-7 (Figure 5(c): '9x6bit 8 ent. UT0'). Across all banks that is one counter per logical register (65) per entry position, and 24 entry positions per register at the defaults (8 + 8 + 8), so storage does not depend on num_banks.",
+      "entry_format": "usefulness: ut_bits-bit signed saturating counter per register, range [-2^(ut_bits-1), 2^(ut_bits-1) - 1] ([-32, 31] at the default 6 bits)",
+      "size_bits": 9360,
+      "size_formula": "num_logical_regs * (ut0_entries + ut1_entries + ut2_entries) * ut_bits",
+      "indexing": "UT_k is indexed by ut_index(PC, k, log2(utk_entries)), three different skewed hashes of the PC ('PC (skewed)' in Figure 5(c)); within the entry, logical register r uses its own counter."
+    },
+    {
+      "name": "reg_status",
+      "organization": "direct-mapped, one entry per logical register R0..R64 (num_logical_regs = 65, Table 3). In the CBP2025 trace format R0-R31 are the integer registers, R32-R63 the FP/SIMD registers and R64 the condition flags; R65, the zero register, is never written and is not tracked.",
+      "entry_format": "valid: 1 bit; payload: tag_bits bits (14), holding the producer's in-flight tag while valid = 0 and the 12-bit digest in payload[11:0] while valid = 1; decay_ctr: decay_ctr_bits bits (8); 23 bits per entry at the defaults",
+      "size_bits": 1495,
+      "size_formula": "num_logical_regs * (1 + max(tag_bits, 12) + decay_ctr_bits)",
+      "indexing": "directly by logical register number r in [0, num_logical_regs - 1]"
+    },
+    {
+      "name": "sr_checkpoint",
+      "organization": "one entry per in-flight branch, up to max_inflight_branches (1024) entries of 8 bank records each at the defaults; written when the branch is predicted and released when it trains or is squashed. Carries what the prediction saw to the training step, so training uses prediction-time digests even after a register has been overwritten. Table 3 does not budget it, and the CBP2025 rules exempt per-branch checkpoint state from the predictor budget.",
+      "entry_format": "per bank: contrib (16-bit signed, the bank's contribution to sR at prediction), train_valid (1 bit), train_reg (7 bits, logical register chosen for training), train_digest (12 bits, that register's digest at prediction) = 36 bits per bank",
+      "size_bits": 294912,
+      "size_formula": "max_inflight_branches * num_banks * 36",
+      "indexing": "by in-flight branch id (the host's per-branch prediction id)"
+    }
+  ],
+  "algorithms": [
+    {
+      "name": "fold",
+      "trigger": "helper, called by wt_index and ut_index",
+      "pseudocode": "def fold(x, n):\n    # XOR-fold an unsigned 64-bit value into n bits\n    r = 0\n    while x != 0:\n        r = r ^ (x & ((1 << n) - 1))\n        x = x >> n\n    return r",
+      "notes": "Flipping any single input bit flips exactly one output bit, so every input bit can change the result."
+    },
+    {
+      "name": "sat_update",
+      "trigger": "helper, called by update",
+      "pseudocode": "def sat_update(c, up, bits):\n    # signed saturating up/down counter, the host's ctrupdate\n    if up:\n        if c < (1 << (bits - 1)) - 1:\n            c = c + 1\n    else:\n        if c > -(1 << (bits - 1)):\n            c = c - 1\n    return c",
+      "notes": "Identical to the host SC's ctrupdate(ctr, taken, nbits)."
+    },
+    {
+      "name": "prng_next",
+      "trigger": "helper, called by predict",
+      "pseudocode": "def prng_next():\n    # 64-bit xorshift; Table 2 budgets a 64-bit random-number seed\n    x = prng_state\n    x = x ^ ((x << 13) & 0xFFFFFFFFFFFFFFFF)\n    x = x ^ (x >> 7)\n    x = x ^ ((x << 17) & 0xFFFFFFFFFFFFFFFF)\n    prng_state = x\n    return x",
+      "notes": "Any uniform generator will do; it must be deterministic (a fixed non-zero seed) so that two runs of the same binary on the same trace give the same numbers. prng_state is the 64-bit seed register of Table 2, which the paper books under the table predictors, not under sR."
+    },
+    {
+      "name": "wt_index",
+      "trigger": "helper, called by predict and update",
+      "pseudocode": "def wt_index(pc, d, k, n):\n    # pc: branch PC; d: 12-bit digest; k: table 0, 1 or 2; n = log2(table entries)\n    pcw = pc >> 2    # AArch64 instructions are 4-byte aligned\n    return fold(pcw ^ (pcw >> (n + k + 1)) ^ (d << (3 * k)), n)",
+      "notes": "The paper names the hashes h0, h1, h2 without defining them; this definition is an assumption (see open questions). What is required of any replacement: all 12 digest bits reach every WT index (a digest bit above the index width must be folded in, never truncated away), the PC is taken from bit 2 up, and the three tables use different functions so that pairs aliasing in one table rarely alias in the others. The previous port used (PC ^ (d << k)) % entries, which dropped digest bits 11:9 from WT0, 11:7 from WT1 and 11:5 from WT2."
+    },
+    {
+      "name": "ut_index",
+      "trigger": "helper, called by predict and update",
+      "pseudocode": "def ut_index(pc, k, m):\n    # k: usefulness table 0, 1 or 2; m = log2(table entries)\n    pcw = pc >> 2\n    return fold(pcw ^ (pcw >> (m + k + 1)), m)",
+      "notes": "'PC (skewed)' in Figure 5(c): three different PC hashes, one per UT. The exact functions are an assumption. The index does not depend on the bank; each bank has its own tables."
+    },
+    {
+      "name": "generate_digest",
+      "trigger": "helper, called by writeback_digest",
+      "pseudocode": "def generate_digest(v, r):\n    # v: the low 64 bits of the value written to logical register r\n    if r < 32:                      # integer register\n        msb = (v >> 63) & 1\n        lsb = v & 1\n        lead = count_leading_bits_equal_to(v, msb)    # 1..64\n        trail = count_trailing_bits_equal_to(v, lsb)  # 1..64\n        d = (trail & 0x3F) ^ ((lead & 0x3F) << 3) ^ ((v & 0x3F) << 6)\n    elif r < 64:                    # FP/SIMD register\n        if (v >> 16) == 0:          # upper 48 bits zero: FP16\n            d = (v >> 13) & 0x7     # Val[15:13] at d[2:0]\n        elif (v >> 32) == 0:        # upper 32 bits zero: FP32\n            d = (v >> 26) & 0x3F    # Value[31:26] at d[5:0]\n        else:                       # FP64\n            d = (v >> 55) & 0x1FF   # Value[63:55] at d[8:0]\n    else:                           # r == 64, condition flags\n        f = v & 0xF                 # the four NZCV flags\n        d = f | (f << 4) | (f << 8)\n    return d & 0xFFF",
+      "notes": "Figure 6, read visually. INT: the trailing one/zero count occupies d[5:0], the leading one/zero count d[8:3] and Value[5:0] d[11:6], XORed together. A count is of the bits equal to the MSB (leading) or the LSB (trailing), so it is always in 1..64, and '& 0x3F' is lossless: only 64, the all-zeros or all-ones value, maps to 0. FP: the selected slice is the sign bit and the top exponent bits of that format, right-aligned (the boxes in Figure 6(b) sit flush right). The format is classified from the most significant bits: on AArch64 a scalar FP write zero-extends the vector register, so FP16 and FP32 values have zero upper bits. Checked on the kit's sample_fp trace: 28% of FP-register writes classify as FP16, 34% as FP32, 37% as FP64. FLAGS: the kit's R64 value holds NZCV in bits [3:0] (checked on both sample traces: every value is in 0x0-0xE), matching Figure 6(c)'s Value[3:0]."
+    },
+    {
+      "name": "decode_allocate",
+      "trigger": "instruction decode (rename), once per decoded instruction piece, in program order",
+      "pseudocode": "def decode_allocate(tag, dest, first_write_of_dest):\n    # tag: the piece's in-flight tag (ROB index), tag_bits wide\n    # dest: destination logical register, or -1 if none\n    # 1. age every visible digest by one decoded instruction\n    for r in range(num_logical_regs):\n        if reg_status[r].valid == 1:\n            if reg_status[r].decay_ctr == 0:\n                reg_status[r].valid = 0\n                reg_status[r].payload = 0\n            else:\n                reg_status[r].decay_ctr = reg_status[r].decay_ctr - 1\n    # 2. the register's newest producer is now this piece\n    if dest >= 0 and dest < num_logical_regs and first_write_of_dest:\n        reg_status[dest].valid = 0\n        reg_status[dest].payload = tag\n        reg_status[dest].decay_ctr = 0",
+      "notes": "Section 4.2: 'At decode, an instruction that writes a register stores its ROB index as a tag in the corresponding entry and clears the valid bit.' first_write_of_dest is false for the second piece of an instruction that writes the high 64-bit lane of the same wide register (see host_interfaces); that piece neither re-tags the entry nor, in writeback_digest, overwrites it."
+    },
+    {
+      "name": "writeback_digest",
+      "trigger": "execution completes and the result value is produced (the cycle it would reach the predictor), once per piece",
+      "pseudocode": "def writeback_digest(tag, dest, v, first_write_of_dest):\n    if dest < 0 or dest >= num_logical_regs or not first_write_of_dest:\n        return\n    # an older producer finishing after a younger one was decoded must not win\n    if reg_status[dest].valid == 0 and reg_status[dest].payload == tag:\n        reg_status[dest].payload = generate_digest(v, dest)\n        reg_status[dest].valid = 1\n        reg_status[dest].decay_ctr = (1 << decay_ctr_bits) - 1",
+      "notes": "Section 4.2: 'When the instruction completes, we overwrite the payload with the digest of the produced value and set the valid bit.' With decay_ctr set to 2^decay_ctr_bits - 1 here and decode_allocate invalidating on the decode that finds it at 0, the digest stays visible through 2^decay_ctr_bits - 1 = 255 further decodes and is invalidated by the 256th, as in 'invalidates each digest after 256 subsequent instructions have been decoded'."
+    },
+    {
+      "name": "predict",
+      "trigger": "conditional-branch prediction, inside the SC's sum, before the SC decision and the chooser read LSUM",
+      "pseudocode": "def predict(pc, branch_id):\n    sr_total = 0\n    for b in range(num_banks):\n        avail = [r for r in range(num_logical_regs)\n                 if r % num_banks == b and reg_status[r].valid == 1]\n        entry = sr_checkpoint[branch_id].bank[b]\n        entry.contrib = 0\n        entry.train_valid = 0\n        if len(avail) == 0:\n            continue\n        i0 = ut_index(pc, 0, log2(ut0_entries))\n        i1 = ut_index(pc, 1, log2(ut1_entries))\n        i2 = ut_index(pc, 2, log2(ut2_entries))\n        best_reg = -1\n        best_u = 0\n        for r in avail:                     # ascending r: ties go to the lowest r\n            u = sr_ut[0][i0][r] + sr_ut[1][i1][r] + sr_ut[2][i2][r]\n            if best_reg == -1 or u > best_u:\n                best_reg = r\n                best_u = u\n        d = reg_status[best_reg].payload & 0xFFF\n        wsum = (2 * sr_wt[b][0][wt_index(pc, d, 0, log2(wt0_entries))] + 1) \\\n             + (2 * sr_wt[b][1][wt_index(pc, d, 1, log2(wt1_entries))] + 1) \\\n             + (2 * sr_wt[b][2][wt_index(pc, d, 2, log2(wt2_entries))] + 1)\n        if best_u >= useful_threshold:\n            contrib = trunc(wsum * useful_multiplier)   # x2.5, toward zero\n        else:\n            contrib = 0                                 # x0\n        entry.contrib = contrib\n        # the one register this bank will train (Section 4.2: chosen at random\n        # among the registers available at prediction time)\n        t = avail[prng_next() % len(avail)]\n        entry.train_valid = 1\n        entry.train_reg = t\n        entry.train_digest = reg_status[t].payload & 0xFFF\n        sr_total = sr_total + contrib\n    return sr_total    # the host adds this to LSUM",
+      "notes": "Figure 5(c): per bank, the three UT counters of each available register are summed ('9 regs useful'), the largest wins ('Most useful in this bank'), its digest indexes WT0-2, the three weights are summed, and the sum is scaled 'x0 or x2.5' by the winner's usefulness; the 8 bank outputs are summed into sR. The x0/x2.5 stage sits where 'x1 or x2' and 'x1 or xM' sit in panels (a) and (b), which the host implements as (1 + (W[INDUPDS] >= 0)) * PERCSUM; the same '>= 0' test is used here (useful_threshold = 0). Weights are centred as 2*w + 1 like the host's Gpredict. A bank with no valid register contributes 0 and trains nothing. Drawing the training register at prediction time is statistically the same as drawing it at training time, and lets the checkpoint carry one digest per bank instead of all 65."
+    },
+    {
+      "name": "update",
+      "trigger": "branch resolution, at the host's SC training step, only when the SC trains its other components: the SC sign was wrong or |LSUM| < THRES",
+      "pseudocode": "def update(pc, branch_id, taken, lsum):\n    # lsum: the SC sum as the host computes it for its own training step,\n    # including the sR total this branch was predicted with\n    for b in range(num_banks):\n        entry = sr_checkpoint[branch_id].bank[b]\n        if entry.train_valid == 0:\n            continue\n        t = entry.train_reg\n        d = entry.train_digest\n        j0 = wt_index(pc, d, 0, log2(wt0_entries))\n        j1 = wt_index(pc, d, 1, log2(wt1_entries))\n        j2 = wt_index(pc, d, 2, log2(wt2_entries))\n        p_t = (2 * sr_wt[b][0][j0] + 1) + (2 * sr_wt[b][1][j1] + 1) + (2 * sr_wt[b][2][j2] + 1)\n        # usefulness of register t, before its weights move\n        i0 = ut_index(pc, 0, log2(ut0_entries))\n        i1 = ut_index(pc, 1, log2(ut1_entries))\n        i2 = ut_index(pc, 2, log2(ut2_entries))\n        agrees = (p_t >= 0) == taken\n        if ut_update_rule == sign_flip:\n            xsum = lsum - entry.contrib              # LSUM without this bank\n            with_t = xsum + trunc(p_t * useful_multiplier)\n            move = (with_t >= 0) != (xsum >= 0)     # would t have decided it?\n        else:                                        # agreement\n            move = True\n        if move:\n            for k, i in ((0, i0), (1, i1), (2, i2)):\n                sr_ut[k][i][t] = sat_update(sr_ut[k][i][t], agrees, ut_bits)\n        # the weights t's digest selects move toward the outcome\n        sr_wt[b][0][j0] = sat_update(sr_wt[b][0][j0], taken, wt_bits)\n        sr_wt[b][1][j1] = sat_update(sr_wt[b][1][j1], taken, wt_bits)\n        sr_wt[b][2][j2] = sat_update(sr_wt[b][2][j2], taken, wt_bits)\n    release(sr_checkpoint[branch_id])",
+      "notes": "Section 4.2: 'we update the correlations only for logical registers that were available at prediction time. If several registers were available within the same bank, it randomly selects one of them for the update ... each table in the register component also needs just a single write port.' sat_update(c, up, bits) is the host's ctrupdate: +1 if up else -1, saturating at [-2^(bits-1), 2^(bits-1) - 1]. The sign_flip rule is the host's own usefulness rule (Gupdate: update W only when the component's extra weight flips the sign of the sum, toward whether the component agreed with the outcome), which is what 'as with the SC's existing components, it comprises two tables: one that tracks prediction usefulness and one that determines the predicted branch direction' points to. The release also happens when the SC does not train, and when the branch is squashed."
+    },
+    {
+      "name": "squash_recovery",
+      "trigger": "pipeline flush after a branch misprediction",
+      "pseudocode": "def squash_recovery(squashed_tags):\n    for r in range(num_logical_regs):\n        if reg_status[r].valid == 0 and reg_status[r].payload in squashed_tags:\n            reg_status[r].payload = 0    # no later writeback can match it\n    for branch_id in squashed_branches:\n        release(sr_checkpoint[branch_id])",
+      "notes": "The paper leaves recovery of the table to future work (Section 5). Digests that completed before the flush stay valid: they are exactly the extra values Section 4.2 relies on after a misprediction. An entry whose pending producer was squashed stays invalid until its next writer completes, since the older producer's digest is gone. On a trace-driven host that never decodes wrong-path instructions (CBP2025), no tag ever belongs to a squashed instruction and this is a no-op."
+    }
+  ],
+  "host_interfaces": [
+    {
+      "need": "decode-time destination register and in-flight tag",
+      "description": "For every decoded instruction piece, in program order: its destination logical register (or none) and a tag unique among in-flight pieces, so decode_allocate can run. On CBP2025 this is notify_instr_decode's DecodeInfo.dst_reg_info; the window holds at most 1024 pieces, so seq_no mod 2^14 is a unique 14-bit tag.",
+      "fallback": "Use the host's sequence number truncated to tag_bits as the tag."
+    },
+    {
+      "need": "execute-time result value, at the cycle the value is produced",
+      "description": "For every piece that writes a register: its tag, destination register and the 64-bit value, delivered when the value is produced and before any prediction made in a later cycle, so that 'valid at prediction time' means 'completed before the prediction'. On CBP2025, notify_instr_execute_resolve carries ExecuteInfo.dst_reg_value, and the simulator calls the execute hooks cycle by cycle up to each fetch cycle before predicting in it. Commit-time values would be far later than the paper's and would hide most digests.",
+      "fallback": "None that preserves the mechanism: delivering values at commit starves sR of exactly the post-misprediction values it exploits. Record the loss if forced."
+    },
+    {
+      "need": "which 64-bit lane of a wide register a piece writes",
+      "description": "The digest is of a 64-bit value. Where the host splits a 128-bit SIMD result into two pieces writing the same logical register (low lane first, then the high lane), only the low-lane piece updates reg_status: first_write_of_dest is false for a later piece of the same instruction that writes the same register. On CBP2025 the high-lane piece exists only when the upper half is non-zero, and a scalar FP write arrives as a single low-lane piece.",
+      "fallback": "Let the last piece win; the digest then reflects the high lane of wide vectors only."
+    },
+    {
+      "need": "register class of each logical register",
+      "description": "generate_digest picks the INT, FP or FLAGS digest from the register number: R0-R31 integer, R32-R63 FP/SIMD, R64 the NZCV flags, which is the CBP2025 trace numbering the paper's 65 registers come from.",
+      "fallback": "Treat an unclassifiable register as INT."
+    },
+    {
+      "need": "SC sum and SC training step",
+      "description": "predict returns sR for the host to add into LSUM alongside its other SC components, before the SC sign, the threshold comparison and the chooser use it. update needs the branch's LSUM as the host computes it for its SC training, and must be called exactly when the host trains its other SC components (SC sign wrong or |LSUM| < THRES).",
+      "fallback": "None: sR is an SC component, not a separate predictor (Figure 2, Figure 5(d))."
+    },
+    {
+      "need": "per-branch checkpoint lifetime",
+      "description": "An id per predicted conditional branch that is live from prediction until the branch trains or is squashed, so sr_checkpoint can be written in predict and read in update. The CBP2025 host already keys its own prediction-time state by (seq_no, piece).",
+      "fallback": "Re-read reg_status at update time; training then uses digests that may have changed since prediction."
+    },
+    {
+      "need": "flush notification with the squashed tags",
+      "description": "The tags and branch ids squashed by a misprediction flush, for squash_recovery.",
+      "fallback": "On a host with no wrong-path decode, nothing to do."
+    }
+  ],
+  "resource_accounting": {
+    "total_storage_bits": 348775,
+    "storage_breakdown": "sr_wt: 43008 bits (8 * 896 * 6); sr_ut: 9360 bits (65 * 24 * 6); reg_status: 1495 bits (65 * 23); sr_checkpoint: 294912 bits (1024 * 8 * 36)",
+    "logic_cost_notes": "Table 3 of the paper budgets sR at 53863 bits = sr_wt + sr_ut + reg_status (43008 + 9360 + 1495). The remaining 294912 bits are sr_checkpoint, per-in-flight-branch state that neither Table 3 nor the CBP2025 rules charge to the predictor ('The amount of state needed to checkpoint histories will NOT be counted towards the predictor budget'); the host's own prediction-time checkpoint map is likewise outside its predictorsize(). Its size here is an upper bound at the kit's 1024-entry window. Logic: per bank, one 3-input adder per register (9 in bank 0) and a 9-way max for the UT selection, three WT reads and a 3-input adder, and x2.5 as (s << 1) + (s >> 1); one write port per table because each bank trains one register.",
+    "budget_donors": "A DSE input only. At iso-64KiB the kit's TAGE-SC-L is already 327 bits over 524288 before sR, so every sR bit must come out of the host. Candidates, largest first: the tagged tables (high banks 327680 bits, low banks 122880), the SC local-history GEHLs (15152 + 6448 + 6336) and IMLI (6504), the bimodal (10240). RUNLTS itself omits the loop predictor ('because of its high complexity and low contribution', Section 3 footnote), which frees 1248 bits plus the 1248 the SC counts again."
+  },
+  "parameters": [
+    {
+      "name": "num_banks",
+      "type": "int",
+      "default": 8,
+      "range": "[1, 16]",
+      "storage_impact": "sr_wt scales linearly; sr_ut and reg_status do not depend on it"
+    },
+    {
+      "name": "num_logical_regs",
+      "type": "int",
+      "default": 65,
+      "range": "[65, 65]",
+      "storage_impact": "structural: the host's 65 architectural registers (R0-R64); pinned"
+    },
+    {
+      "name": "wt0_entries",
+      "type": "int",
+      "default": 512,
+      "range": "[32, 8192] pow2",
+      "storage_impact": "num_banks * wt0_entries * wt_bits"
+    },
+    {
+      "name": "wt1_entries",
+      "type": "int",
+      "default": 256,
+      "range": "[32, 8192] pow2",
+      "storage_impact": "num_banks * wt1_entries * wt_bits"
+    },
+    {
+      "name": "wt2_entries",
+      "type": "int",
+      "default": 128,
+      "range": "[32, 8192] pow2",
+      "storage_impact": "num_banks * wt2_entries * wt_bits"
+    },
+    {
+      "name": "ut0_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[2, 64] pow2",
+      "storage_impact": "num_logical_regs * ut0_entries * ut_bits"
+    },
+    {
+      "name": "ut1_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[2, 64] pow2",
+      "storage_impact": "num_logical_regs * ut1_entries * ut_bits"
+    },
+    {
+      "name": "ut2_entries",
+      "type": "int",
+      "default": 8,
+      "range": "[2, 64] pow2",
+      "storage_impact": "num_logical_regs * ut2_entries * ut_bits"
+    },
+    {
+      "name": "wt_bits",
+      "type": "int",
+      "default": 6,
+      "range": "[3, 8]",
+      "storage_impact": "sr_wt scales linearly"
+    },
+    {
+      "name": "ut_bits",
+      "type": "int",
+      "default": 6,
+      "range": "[3, 8]",
+      "storage_impact": "sr_ut scales linearly"
+    },
+    {
+      "name": "decay_ctr_bits",
+      "type": "int",
+      "default": 8,
+      "range": "[4, 12]",
+      "storage_impact": "num_logical_regs bits per step; the decay interval is 2^decay_ctr_bits decodes"
+    },
+    {
+      "name": "tag_bits",
+      "type": "int",
+      "default": 14,
+      "range": "[14, 14]",
+      "storage_impact": "structural: the paper's 14-bit ROB tag; pinned"
+    },
+    {
+      "name": "max_inflight_branches",
+      "type": "int",
+      "default": 1024,
+      "range": "[1024, 1024]",
+      "storage_impact": "structural: sr_checkpoint capacity at the kit's 1024-entry window; checkpoint state, pinned"
+    },
+    {
+      "name": "useful_multiplier",
+      "type": "float",
+      "default": 2.5,
+      "range": "[0.5, 4.0]",
+      "storage_impact": "None (scales a bank's contribution; Figure 5(c) 'x2.5')"
+    },
+    {
+      "name": "useful_threshold",
+      "type": "int",
+      "default": 0,
+      "range": "[-16, 16]",
+      "storage_impact": "None (a bank contributes only if its winner's summed usefulness >= this)"
+    },
+    {
+      "name": "ut_update_rule",
+      "type": "enum",
+      "default": "sign_flip",
+      "range": "choices: sign_flip|agreement",
+      "storage_impact": "None (which training events move the usefulness counters)"
+    }
+  ],
+  "unit_tests": [
+    {
+      "name": "digest_int_small",
+      "given": "generate_digest(0x42, 3): an integer register receives 0x42.",
+      "expect": "trailing count 1 (bit 0 is 0, bit 1 is 1), leading count 57, Value[5:0] = 2, so the digest is 1 ^ (57 << 3) ^ (2 << 6) = 0x149."
+    },
+    {
+      "name": "digest_int_negative",
+      "given": "generate_digest(0xFFFFFFFFFFFFFFF0, 5).",
+      "expect": "trailing count 4 (zeros), leading count 60 (ones), Value[5:0] = 48, so the digest is 4 ^ (60 << 3) ^ (48 << 6) = 0xDE4."
+    },
+    {
+      "name": "digest_int_all_zero_and_all_one",
+      "given": "generate_digest(0x0, 0) and generate_digest(0xFFFFFFFFFFFFFFFF, 0).",
+      "expect": "Both counts are 64, which '& 0x3F' maps to 0, so 0x0 gives digest 0x000 and 0xFFFFFFFFFFFFFFFF gives 0x3F << 6 = 0xFC0."
+    },
+    {
+      "name": "digest_fp_formats",
+      "given": "generate_digest on FP register 40 with 0x3FF0000000000000 (FP64 1.0), 0x3F800000 (FP32 1.0) and 0x3C00 (FP16 1.0).",
+      "expect": "FP64 gives Value[63:55] = 0x07F; FP32 gives Value[31:26] = 0x00F; FP16 gives Val[15:13] = 0x001; each right-aligned in the 12-bit digest."
+    },
+    {
+      "name": "digest_flags",
+      "given": "generate_digest(0x9, 64): the flag register receives NZCV = 0b1001.",
+      "expect": "The four flag bits are replicated three times: digest 0x999."
+    },
+    {
+      "name": "decay_invalidates_after_256_decodes",
+      "given": "Register 7 completes (valid = 1, decay_ctr = 255). Then decode_allocate runs for 256 instruction pieces that do not write register 7.",
+      "expect": "Register 7 is still valid after the 255th of those decodes and becomes invalid on the 256th; a prediction made in between sees its digest, one made after does not."
+    },
+    {
+      "name": "writeback_only_from_newest_producer",
+      "given": "Piece A (tag 5) and then piece B (tag 9) are decoded, both writing register 12. A completes first, then B.",
+      "expect": "After A completes, register 12 is still pending (valid = 0, payload = 9). After B completes it holds B's digest with valid = 1."
+    },
+    {
+      "name": "wide_register_uses_low_lane",
+      "given": "One SIMD instruction writes register 33 as two pieces, the low lane 0x3F800000 and then a non-zero high lane; both complete.",
+      "expect": "Register 33 holds the low lane's digest 0x00F; the high-lane piece changed nothing."
+    },
+    {
+      "name": "predict_selects_most_useful_register",
+      "given": "Bank 0 has registers 0 and 8 valid, with summed usefulness 5 and 18 at this PC; no other bank has a valid register.",
+      "expect": "Register 8's digest indexes WT0-2 of bank 0; register 0 is not read. Since 18 >= useful_threshold (0) the bank contributes trunc(2.5 * wsum), and sR equals that."
+    },
+    {
+      "name": "predict_centred_weights",
+      "given": "Bank 2's winner has usefulness 0 and its three selected weights are all 0; in a second case all three are -1.",
+      "expect": "wsum is 3 and the contribution trunc(3 * 2.5) = 7; in the second case wsum is -3 and the contribution -7."
+    },
+    {
+      "name": "predict_gate_closed",
+      "given": "Bank 1's only valid register, 9, has summed usefulness -4.",
+      "expect": "-4 < 0 selects x0: bank 1 contributes 0 to sR. Register 9 is still recorded as bank 1's training register, because it was available at prediction time."
+    },
+    {
+      "name": "predict_empty_bank",
+      "given": "No register of bank 5 is valid at prediction.",
+      "expect": "Bank 5 contributes 0 and its checkpoint has train_valid = 0, so update changes nothing in bank 5."
+    },
+    {
+      "name": "wt_index_uses_every_digest_bit",
+      "given": "PC 0x4a3b2c, digest 0x149, and each of the 12 digests that differ from it in one bit.",
+      "expect": "At the default sizes (9, 8 and 7 index bits) every one of the 12 single-bit changes gives a different WT0 index, a different WT1 index and a different WT2 index from digest 0x149's."
+    },
+    {
+      "name": "fold_xor_folds_every_bit",
+      "given": "fold(0x149, 7), fold(0x149 ^ 0x800, 7) and fold(0, 7).",
+      "expect": "fold(0x149, 7) = 0x49 ^ 0x2 = 0x4B; flipping input bit 11 flips output bit 4, giving 0x5B; fold(0, 7) = 0."
+    },
+    {
+      "name": "decode_allocate_claims_register",
+      "given": "Register 20 is valid with a digest. decode_allocate runs for a piece with tag 77 that writes register 20.",
+      "expect": "Register 20's valid bit is cleared and its payload now holds tag 77, so a prediction made now sees no digest for register 20."
+    },
+    {
+      "name": "squash_recovery_keeps_completed_digests",
+      "given": "Register 4 is valid with digest 0x149; register 6 is pending on tag 300. A flush squashes tag 300 and squash_recovery runs.",
+      "expect": "Register 4 keeps valid = 1 and digest 0x149. Register 6 stays valid = 0 with payload 0, so a later writeback of tag 300 cannot set it."
+    },
+    {
+      "name": "prng_next_is_deterministic",
+      "given": "prng_state = 1, then prng_next is called twice.",
+      "expect": "The calls return 0x40822041 and then 0x100041060c011441, on every run."
+    },
+    {
+      "name": "update_trains_one_register_per_bank",
+      "given": "Bank 3 had registers 3 and 11 valid at prediction, and the SC trains on this branch.",
+      "expect": "Exactly one of them, the one recorded in the checkpoint, has its WT entries and (if the rule says to move) its UT counters changed; the other register's counters in bank 3 are untouched."
+    },
+    {
+      "name": "update_usefulness_sign_flip",
+      "given": "ut_update_rule = sign_flip. At training, lsum = 10, the bank's recorded contrib is 0, the training register's p_t = -6 and the branch was not taken. In a second case lsum = 40 with everything else equal.",
+      "expect": "First case: xsum = 10 and xsum + trunc(-6 * 2.5) = -5 changes sign, and p_t < 0 agrees with not-taken, so each of the register's three UT counters is incremented. Second case: 40 - 15 = 25 keeps the sign, so the UT counters do not change. The WT entries are decremented in both cases."
+    },
+    {
+      "name": "no_training_when_sc_confident_and_right",
+      "given": "The SC predicted correctly with |LSUM| >= THRES.",
+      "expect": "update is not called: 0 sr_wt and 0 sr_ut counters change, and the branch's sr_checkpoint entry is released."
+    }
+  ],
+  "open_questions": [
+    "The WT hashes h0-h2 and the skewed UT hashes are not defined in the paper. wt_index and ut_index are this spec's choice; the properties it requires (all 12 digest bits reach every WT index, PC from bit 2 up, distinct functions per table) are what matter, and a port may use any hash that keeps them.",
+    "How the usefulness counters are trained is not stated. The default, sign_flip, is the host SC's own rule for its usefulness weights; agreement (move on every training event) is the alternative and is a DSE knob (ut_update_rule).",
+    "The x0/x2.5 control signal is drawn but not specified. The default gates on the winner's summed usefulness >= 0, the test the host applies to its own x1/x2 weights; useful_threshold is a DSE knob.",
+    "The leading/trailing counts can be 64, which a 6-bit field cannot hold. This spec takes count & 0x3F, which is lossless because a count of bits equal to the MSB or LSB is never 0; saturating at 63 instead would merge 63 and 64.",
+    "FP format classification: this spec reads 'inspect the most significant bits' as AArch64 zero-extension (upper 48 bits zero: FP16; upper 32 bits zero: FP32; else FP64). SIMD integer data in FP registers is classified the same way.",
+    "Where decay counting starts is ambiguous ('after 256 subsequent instructions have been decoded'). This spec starts it when the digest is written, so a slow producer's digest is visible for the full 255 decodes after it completes.",
+    "Whether sR's usefulness adds to the SC threshold THRES, as the host's components add 12 each when their weight is non-negative, is not stated. This spec leaves THRES as the host computes it.",
+    "The paper leaves recovery of the status table on a flush to future work. squash_recovery keeps completed digests and invalidates only entries pending on squashed producers; on CBP2025, which never decodes wrong-path instructions, it does nothing."
+  ]
+}

@@ -1962,6 +1962,45 @@ def test_an_equality_test_is_not_a_clearing_store(spec):
     assert len(_recovery(s)) == 1
 
 
+def test_a_restore_from_architectural_state_is_a_recovery(spec):
+    """The live false positive, verbatim from the run of 2026-09-24. It puts
+    each squashed entry back from the architectural value rather than zeroing
+    it, so it stores no clearing value and calls nothing named clear(). The
+    check refused it, and no review patch could satisfy a check that rejects
+    the correct unwind."""
+    s = _spec_with_rob(spec)
+    s["algorithms"].append({
+        "name": "mispredict_recovery",
+        "trigger": "Pipeline squash (branch mispredict)",
+        "pseudocode": (
+            "def mispredict_recovery(squashed_rob_indices):\n"
+            "    for reg in range(num_logical_regs):\n"
+            "        if tomasulo_table[reg].valid == 0 and tomasulo_table[reg].payload in squashed_rob_indices:\n"
+            "            tomasulo_table[reg].valid = 1\n"
+            "            tomasulo_table[reg].payload = digest_register(arch_reg_value(reg), arch_reg_type(reg))\n"
+            "            tomasulo_table[reg].decay_ctr = decay_timeout - 1"
+        ),
+    })
+    assert _recovery(s) == []
+
+
+@pytest.mark.parametrize("body", [
+    # A restore with no guard: it rewrites every entry, squashed or not.
+    "producer[r].valid = 1",
+    # A guard naming the squash that only reads under it.
+    "if producer[r].rob_index in squashed:\n  log(r)",
+    # A store under a guard that says nothing about what was squashed.
+    "if producer[r].valid == 1:\n  producer[r].ctr = ctr + 1",
+    # A store after the guarded block has ended, not inside it.
+    "if producer[r].rob_index in squashed:\n  log(r)\nproducer[r].valid = 1",
+])
+def test_a_restore_counts_only_under_a_guard_naming_the_squashed_entries(spec, body):
+    s = _spec_with_rob(spec)
+    s["algorithms"].append({"name": "squash", "trigger": "pipeline flush",
+                            "pseudocode": body})
+    assert len(_recovery(s)) == 1
+
+
 def test_a_spec_holding_no_speculative_state_needs_no_recovery(spec):
     """A table of counters is not tagged with an instruction that may never
     commit, so there is nothing for a flush to put back."""
@@ -2659,3 +2698,19 @@ def test_generic_words_are_dropped_in_their_stemmed_form():
     `unreferenced_param` findings in two runs."""
     for word in ("entries", "registers", "tables", "values"):
         assert tokens(f"{word} of decay") == {"decay"}, word
+
+
+def test_a_dimension_is_not_paired_with_a_field_that_shares_a_word(spec):
+    """The live one, 2026-09-24: max_in_flight_branches (256) is a FIFO depth
+    in the size_formula, and the representability check paired it with a
+    1-bit flag, max_useful_positive, on the word "max". No review could fix
+    that without distorting the spec. A name outside log2() in a size_formula
+    sizes a structure; its value is stored in no field."""
+    spec["state"].append({
+        "name": "snapshot buffer", "organization": "FIFO per in-flight branch",
+        "entry_format": "active (1), max_useful_positive (1)", "size_bits": 512,
+        "size_formula": "max_in_flight_branches * 2", "indexing": "branch id"})
+    spec["parameters"].append({"name": "max_in_flight_branches", "type": "int",
+                               "default": 256, "range": "[1, 1024]"})
+    assert not [f for f in run_checks(spec) if f.code == "unrepresentable_default"
+                and f.pointer == f"/parameters/{len(spec['parameters']) - 1}/default"]

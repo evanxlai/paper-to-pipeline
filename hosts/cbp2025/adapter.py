@@ -72,6 +72,15 @@ _ROW_TO_METRIC = {
 }
 
 
+# What this host's budget does not count. The kit's README: "The amount of
+# state needed to checkpoint histories will NOT be counted towards the
+# predictor budget." TAGE-SC-L's own checkpoint map (pred_time_histories) is
+# not in its predictorsize() either, so charging a port's equivalent would
+# hold the feature to a rule the baseline is not held to. Stage 4's storage
+# constraint reads this (dse.budget_exempt, constraints.storage_bits).
+BUDGET_EXEMPT = ("checkpoint",)
+
+
 # --------------------------------------------------------------- remote work
 
 
@@ -87,18 +96,28 @@ def host_shell(cwd: str, command: str, env: dict | None, timeout_s: int) -> dict
 
     Returns a dict rather than raising, for plan_runner's reason: a hung or
     crashed test is a gate failure with a diagnosis, and an exception here
-    would instead take down the stage that was trying to diagnose it."""
+    would instead take down the stage that was trying to diagnose it.
+
+    Output is decoded with errors="replace", as gem5's host_shell already
+    does. The run of 2026-09-24 had the integration agent leave a helper
+    script holding one non-UTF-8 byte in the port tree; `git diff` prints an
+    untracked text file inline, so port_diff raised UnicodeDecodeError
+    instead of returning, and save_port calls it unguarded when a round
+    ends -- after the gate, before stage 4."""
     merged = {**os.environ, **{k: str(v) for k, v in (env or {}).items()}}
     try:
         proc = subprocess.run(
             command, shell=True, cwd=cwd, capture_output=True, text=True,
-            timeout=timeout_s, env=merged,
+            errors="replace", timeout=timeout_s, env=merged,
         )
     except subprocess.TimeoutExpired as e:
+        # The partial output on a timeout is bytes whatever text= says.
+        partial = "".join(
+            s.decode("utf-8", "replace") if isinstance(s, bytes) else (s or "")
+            for s in (e.stdout, e.stderr))
         return {
             "exit_code": -1,
-            "output": f"{e.stdout or ''}{e.stderr or ''}"
-                      f"\n[{command!r} timed out after {timeout_s}s]",
+            "output": f"{partial}\n[{command!r} timed out after {timeout_s}s]",
             "timed_out": True,
         }
     except OSError as e:
@@ -510,6 +529,40 @@ def dse_tree(fresh: bool = True) -> str:
             f"{C.CBP2025_HOST_RESOURCE} node."
         )
     return result["path"]
+
+
+def header_build(root: str, header_name: str, env: dict | None):
+    """`build(header_text) -> bytes | None` over one tree, the callable
+    dse.preflight takes. The header is overlaid onto `root` in place, so
+    `root` must be a copy: the DSE tree for stage 4, the reach tree for G6."""
+    def build(header_text: str):
+        result = get(CBP2025Node.build.options(
+            resources={C.CBP2025_HOST_RESOURCE: 1.0}
+        ).chia_remote(root, {header_name: header_text.encode()},
+                      C.BUILD_TIMEOUT_S, env))
+        return result.binary if result.success else None
+    return build
+
+
+def knob_reach(spec: dict, port_plan: dict) -> dict:
+    """G6's measurement: stage 4's preflight, on a fresh copy of the port.
+
+    Built with the feature on, as stage 4 builds, because a port that binds
+    the enable knob at compile time may compile the feature's code out when
+    it is off, and every SR_* knob would then read as inert. The header is
+    regenerated from the plan in force, not read off the tree, because that
+    regenerated file is the one stage 4 will overlay."""
+    import dse
+
+    result = get(materialize_port_tree.chia_remote(
+        C.CBP2025_PORT_ROOT, C.CBP2025_REACH_ROOT, True, False
+    ))
+    if not result.get("ok"):
+        return {"blocking": [f"could not copy the port tree to check its knobs: "
+                             f"{result.get('error')}"], "warnings": [], "knobs": []}
+    env = enable_env((port_plan or {}).get("feature_enable") or {}, True)
+    build = header_build(result["path"], dse.params_header_name(spec), env)
+    return dse.preflight(build, spec, port_plan, dse.params_header(spec, port_plan))
 
 
 def clean_port_tree(fresh: bool = True) -> dict:

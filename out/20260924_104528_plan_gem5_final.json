@@ -1,0 +1,554 @@
+{
+  "feature_name": "sr",
+  "host": "gem5",
+  "host_revision": "7a2b0e413d06c5ce7097104abef3b1d9eaabca91",
+  "structure": {
+    "choice": "Embed sR's state as members of the SC (or a new class instantiated there) and add an additive term to the SC's sum inside TAGE_SC_L_64KB_StatisticalCorrector::gPredictions. This matches how gem5's SC components work (evaluated both at prediction and update rebuild). Register delivery uses a new probe listener attached in TAGE_SC_L's regProbeListeners.",
+    "rejected_alternatives": [
+      {
+        "alternative": "Pass sR through init_lsum in scPredict.",
+        "why_rejected": "The update-time rebuild of lsum drops init_lsum, so sR's output would not train correctly alongside other SC components.",
+        "source": "hosts/gem5/NOTES.md"
+      },
+      {
+        "alternative": "A subclass that overrides scPredict and condBranchUpdate.",
+        "why_rejected": "Requires copying the chooser and update blocks exactly, duplicating code that must remain bit-identical with the knob off.",
+        "source": "hosts/gem5/NOTES.md"
+      },
+      {
+        "alternative": "Changing pred_taken after scPredict in TAGE_SC_L::predict.",
+        "why_rejected": "Makes sR an override rather than an additive term, which contradicts the spec and worsens performance.",
+        "source": "hosts/gem5/NOTES.md"
+      }
+    ]
+  },
+  "hook_points": [
+    {
+      "id": "tage_sc_l_probes_hh",
+      "file": "src/cpu/pred/tage_sc_l.hh",
+      "symbol": "TAGE_SC_L",
+      "action": "modify",
+      "observed": "Defines the TAGE_SC_L predictor class inheriting from LTAGE.",
+      "change": "Add `regProbeListeners()` override to the class. Declare necessary pointer handles for the Commit, Rename, and SquashInRename probe listeners. Add `onCommit`, `onRename`, and `onSquashInRename` callback methods."
+    },
+    {
+      "id": "tage_sc_l_probes_cc",
+      "file": "src/cpu/pred/tage_sc_l.cc",
+      "symbol": "TAGE_SC_L::regProbeListeners",
+      "action": "modify",
+      "observed": "Implements TAGE_SC_L methods.",
+      "change": "Implement `regProbeListeners()` to find `system.cpu` and connect the `Commit`, `Rename`, and `SquashInRename` probe listeners if `SR_SR_ENABLE` is set. Implement the callbacks to forward the calls to `statisticalCorrector`."
+    },
+    {
+      "id": "sc_methods_hh",
+      "file": "src/cpu/pred/statistical_corrector.hh",
+      "symbol": "StatisticalCorrector",
+      "action": "modify",
+      "observed": "Defines the base StatisticalCorrector class and its BranchInfo struct.",
+      "change": "Add virtual methods `onCommit`, `onRename`, and `onSquashInRename` to `StatisticalCorrector`. In `BranchInfo`, add an array (e.g. `bool sr_valid_regs[65];`) to snapshot the available valid registers for sR at prediction time. Add `virtual ~BranchInfo() = default;` to prevent undefined behavior."
+    },
+    {
+      "id": "tage_sc_l_64kb_sc_hh",
+      "file": "src/cpu/pred/tage_sc_l_64KB.hh",
+      "symbol": "TAGE_SC_L_64KB_StatisticalCorrector",
+      "action": "modify",
+      "observed": "Defines TAGE_SC_L_64KB_StatisticalCorrector inheriting from StatisticalCorrector.",
+      "change": "Declare sR state components (sR_WT, sR_UT, sR_RegTable) as members. Override `onCommit`, `onRename`, and `onSquashInRename`."
+    },
+    {
+      "id": "gpredictions_add",
+      "file": "src/cpu/pred/tage_sc_l_64KB.cc",
+      "symbol": "TAGE_SC_L_64KB_StatisticalCorrector::gPredictions",
+      "action": "modify",
+      "observed": "Computes lsum by adding gPredict terms for bw, p, l, s, t, im, and imli, then calculates thres.",
+      "change": "Inside an `#if SR_SR_ENABLE` block, snapshot `sR_RegTable` valid bits into `bi->sr_valid_regs`, call sR's `predict` logic, and add the result to `lsum` right before `thres` is calculated."
+    },
+    {
+      "id": "gupdates_add",
+      "file": "src/cpu/pred/tage_sc_l_64KB.cc",
+      "symbol": "TAGE_SC_L_64KB_StatisticalCorrector::gUpdates",
+      "action": "modify",
+      "observed": "Updates the various GEHL weights and histories using gUpdate.",
+      "change": "Inside an `#if SR_SR_ENABLE` block, invoke sR's `update` logic using the `bi->sr_valid_regs` snapshot, `pc`, and `taken`."
+    },
+    {
+      "id": "sc_callbacks_cc",
+      "file": "src/cpu/pred/tage_sc_l_64KB.cc",
+      "symbol": "TAGE_SC_L_64KB_StatisticalCorrector::onCommit",
+      "action": "modify",
+      "observed": "Implements TAGE_SC_L_64KB_StatisticalCorrector methods.",
+      "change": "Implement the `onCommit`, `onRename`, and `onSquashInRename` callbacks to extract register values/indices and run `write_register_digest`, `allocate_register`, and `recovery` respectively."
+    },
+    {
+      "id": "sr_params_h",
+      "file": "src/cpu/pred/sr_params.h",
+      "symbol": "SR_SR_ENABLE",
+      "action": "create",
+      "change": "Generate the parameters header that drives the #defines for all tuning parameters."
+    }
+  ],
+  "spec_map": [
+    {
+      "spec_pointer": "/state/0",
+      "spec_item": "sR_WT",
+      "hook_ids": [
+        "tage_sc_l_64kb_sc_hh"
+      ],
+      "realization": "Declared as an array member of TAGE_SC_L_64KB_StatisticalCorrector."
+    },
+    {
+      "spec_pointer": "/state/1",
+      "spec_item": "sR_UT",
+      "hook_ids": [
+        "tage_sc_l_64kb_sc_hh"
+      ],
+      "realization": "Declared as an array member of TAGE_SC_L_64KB_StatisticalCorrector."
+    },
+    {
+      "spec_pointer": "/state/2",
+      "spec_item": "sR_RegTable",
+      "hook_ids": [
+        "tage_sc_l_64kb_sc_hh"
+      ],
+      "realization": "Declared as an array member of TAGE_SC_L_64KB_StatisticalCorrector to track logical registers."
+    },
+    {
+      "spec_pointer": "/state/3",
+      "spec_item": "sR_InFlightState",
+      "hook_ids": [
+        "sc_methods_hh"
+      ],
+      "realization": "Realized implicitly by snapshotting available registers into `sr_valid_regs` in the SC's `BranchInfo`, avoiding a separate explicit FIFO queue structure."
+    },
+    {
+      "spec_pointer": "/algorithms/0",
+      "spec_item": "allocate_register",
+      "hook_ids": [
+        "sc_callbacks_cc"
+      ],
+      "realization": "Implemented in the `onRename` callback to extract destination registers and handle allocation."
+    },
+    {
+      "spec_pointer": "/algorithms/1",
+      "spec_item": "write_register_digest",
+      "hook_ids": [
+        "sc_callbacks_cc"
+      ],
+      "realization": "Implemented in the `onCommit` callback to read the physical register value and update the digest."
+    },
+    {
+      "spec_pointer": "/algorithms/2",
+      "spec_item": "predict",
+      "hook_ids": [
+        "gpredictions_add"
+      ],
+      "realization": "Invoked inside `gPredictions` to evaluate sR's component and add its output to `lsum`."
+    },
+    {
+      "spec_pointer": "/algorithms/3",
+      "spec_item": "update",
+      "hook_ids": [
+        "gupdates_add"
+      ],
+      "realization": "Invoked inside `gUpdates` to update `sR_UT` and `sR_WT` based on the snapshot in `BranchInfo`."
+    },
+    {
+      "spec_pointer": "/algorithms/4",
+      "spec_item": "recovery",
+      "hook_ids": [
+        "sc_callbacks_cc"
+      ],
+      "realization": "Implemented in `onSquashInRename` to clear pending writes for squashed ROB indices."
+    },
+    {
+      "spec_pointer": "/algorithms/5",
+      "spec_item": "extract_fp_sign_and_exp",
+      "hook_ids": [
+        "sc_callbacks_cc"
+      ],
+      "realization": "Implemented as a helper function called by `write_register_digest` during `onCommit`."
+    }
+  ],
+  "interface_resolutions": [
+    {
+      "spec_pointer": "/host_interfaces/0",
+      "need": "register values upon instruction completion",
+      "status": "fallback",
+      "resolution": "A commit tap is used. The value is read from the physical register file via `getArchReg` (or `getReg`) at commit time inside the `Commit` probe listener, and passed to sR.",
+      "rationale": "gem5 gives a predictor no register values at writeback, and the O3 physical register file can be safely read at commit time via a probe listener.",
+      "fidelity_note": "Because values are delivered at commit rather than writeback, a finished value waits in the ROB until older ops commit. sR covers fewer branches and sees no wrong-path values, resulting in an understated benefit.",
+      "hook_ids": [
+        "tage_sc_l_probes_cc",
+        "sc_callbacks_cc"
+      ]
+    },
+    {
+      "spec_pointer": "/host_interfaces/1",
+      "need": "instruction destination logical register ID and ROB index at decode",
+      "status": "exact",
+      "resolution": "A probe listener on `Rename` provides the op's `destRegIdx` and `seqNum`.",
+      "rationale": "The `Rename` probe fires once per renamed op (which acts as decode), and `seqNum` accurately tracks ops in program order.",
+      "hook_ids": [
+        "tage_sc_l_probes_cc",
+        "sc_callbacks_cc"
+      ]
+    },
+    {
+      "spec_pointer": "/host_interfaces/2",
+      "need": "instruction type classification (INT, FP, FLAG)",
+      "status": "exact",
+      "resolution": "Classify based on the unflattened register index read at commit.",
+      "rationale": "gem5's architectural register mapping natively allows identifying register types directly from `destRegIdx` (e.g., IntRegClass, VecRegClass, CCRegClass).",
+      "hook_ids": [
+        "sc_callbacks_cc"
+      ]
+    },
+    {
+      "spec_pointer": "/host_interfaces/3",
+      "need": "notification of pipeline squash with squashed ROB indices",
+      "status": "exact",
+      "resolution": "A probe listener on `SquashInRename` receives the squashed sequence number.",
+      "rationale": "The `SquashInRename` probe notifies exactly when an instruction's rename is undone, providing its `seqNum`.",
+      "hook_ids": [
+        "tage_sc_l_probes_cc",
+        "sc_callbacks_cc"
+      ]
+    }
+  ],
+  "knobs": [
+    {
+      "spec_pointer": "/parameters/0",
+      "spec_parameter": "num_banks",
+      "macro": "SR_NUM_BANKS",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 8
+    },
+    {
+      "spec_pointer": "/parameters/1",
+      "spec_parameter": "num_logical_regs",
+      "macro": "SR_NUM_LOGICAL_REGS",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 65
+    },
+    {
+      "spec_pointer": "/parameters/2",
+      "spec_parameter": "wt0_entries",
+      "macro": "SR_WT0_ENTRIES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 512
+    },
+    {
+      "spec_pointer": "/parameters/3",
+      "spec_parameter": "wt1_entries",
+      "macro": "SR_WT1_ENTRIES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 256
+    },
+    {
+      "spec_pointer": "/parameters/4",
+      "spec_parameter": "wt2_entries",
+      "macro": "SR_WT2_ENTRIES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 128
+    },
+    {
+      "spec_pointer": "/parameters/5",
+      "spec_parameter": "ut0_entries",
+      "macro": "SR_UT0_ENTRIES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 8
+    },
+    {
+      "spec_pointer": "/parameters/6",
+      "spec_parameter": "ut1_entries",
+      "macro": "SR_UT1_ENTRIES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 8
+    },
+    {
+      "spec_pointer": "/parameters/7",
+      "spec_parameter": "ut2_entries",
+      "macro": "SR_UT2_ENTRIES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 8
+    },
+    {
+      "spec_pointer": "/parameters/8",
+      "spec_parameter": "wt_bits",
+      "macro": "SR_WT_BITS",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 6
+    },
+    {
+      "spec_pointer": "/parameters/9",
+      "spec_parameter": "decay_ctr_bits",
+      "macro": "SR_DECAY_CTR_BITS",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 8
+    },
+    {
+      "spec_pointer": "/parameters/10",
+      "spec_parameter": "rob_idx_bits",
+      "macro": "SR_ROB_IDX_BITS",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 14
+    },
+    {
+      "spec_pointer": "/parameters/11",
+      "spec_parameter": "inflight_branches",
+      "macro": "SR_INFLIGHT_BRANCHES",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 256
+    },
+    {
+      "spec_pointer": "/parameters/12",
+      "spec_parameter": "useful_multiplier",
+      "macro": "SR_USEFUL_MULTIPLIER",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": 2.5
+    },
+    {
+      "spec_pointer": "/parameters/13",
+      "spec_parameter": "algorithms_1_pseudocode_variant",
+      "macro": "SR_ALGORITHMS_1_PSEUDOCODE_VARIANT",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": "saturate"
+    },
+    {
+      "spec_pointer": "/parameters/14",
+      "spec_parameter": "algorithms_2_pseudocode_variant",
+      "macro": "SR_ALGORITHMS_2_PSEUDOCODE_VARIANT",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": "stride_interleaved"
+    },
+    {
+      "spec_pointer": "/parameters/15",
+      "spec_parameter": "algorithms_3_trigger_variant",
+      "macro": "SR_ALGORITHMS_3_TRIGGER_VARIANT",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": "commit"
+    },
+    {
+      "spec_pointer": "/parameters/16",
+      "spec_parameter": "algorithms_1_pseudocode_variant_2",
+      "macro": "SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": "align_bit_3"
+    },
+    {
+      "spec_pointer": "/parameters/17",
+      "spec_parameter": "algorithms_2_variant",
+      "macro": "SR_ALGORITHMS_2_VARIANT",
+      "host_knob": "constexpr",
+      "binding": "compile_time_define",
+      "default": "max_u_greater_than_zero"
+    }
+  ],
+  "feature_enable": {
+    "name": "sr_enable",
+    "macro": "SR_SR_ENABLE",
+    "binding": "runtime_env",
+    "default_off": "std::getenv(\"SR_SR_ENABLE\") returns nullptr, which the constructor translates to false.",
+    "off_path": "With the knob off, the probe listeners in TAGE_SC_L do not connect to the CPU, meaning the predictor processes no instructions. Inside the SC, the gPredictions block skips sR logic and adds 0 to lsum, and gUpdates skips the sR update completely, remaining bit-identical to the baseline."
+  },
+  "steps": [
+    {
+      "title": "Add headers and probe hooks",
+      "detail": "Create sr_params.h. Modify TAGE_SC_L to register and connect the Commit, Rename, and SquashInRename probe listeners.",
+      "hook_ids": [
+        "sr_params_h",
+        "tage_sc_l_probes_hh",
+        "tage_sc_l_probes_cc"
+      ],
+      "verify": "gapbs_bfs_s_clean"
+    },
+    {
+      "title": "Add sR state and basic callbacks",
+      "detail": "Extend StatisticalCorrector with the sR tables and implement the callbacks for rename, commit, and squash.",
+      "hook_ids": [
+        "sc_methods_hh",
+        "tage_sc_l_64kb_sc_hh",
+        "sc_callbacks_cc"
+      ],
+      "verify": "gapbs_bfs_s_clean"
+    },
+    {
+      "title": "Wire sR predict and update to the SC",
+      "detail": "Snapshot available registers at prediction in BranchInfo, compute sR's contribution to lsum, and train sR at update.",
+      "hook_ids": [
+        "gpredictions_add",
+        "gupdates_add"
+      ],
+      "verify": "unit_test_0"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Commit tap understates sR because values wait in the ROB, preventing the predictor from seeing them earlier.",
+      "mitigation": "Document the fidelity loss and expect lower-than-claimed performance.",
+      "detected_by": "perf_cond_mpki"
+    },
+    {
+      "risk": "Uninitialized arrays in BranchInfo cause simulation divergence.",
+      "mitigation": "Ensure array is explicitly zeroed out in the BranchInfo constructor.",
+      "detected_by": "gapbs_bfs_s_baseline"
+    }
+  ],
+  "open_questions": [
+    {
+      "question": "[/algorithms/1/pseudocode] U4: FP register format classification and placement is ambiguous. Assumed bits are right-aligned at digest bit 3 as drawn.",
+      "assumption": "Right-align the extracted sign and exponent at bit 3.",
+      "cost_if_wrong": "Adjust the shift amount in extract_fp_sign_and_exp."
+    },
+    {
+      "question": "The paper does not state the exact Tomasulo RAT recovery mechanism for sR_RegTable on a pipeline squash. Assumed a lightweight policy that leaves valid wrong-path digests to naturally decay, while clearing pending (valid=0) entries matching squashed ROBs.",
+      "spec_pointer": "/algorithms/4",
+      "assumption": "Clear payload to 0 for entries with valid=0 and matching ROB ID upon squash.",
+      "cost_if_wrong": "Would require a more expensive snapshot/restore mechanism for sR_RegTable."
+    },
+    {
+      "question": "[/algorithms/3/pseudocode] The exact utility delta calculation for sR_UT during update is unstated. Assumed a standard usefulness update based on whether the bank's prediction alone matched the overall branch outcome.",
+      "assumption": "Apply +1 if the bank prediction is correct, otherwise -1.",
+      "cost_if_wrong": "Change the calculate_utility_delta function."
+    },
+    {
+      "question": "[/unit_tests/0] The register's digest is invalidated after 255 subsequent instructions are decoded. The paper says: \"RUNLTS invalidates each digest after 256 subsequent instructions have been decoded\" The correction did not land, so this field still says what it said -- resolve it before implementing.",
+      "assumption": "Invalidate after exactly 256 instructions.",
+      "cost_if_wrong": "Adjust the decay logic counter bound."
+    },
+    {
+      "question": "[/state/3] How many in-flight branches should the predictor track state for, given it is not explicitly budgeted in the storage tables?",
+      "assumption": "Track the state for up to 256 in-flight branches via BranchInfo.",
+      "cost_if_wrong": "Change the size of the structure tracking available registers."
+    },
+    {
+      "question": "[/parameters/11] What is the maximum number of in-flight branches the predictor tracks, given the paper only states overall ROB sizes?",
+      "assumption": "Assume 256 branches maximum.",
+      "cost_if_wrong": "Change SR_INFLIGHT_BRANCHES."
+    },
+    {
+      "question": "[/algorithms/3/trigger] At what pipeline stage is the register predictor trained? Also raised at /parameters/15.",
+      "assumption": "At commit time (gem5 default for SC update).",
+      "cost_if_wrong": "Move the update trigger to branch resolution."
+    },
+    {
+      "question": "[/state/1/indexing] sR_UT is indexed by the skewed PC. (reviewer cited unverifiable evidence; treat as assumed)",
+      "assumption": "Use the standard host's skewed PC hash function for sR_UT.",
+      "cost_if_wrong": "Change the hash_ut function logic."
+    },
+    {
+      "question": "[/state/3] What hardware structure is used to buffer the 'available at prediction time' valid bits until the branch trains?",
+      "assumption": "Implicitly handled by snapshotting into BranchInfo passed down the pipeline.",
+      "cost_if_wrong": "Implement an explicit FIFO queue indexed by ROB tag."
+    },
+    {
+      "question": "[/unit_tests/4] How does the register tracker handle pipeline flushes? Does it clear pending ROB indices in the payload?",
+      "assumption": "Yes, it clears pending ROB indices.",
+      "cost_if_wrong": "Remove the clearing logic."
+    },
+    {
+      "question": "[/unit_tests/4] How should the Tomasulo-like tracking table be recovered on a pipeline squash? The paper states this is future work, leaving the required squash information from the host undefined. Also raised at /algorithms/4/pseudocode, /host_interfaces/3.",
+      "assumption": "Lightweight recovery that simply clears pending valid=0 writes.",
+      "cost_if_wrong": "Implement a full snapshot state recovery."
+    },
+    {
+      "question": "[/algorithms/2/pseudocode] [source I10: Figure 5 (c) Proposed Register Components] the input marks this INFERRED -- a reading of the figure's layout that the paper never states -- so whatever the spec derives from it is an assumption and not a fact: bank membership. Bank 0's register list \"R0, R8, R16, ... R64\" is a stride-8 sequence, i.e. bank i holds the logical registers r with r mod 8 == i. Bank 0 therefore holds 9 registers (R0..R64) and banks 1..7 hold 8 each, totalling 65 - matching the \"eight or nine logical registers\" of Section 4.2, the \"9x6bit\" UT entry annotation, and the factor 65 in Table 3. Also raised at /parameters/14.",
+      "assumption": "Use stride-8 interleaving (r % 8 == b) for allocating registers to banks.",
+      "cost_if_wrong": "Change the bank indexing logic."
+    },
+    {
+      "question": "[/algorithms/2/pseudocode] [source I11: Figure 5 (c) Proposed Register Components] the input marks this INFERRED -- a reading of the figure's layout that the paper never states -- so whatever the spec derives from it is an assumption and not a fact: the multiplier is PER BANK, not global. The \"x0 or x2.5\" stage is drawn inside the bank 0 box, downstream of that bank's WT Sigma and upstream of the cross-bank Sigma. Structurally it occupies the same position as \"x1 or x2\" in panel (a) and \"x1 or xM\" in panel (b), both of which are explicitly driven by a \"Useful\" signal from the UT. Reading: each bank's contribution is scaled by 2.5 when that bank's usefulness is positive and suppressed entirely (x0) when it is not; the eight scaled per-bank contributions are then summed to give sR.",
+      "assumption": "Apply the usefulness multiplier conditionally per bank before summing across banks.",
+      "cost_if_wrong": "Reorder the multiplication logic."
+    },
+    {
+      "question": "[/algorithms/1/pseudocode] [source I15: Figure 6 (b) FP registers] the input marks this INFERRED -- a reading of the figure's layout that the paper never states -- so whatever the spec derives from it is an assumption and not a fact: semantics agree with the prose: in each IEEE-754 format the named slice is exactly the sign bit followed by the high-order exponent bits (8 of 11 for FP64, 5 of 8 for FP32, 2 of 5 for FP16). Also raised at /algorithms/5/pseudocode.",
+      "assumption": "Extract exactly the sign bit and high-order exponent bits as specified.",
+      "cost_if_wrong": "Modify extract_fp_sign_and_exp logic."
+    },
+    {
+      "question": "[/state/2] The sR_InFlightState structure requires 16,640 bits of dedicated storage. The paper says: \"sR: Register | 6 x (2^7 + 2^8 + 2^9) x 8 | 6 x 65 x (2^3 + 2^3 + 2^3) | { valid (1), payload (14), decay_ctr (8) } x 65 | 53863\" The correction did not land, so this field still says what it said -- resolve it before implementing. Also raised at /state/3.",
+      "assumption": "Acknowledge the storage overhead and allocate the snapshot size.",
+      "cost_if_wrong": "Find an alternative to derive available registers without snapshots."
+    },
+    {
+      "question": "[/unit_tests/4] What is the exact behavior of sR_RegTable on a pipeline squash? Is the payload cleared to 0, or is the state restored from a snapshot?",
+      "assumption": "The payload is explicitly cleared to 0.",
+      "cost_if_wrong": "Implement RAT snapshotting."
+    },
+    {
+      "question": "[/algorithms/1/pseudocode] [source U3: Figure 6 (a) INT registers] the input marks this UNCERTAIN, so it must not be resolved by assumption: count encoding. Each count field is 6 bits, but a 64-bit register can have 0..64 leading (or trailing) identical bits, which needs 7 bits. The figure does not say whether the count saturates at 63, is taken modulo 64, or counts bits matching the sign bit (which caps at 63 naturally). The prose \"the count of leading zeros (or ones)\" also does not say how the zero/one case is distinguished - whether one extra bit encodes which, or whether the count is simply of bits equal to the MSB (resp. LSB). Also raised at /unit_tests/1, /parameters/13.",
+      "assumption": "Saturate the bit count at 63.",
+      "cost_if_wrong": "Adjust the bounds condition in the count extraction."
+    }
+  ],
+  "host_knobs": [
+    {
+      "name": "log_pnb",
+      "macro": "HOST_LOG_PNB",
+      "host_symbol": "logPnb",
+      "file": "src/cpu/pred/BranchPredictor.py",
+      "observed": "    logPnb = Param.Unsigned(\n        9, \"Log number of variation global branch GEHL entries\"\n    )",
+      "type": "int",
+      "default": 9,
+      "range": "[5, 11]",
+      "binding": "python_param",
+      "description": "Log2 entries for the variation global branch GEHL tables in SC."
+    },
+    {
+      "name": "log_snb",
+      "macro": "HOST_LOG_SNB",
+      "host_symbol": "logSnb",
+      "file": "src/cpu/pred/BranchPredictor.py",
+      "observed": "    logSnb = Param.Unsigned(\n        9, \"Log number of second local history GEHL entries\"\n    )",
+      "type": "int",
+      "default": 9,
+      "range": "[5, 11]",
+      "binding": "python_param",
+      "description": "Log2 entries for the second local history GEHL tables in SC."
+    },
+    {
+      "name": "sc_counters_width",
+      "macro": "HOST_SC_COUNTERS_WIDTH",
+      "host_symbol": "scCountersWidth",
+      "file": "src/cpu/pred/BranchPredictor.py",
+      "observed": "    scCountersWidth = Param.Unsigned(6, \"Statistical corrector counters width\")",
+      "type": "int",
+      "default": 6,
+      "range": "[4, 8]",
+      "binding": "python_param",
+      "description": "Bit width of the SC GEHL counters."
+    }
+  ],
+  "host_storage": {
+    "baseline_bits": 331776,
+    "measured_by": "Self-consistent accounting (gem5 getSizeInBits returns 0, _NO_HOST_STORAGE active in integration scripts)",
+    "terms": [
+      {
+        "structure": "P and S GEHL tables",
+        "formula": "(2 ** log_pnb + 2 ** log_pnb + 2 ** (log_pnb - 1) + 2 ** log_snb + 2 ** log_snb + 2 ** (log_snb - 1)) * sc_counters_width"
+      },
+      {
+        "structure": "Unaccounted constant",
+        "formula": "316416"
+      }
+    ]
+  }
+}

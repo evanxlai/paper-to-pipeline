@@ -1,0 +1,98 @@
+{
+  "rounds": [
+    {
+      "round": 0,
+      "units": [
+        "algo:predict+algo:update+algo:on_decode+algo:on_instruction_complete+orphan+global+algo:generate_digest+algo:on_mispredict_recovery"
+      ],
+      "failed_units": [],
+      "quota_exhausted": false,
+      "checks_before": {
+        "error": 1,
+        "warn": 3,
+        "info": 7
+      },
+      "checks_after": {
+        "error": 1,
+        "warn": 2,
+        "info": 7
+      },
+      "verdicts": {
+        "SUPPORTED": 29,
+        "UNSUPPORTED": 7,
+        "CONTRADICTED": 1,
+        "UNDERSPECIFIED": 1
+      },
+      "accepted": true,
+      "reject_reason": null
+    }
+  ],
+  "final": {
+    "checks": [
+      {
+        "pointer": "/parameters/6/name",
+        "code": "unreferenced_param",
+        "severity": "warn",
+        "message": "parameter 'weight_bits' appears in no algorithm pseudocode; the DSE would tune a knob nothing reads."
+      },
+      {
+        "pointer": "/parameters/8/default",
+        "code": "unrepresentable_default",
+        "severity": "error",
+        "message": "default 256 does not fit the 8-bit field 'decay_ctr' declared in /state/2/entry_format (max 255). Either widen the field or lower the default."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_leading_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'count_trailing_zeros(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/0/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'return(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'b(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/3/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'bank(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'or(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_policy_call",
+        "severity": "warn",
+        "message": "pseudocode calls 'randomly_select(...)' but no algorithm defines it. The name suggests it holds a learning, allocation or replacement rule, so an implementer would have to invent the policy itself."
+      },
+      {
+        "pointer": "/algorithms/4/pseudocode",
+        "code": "undefined_helper",
+        "severity": "info",
+        "message": "pseudocode calls 'sat_add(...)' but no algorithm defines it. It may be a primitive the host supplies; confirm or define it."
+      }
+    ],
+    "open_questions": 11,
+    "parameters": 10,
+    "complete": true,
+    "unreviewed_units": []
+  }
+}

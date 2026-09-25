@@ -1,0 +1,517 @@
+{
+  "schema_errors": [
+    "port plan: feature_enable/macro: 'PARAM_ENABLE_SR' does not match '^SR_[A-Z0-9_]+$'"
+  ],
+  "findings": [
+    {
+      "pointer": "/plan/knobs/5/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 512 where the spec's default is 8. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/6/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 256 where the spec's default is 8. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/7/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 128 where the spec's default is 8. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/10/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 8 where the spec's default is 14. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/11/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 32 where the spec's default is 256. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/13/macro",
+      "code": "macro_mismatch",
+      "severity": "error",
+      "message": "'SR_ALGO1_VARIANT' is not the define dse.params_header_from_spec emits for parameter 'algorithms_1_pseudocode_variant'; that is 'SR_ALGORITHMS_1_PSEUDOCODE_VARIANT'. Stage 4 mutates only that header, so a knob under any other name is invisible to the search."
+    },
+    {
+      "pointer": "/plan/knobs/13/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 1 where the spec's default is 'saturate'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/14/macro",
+      "code": "macro_mismatch",
+      "severity": "error",
+      "message": "'SR_ALGO2_VARIANT' is not the define dse.params_header_from_spec emits for parameter 'algorithms_2_pseudocode_variant'; that is 'SR_ALGORITHMS_2_PSEUDOCODE_VARIANT'. Stage 4 mutates only that header, so a knob under any other name is invisible to the search."
+    },
+    {
+      "pointer": "/plan/knobs/14/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 1 where the spec's default is 'stride_interleaved'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/15/macro",
+      "code": "macro_mismatch",
+      "severity": "error",
+      "message": "'SR_ALGO3_TRIGGER' is not the define dse.params_header_from_spec emits for parameter 'algorithms_3_trigger_variant'; that is 'SR_ALGORITHMS_3_TRIGGER_VARIANT'. Stage 4 mutates only that header, so a knob under any other name is invisible to the search."
+    },
+    {
+      "pointer": "/plan/knobs/15/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 1 where the spec's default is 'commit'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/16/macro",
+      "code": "macro_mismatch",
+      "severity": "error",
+      "message": "'SR_ALGO1_VARIANT2' is not the define dse.params_header_from_spec emits for parameter 'algorithms_1_pseudocode_variant_2'; that is 'SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2'. Stage 4 mutates only that header, so a knob under any other name is invisible to the search."
+    },
+    {
+      "pointer": "/plan/knobs/16/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 1 where the spec's default is 'align_bit_3'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/knobs/17/macro",
+      "code": "macro_mismatch",
+      "severity": "error",
+      "message": "'SR_ALGO2_VARIANT2' is not the define dse.params_header_from_spec emits for parameter 'algorithms_2_variant'; that is 'SR_ALGORITHMS_2_VARIANT'. Stage 4 mutates only that header, so a knob under any other name is invisible to the search."
+    },
+    {
+      "pointer": "/plan/knobs/17/default",
+      "code": "knob_default_drift",
+      "severity": "error",
+      "message": "the plan ships 1 where the spec's default is 'max_u_greater_than_zero'. A port that quietly ships a different default measures something the spec does not describe."
+    },
+    {
+      "pointer": "/plan/host_knobs/0/file",
+      "code": "host_knob_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/BranchPredictor.py' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025."
+    },
+    {
+      "pointer": "/plan/host_knobs/1/file",
+      "code": "host_knob_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/BranchPredictor.py' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025."
+    },
+    {
+      "pointer": "/plan/host_knobs/2/file",
+      "code": "host_knob_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/BranchPredictor.py' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025."
+    },
+    {
+      "pointer": "/plan/hook_points/0/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l.hh' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/hook_points/1/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l.cc' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/hook_points/2/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l_64KB.hh' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/hook_points/3/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l_64KB.cc' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/hook_points/4/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l_64KB.cc' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/hook_points/5/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l.cc' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/hook_points/6/file",
+      "code": "hook_file_missing",
+      "severity": "error",
+      "message": "'src/cpu/pred/tage_sc_l_64KB.cc' does not exist under /home/laievan/chia-hackathon/paper-to-pipeline/third_party/cbp2025, so the `observed` note describing what it does today cannot have come from reading it."
+    },
+    {
+      "pointer": "/plan/host",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'host' identifies this plan rather than describing the port, and this revision changes it from \"cbp2025\" to \"gem5\"."
+    },
+    {
+      "pointer": "/plan/host_revision",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'host_revision' identifies this plan rather than describing the port, and this revision changes it from \"607496629452740887dc1b90a46834cc90dda1e0\" to \"7a2b0e413d06c5ce7097104abef3b1d9eaabca91\"."
+    },
+    {
+      "pointer": "/tests/host",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'host' identifies this plan rather than describing the port, and this revision changes it from \"cbp2025\" to \"gem5\"."
+    },
+    {
+      "pointer": "/tests/host_revision",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'host_revision' identifies this plan rather than describing the port, and this revision changes it from \"607496629452740887dc1b90a46834cc90dda1e0\" to \"7a2b0e413d06c5ce7097104abef3b1d9eaabca91\"."
+    },
+    {
+      "pointer": "/tests/metric_keys",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops ['brmispki_50perc_amean', 'cycwppki_50perc_amean', 'ipc_50perc_amean'] from metric_keys. G2 compares exactly these between the feature-off run and the recorded baseline, so removing one stops the gate asking about a metric rather than making it agree."
+    },
+    {
+      "pointer": "/tests/smoke/trace_list",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the smoke trace list is frozen; this revision moves it from \"experiments/smoke-2.list\" to \"experiments/gem5-smoke.list\"."
+    },
+    {
+      "pointer": "/plan/feature_enable/name",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the enable knob's 'name' is frozen; this revision changes it from \"sr_enable\" to \"enable_sR\". Renaming the one knob that turns the feature on strands every artifact that already refers to it."
+    },
+    {
+      "pointer": "/plan/feature_enable/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "the enable knob's 'macro' is frozen; this revision changes it from \"SR_SR_ENABLE\" to \"PARAM_ENABLE_SR\". Renaming the one knob that turns the feature on strands every artifact that already refers to it."
+    },
+    {
+      "pointer": "/plan/feature_enable/default_off",
+      "code": "revision_restated_off_path",
+      "severity": "warn",
+      "message": "this revision rewrites the enable knob's 'default_off'. G2 measures the off path rather than reading this text, so the claim has been restated after the fact; it is recorded here so the restatement is visible next to the port that prompted it."
+    },
+    {
+      "pointer": "/plan/feature_enable/off_path",
+      "code": "revision_restated_off_path",
+      "severity": "warn",
+      "message": "this revision rewrites the enable knob's 'off_path'. G2 measures the off path rather than reading this text, so the claim has been restated after the fact; it is recorded here so the restatement is visible next to the port that prompted it."
+    },
+    {
+      "pointer": "/plan/host_storage/baseline_bits",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "baseline_bits is frozen at 524615; this revision says 331776. It was measured on the clean tree, which a revision cannot re-measure."
+    },
+    {
+      "pointer": "/plan/structure/rejected_alternatives",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the rejected alternative \"sR as a standalone predictor overriding TAGE-SC-L\". Dropping the record of a road not taken is how the port ends up on it without anyone deciding to."
+    },
+    {
+      "pointer": "/plan/knobs/5/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from 8 to 512. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/6/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from 8 to 256. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/7/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from 8 to 128. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/10/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from 14 to 8. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/11/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from 256 to 32. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/13/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"saturate\" to 1. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/13/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'macro' is frozen on a knobs entry; this revision changes it from \"SR_ALGORITHMS_1_PSEUDOCODE_VARIANT\" to \"SR_ALGO1_VARIANT\". Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/14/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"stride_interleaved\" to 1. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/14/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'macro' is frozen on a knobs entry; this revision changes it from \"SR_ALGORITHMS_2_PSEUDOCODE_VARIANT\" to \"SR_ALGO2_VARIANT\". Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/15/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"commit\" to 1. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/15/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'macro' is frozen on a knobs entry; this revision changes it from \"SR_ALGORITHMS_3_TRIGGER_VARIANT\" to \"SR_ALGO3_TRIGGER\". Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/16/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"align_bit_3\" to 1. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/16/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'macro' is frozen on a knobs entry; this revision changes it from \"SR_ALGORITHMS_1_PSEUDOCODE_VARIANT_2\" to \"SR_ALGO1_VARIANT2\". Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/17/default",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'default' is frozen on a knobs entry; this revision changes it from \"max_u_greater_than_zero\" to 1. Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/knobs/17/macro",
+      "code": "revision_froze_field",
+      "severity": "error",
+      "message": "'macro' is frozen on a knobs entry; this revision changes it from \"SR_ALGORITHMS_2_VARIANT\" to \"SR_ALGO2_VARIANT2\". Revisable on this entry: binding, host_knob, notes. If the frozen value is genuinely wrong, escalate instead of rewriting it -- see the revision rules in your prompt."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logg'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='tbits'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='nbanklow'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='nbankhigh'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='cwidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='uwidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='hystshift'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='percwidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logbias'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='loggnb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logpnb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='loglnb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logsnb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logtnb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='loginb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logimnb'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='logl'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/host_knobs",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the host_knobs entry name='ewidth'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='How is the count of leading/trailing zeros encoded into the 6-bit field?'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='How are the 65 logical registers mapped to the 8 banks?'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='Are the FP digest bits right-aligned at bit 3, or at bit 0?'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question=\"What condition selects between the x0 and x2.5 multipliers for a bank's contribution?\". A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/open_questions",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the open_questions entry question='At what pipeline stage is the register predictor trained?'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='existing_regression_int'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='baseline_int'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='ut_decay'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='ut_int_digest'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='ut_predict_useful'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='ut_update_rand'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/correctness",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the correctness entry id='ut_recovery'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/tests/performance",
+      "code": "revision_deleted_entry",
+      "severity": "error",
+      "message": "the revision drops the performance entry id='perf_gain'. A revision may add to a collection and may never remove from one: an entry that disappears is a demand the port no longer has to meet, and nothing downstream can tell that from an entry that was never there."
+    },
+    {
+      "pointer": "/plan/interface_resolutions//host_interfaces/0/status",
+      "code": "revision_lost_fidelity",
+      "severity": "warn",
+      "message": "this revision downgrades /host_interfaces/0 from 'exact' to 'fallback'. The port is now further from the paper here than the plan said it would be, and the fidelity_note is what the write-up will report."
+    }
+  ]
+}
